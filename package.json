@@ -1,0 +1,22 @@
+{
+  "name": "image-forge",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 1421",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 1421",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "@vitejs/plugin-vue": "^6.0.7",
+    "vite": "^8.1.3"
+  },
+  "dependencies": {
+    "@lucide/vue": "^1.23.0",
+    "naive-ui": "^2.44.1",
+    "vue": "^3.5.39"
+  }
+}
