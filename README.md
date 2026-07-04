@@ -22,6 +22,14 @@ pnpm install
 pnpm tauri dev
 ```
 
+只查看 Vue 前端界面：
+
+```bash
+pnpm run dev
+```
+
+Vite 调试服务默认运行在 `http://127.0.0.1:1421`。这个方式适合调样式和布局，但浏览器里没有 Tauri 桌面运行时，所以调用本地文件、弹窗、队列命令等桌面功能会报错。需要完整功能调试时使用 `pnpm tauri dev`。
+
 常用检查：
 
 ```bash
@@ -31,6 +39,14 @@ cargo fmt --check
 cargo check
 cargo test
 ```
+
+打正式包：
+
+```bash
+pnpm tauri build
+```
+
+每个版本的 `.dmg` 和 `.app` 都复制到 `release/` 目录，文件名必须带版本号。`release/` 不提交进 Git。
 
 打包调试版本：
 
@@ -62,8 +78,16 @@ pnpm tauri build --debug
 - 本项目使用 PNPM 管理前端依赖。
 - 代码提交遵循 Conventional Commits，例如 `feat: 增加队列工作台`。
 - 以后每次会话提交代码时都需要升级版本，并把版本差异写入本 README。
+- 每个版本都需要产出 `.dmg` 和 `.app` 到 `release/`，但不要提交这些二进制产物。
 
 ## 版本记录
+
+### v0.2.1
+
+- 增加 `release/` 目录作为本地发布产物目录，并加入 Git 忽略规则。
+- 规定每个版本的 `.dmg` 和 `.app` 产物文件名都必须带版本号。
+- 清理 `src-tauri/target` 构建过程目录，避免把构建缓存留在工作区。
+- README 增加 Vue 前端调试服务、完整 Tauri 调试方式和发布产物规则。
 
 ### v0.2.0
 
