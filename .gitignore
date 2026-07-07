@@ -15,6 +15,7 @@ src-tauri/.cargo/
 src-tauri/icons/*
 !src-tauri/icons/
 !src-tauri/icons/app-icon.png
+!src-tauri/icons/icon.png
 
 *.app
 *.dmg
