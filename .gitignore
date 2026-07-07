@@ -12,8 +12,9 @@ release/
 src-tauri/target/
 src-tauri/gen/
 src-tauri/.cargo/
-src-tauri/icons/android/
-src-tauri/icons/ios/
+src-tauri/icons/*
+!src-tauri/icons/
+!src-tauri/icons/app-icon.png
 
 *.app
 *.dmg

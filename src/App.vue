@@ -1482,7 +1482,7 @@ function providerNameFromImportKey(key) {
 
 function providerIdFromImportKey(key) {
   return String(key)
-    .split("-")
+    .split(" - ")
     .slice(0, 2)
     .join("-")
     .replace(/\([^)]*\)/g, "")

@@ -43,11 +43,17 @@ cargo test
 打正式包：
 
 ```bash
-pnpm run release -- 1.0.1
+pnpm run release -- 0.2.4
 pnpm run release
 ```
 
-传入版本号时会先同步修改项目版本；不传版本号时使用当前版本。每个版本的 `.dmg` 和 `.app` 都复制到 `release/` 目录，文件名必须带版本号。`release/` 不提交进 Git。
+传入版本号时会先检查新版本必须高于当前版本，再同步修改项目版本和窗口 title；不传版本号时使用当前版本。每个版本的 macOS `.dmg` / `.app`，以及 Windows 可执行文件 / 安装文件都会复制到 `release/` 目录，文件名带版本号。`release/` 不提交进 Git。
+
+单独升级版本：
+
+```bash
+pnpm run patch -- 0.2.4
+```
 
 打包调试版本：
 
@@ -82,6 +88,12 @@ pnpm tauri build --debug
 - 每个版本都需要产出 `.dmg` 和 `.app` 到 `release/`，但不要提交这些二进制产物。
 
 ## 版本记录
+
+### v0.2.4
+
+- 统一 `release` 发布脚本算法：支持可选版本参数、版本升序检查、重建图标、跨平台产物收集和过程文件清理。
+- 新增 `pnpm run patch -- <版本号>`，用于单独同步项目版本、窗口 title 和页面 title。
+- 生成图标改为发布过程文件，仓库只保留 `src-tauri/icons/app-icon.png` 源图。
 
 ### v0.2.3
 
