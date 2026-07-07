@@ -22,7 +22,7 @@ use uuid::Uuid;
 const DEFAULT_BASE_URL: &str = "https://api.openai.com/v1";
 const DEFAULT_IMAGE_MODEL: &str = "gpt-image-2";
 const DEFAULT_PROVIDER_ID: &str = "default";
-const APP_USER_AGENT: &str = "image-forge/0.2.2";
+const APP_USER_AGENT: &str = "image-forge/0.2.3";
 const MAX_HISTORY_ITEMS: usize = 300;
 const MAX_PROVIDER_CONCURRENCY: u8 = 32;
 

@@ -1,13 +1,14 @@
 {
   "name": "image-forge",
   "private": true,
-  "version": "0.2.2",
+  "version": "0.2.3",
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 1421",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1 --port 1421",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "release": "node scripts/release.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",

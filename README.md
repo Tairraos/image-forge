@@ -43,10 +43,11 @@ cargo test
 打正式包：
 
 ```bash
-pnpm tauri build
+pnpm run release -- 1.0.1
+pnpm run release
 ```
 
-每个版本的 `.dmg` 和 `.app` 都复制到 `release/` 目录，文件名必须带版本号。`release/` 不提交进 Git。
+传入版本号时会先同步修改项目版本；不传版本号时使用当前版本。每个版本的 `.dmg` 和 `.app` 都复制到 `release/` 目录，文件名必须带版本号。`release/` 不提交进 Git。
 
 打包调试版本：
 
@@ -81,6 +82,10 @@ pnpm tauri build --debug
 - 每个版本都需要产出 `.dmg` 和 `.app` 到 `release/`，但不要提交这些二进制产物。
 
 ## 版本记录
+
+### v0.2.3
+
+- 新增 `pnpm run release -- <版本号>` 发布脚本，可选更新版本号、重建图标、打包、整理发布产物并清理过程文件。
 
 ### v0.2.2
 
