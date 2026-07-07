@@ -82,6 +82,12 @@ pnpm tauri build --debug
 
 ## 版本记录
 
+### v0.2.2
+
+- API 源管理新增“导入”按钮，可粘贴 KiloCode/OpenAI 风格 JSON 配置。
+- 导入时从配置 key 推导 API 源名称和 ID，并映射 Base URL、API Key、图像模型字段。
+- Provider ID 归一化改为保留英文字母大小写。
+
 ### v0.2.1
 
 - 增加 `release/` 目录作为本地发布产物目录，并加入 Git 忽略规则。

@@ -22,7 +22,7 @@ use uuid::Uuid;
 const DEFAULT_BASE_URL: &str = "https://api.openai.com/v1";
 const DEFAULT_IMAGE_MODEL: &str = "gpt-image-2";
 const DEFAULT_PROVIDER_ID: &str = "default";
-const APP_USER_AGENT: &str = "image-forge/0.2.1";
+const APP_USER_AGENT: &str = "image-forge/0.2.2";
 const MAX_HISTORY_ITEMS: usize = 300;
 const MAX_PROVIDER_CONCURRENCY: u8 = 32;
 
@@ -1801,7 +1801,7 @@ fn clean_text(value: String, fallback: &str) -> String {
 
 fn sanitize_id(value: &str) -> String {
     let mut out = String::new();
-    for ch in value.trim().to_lowercase().chars() {
+    for ch in value.trim().chars() {
         if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
             out.push(ch);
         } else if !out.ends_with('-') {
@@ -1921,7 +1921,7 @@ mod tests {
 
     #[test]
     fn provider_ids_are_stable() {
-        assert_eq!(sanitize_id("OpenAI Official"), "openai-official");
+        assert_eq!(sanitize_id("OpenAI Official"), "OpenAI-Official");
         assert_eq!(sanitize_id(""), "default");
     }
 }

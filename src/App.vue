@@ -1200,6 +1200,9 @@ const ApiSourceDialog = defineComponent({
   setup(props, { emit }) {
     const draft = reactive(defaultSettings());
     const selectedId = ref("default");
+    const showImport = ref(false);
+    const importText = ref("");
+    const importError = ref("");
 
     watch(
       () => props.show,
@@ -1231,6 +1234,54 @@ const ApiSourceDialog = defineComponent({
       provider.name = `${source.name} Copy`;
       draft.providers.push(provider);
       selectedId.value = provider.id;
+    }
+
+    function importProviders() {
+      importError.value = "";
+      let value;
+      try {
+        value = JSON.parse(importText.value);
+      } catch (error) {
+        importError.value = `JSON 解析失败：${error.message}`;
+        return;
+      }
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        importError.value = "请粘贴对象格式的 API 配置 JSON";
+        return;
+      }
+
+      const imported = [];
+      for (const [key, item] of Object.entries(value)) {
+        if (!item || typeof item !== "object") {
+          importError.value = `「${key}」不是有效配置`;
+          return;
+        }
+        imported.push({
+          ...defaultProvider(draft.providers.length + imported.length + 1),
+          id: providerIdFromImportKey(key),
+          name: providerNameFromImportKey(key),
+          baseUrl: item.openAiBaseUrl || item.baseUrl || "",
+          apiKey: item.openAiApiKey || item.apiKey || "",
+          imageModel: item.openAiModelId || item.imageModel || "gpt-image-2",
+        });
+      }
+      if (!imported.length) {
+        importError.value = "没有可导入的 API 源";
+        return;
+      }
+
+      for (const provider of imported) {
+        const existing = draft.providers.findIndex((item) => item.id === provider.id);
+        if (existing >= 0) {
+          draft.providers[existing] = provider;
+        } else {
+          draft.providers.push(provider);
+        }
+      }
+      selectedId.value = imported[imported.length - 1].id;
+      draft.activeProviderId = selectedId.value;
+      showImport.value = false;
+      importText.value = "";
     }
 
     function deleteProvider() {
@@ -1272,6 +1323,11 @@ const ApiSourceDialog = defineComponent({
                       resolveNaive("n-button"),
                       { size: "small", type: "primary", onClick: addProvider },
                       { icon: () => h(Plus, { size: 15 }), default: () => "新增" },
+                    ),
+                    h(
+                      resolveNaive("n-button"),
+                      { size: "small", secondary: true, onClick: () => (showImport.value = true) },
+                      { icon: () => h(Upload, { size: 15 }), default: () => "导入" },
                     ),
                     h(
                       resolveNaive("n-button"),
@@ -1375,6 +1431,32 @@ const ApiSourceDialog = defineComponent({
                     ])
                   : null,
               ]),
+              h(
+                resolveNaive("n-modal"),
+                {
+                  show: showImport.value,
+                  "onUpdate:show": (value) => (showImport.value = value),
+                  preset: "card",
+                  title: "导入 API 源",
+                  class: "editor-modal",
+                },
+                {
+                  default: () => [
+                    h(resolveNaive("n-input"), {
+                      value: importText.value,
+                      type: "textarea",
+                      autosize: { minRows: 12 },
+                      placeholder: "粘贴 JSON 配置",
+                      "onUpdate:value": (value) => (importText.value = value),
+                    }),
+                    importError.value ? h("p", { class: "import-error" }, importError.value) : null,
+                  ],
+                  footer: () => [
+                    h(resolveNaive("n-button"), { size: "small", onClick: () => (showImport.value = false) }, () => "取消"),
+                    h(resolveNaive("n-button"), { size: "small", type: "primary", onClick: importProviders }, () => "导入"),
+                  ],
+                },
+              ),
           ],
           footer: () => [
             h(resolveNaive("n-button"), { size: "small", onClick: () => emit("update:show", false) }, () => "取消"),
@@ -1392,5 +1474,20 @@ function resolveNaive(name) {
       .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
       .join(""),
   );
+}
+
+function providerNameFromImportKey(key) {
+  return String(key).split("-")[0].trim() || "Imported";
+}
+
+function providerIdFromImportKey(key) {
+  return String(key)
+    .split("-")
+    .slice(0, 2)
+    .join("-")
+    .replace(/\([^)]*\)/g, "")
+    .replace(/[^A-Za-z0-9-]/g, "")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "") || `provider-${Date.now()}`;
 }
 </script>
