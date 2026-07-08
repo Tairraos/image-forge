@@ -1,0 +1,51 @@
+pub(crate) const DEFAULT_BASE_URL: &str = "https://api.openai.com/v1";
+pub(crate) const DEFAULT_IMAGE_MODEL: &str = "gpt-image-2";
+pub(crate) const DEFAULT_MODEL_TYPE: &str = "image";
+pub(crate) const DEFAULT_PROVIDER_ID: &str = "default";
+pub(crate) const APP_USER_AGENT: &str = "image-forge/0.2.4";
+pub(crate) const MAX_HISTORY_ITEMS: usize = 300;
+pub(crate) const MAX_PROVIDER_CONCURRENCY: u8 = 32;
+
+pub(crate) fn default_base_url() -> String {
+    DEFAULT_BASE_URL.into()
+}
+
+pub(crate) fn default_image_model() -> String {
+    DEFAULT_IMAGE_MODEL.into()
+}
+
+pub(crate) fn default_model_type() -> String {
+    DEFAULT_MODEL_TYPE.into()
+}
+
+pub(crate) fn default_provider_id() -> String {
+    DEFAULT_PROVIDER_ID.into()
+}
+
+pub(crate) fn default_provider_name() -> String {
+    "Default".into()
+}
+
+pub(crate) fn default_provider_concurrency() -> u8 {
+    4
+}
+
+pub(crate) fn default_size() -> String {
+    "1024x1024".into()
+}
+
+pub(crate) fn default_quality() -> String {
+    "auto".into()
+}
+
+pub(crate) fn default_output_format() -> String {
+    "png".into()
+}
+
+pub(crate) fn default_count() -> u8 {
+    1
+}
+
+pub(crate) fn default_true() -> bool {
+    true
+}
