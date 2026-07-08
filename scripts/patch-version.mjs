@@ -48,9 +48,10 @@ export function patchVersion(nextVersion) {
   if (existsSync(resolve(root, "README.md"))) {
     replaceInFile("README.md", /badge\/version-[^-]+-/g, `badge/version-${nextVersion}-`);
   }
-  if (existsSync(resolve(root, "src-tauri/src/lib.rs"))) {
+  for (const rustSource of ["src-tauri/src/defaults.rs", "src-tauri/src/lib.rs"]) {
+    if (!existsSync(resolve(root, rustSource))) continue;
     replaceInFile(
-      "src-tauri/src/lib.rs",
+      rustSource,
       new RegExp(`const APP_USER_AGENT: &str = "${packageJson.name}/[^"]+";`),
       `const APP_USER_AGENT: &str = "${packageJson.name}/${nextVersion}";`,
     );

@@ -1,13 +1,14 @@
 {
   "name": "image-forge",
   "private": true,
-  "version": "0.2.5",
+  "version": "0.2.6",
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 1421",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1 --port 1421",
     "tauri": "tauri",
+    "patch": "node scripts/patch-version.mjs",
     "release": "node scripts/release.mjs"
   },
   "devDependencies": {
