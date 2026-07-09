@@ -12,8 +12,8 @@ use crate::{
     defaults::APP_USER_AGENT,
     models::{ApiImageResult, ApiProvider, GenerateRequest, OutputImage, ReferencePreview},
     utils::{
-        extension_for_format, format_api_error, image_mime_type, mime_for_format,
-        normalize_base_url, normalize_output_format, should_send_input_fidelity,
+        extension_for_format, format_api_error, image_mime_type, image_prompt_for_transport,
+        mime_for_format, normalize_base_url, normalize_output_format, should_send_input_fidelity,
     },
 };
 
@@ -101,8 +101,10 @@ async fn call_images_generation(
     request: &GenerateRequest,
 ) -> Result<Vec<ApiImageResult>, String> {
     let mut payload = Map::new();
+    let prompt =
+        image_prompt_for_transport(&request.prompt, &request.ratio, &request.prompt_fidelity);
     payload.insert("model".into(), json!(provider.image_model));
-    payload.insert("prompt".into(), json!(request.prompt));
+    payload.insert("prompt".into(), json!(prompt));
     payload.insert("n".into(), json!(request.count));
     payload.insert("output_format".into(), json!(request.output_format));
     insert_optional_text(&mut payload, "size", &request.size);
@@ -140,9 +142,11 @@ async fn call_images_edit(
         return Err("图像编辑需要至少一张参考图".into());
     }
 
+    let prompt =
+        image_prompt_for_transport(&request.prompt, &request.ratio, &request.prompt_fidelity);
     let mut form = multipart::Form::new()
         .text("model", provider.image_model.clone())
-        .text("prompt", request.prompt.clone())
+        .text("prompt", prompt)
         .text("n", request.count.to_string())
         .text("output_format", request.output_format.clone());
 

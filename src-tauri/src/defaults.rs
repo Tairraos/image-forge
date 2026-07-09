@@ -34,6 +34,18 @@ pub(crate) fn default_size() -> String {
     "1024x1024".into()
 }
 
+pub(crate) fn default_resolution() -> String {
+    "standard".into()
+}
+
+pub(crate) fn default_ratio() -> String {
+    "1:1".into()
+}
+
+pub(crate) fn default_orientation() -> String {
+    "square".into()
+}
+
 pub(crate) fn default_quality() -> String {
     "auto".into()
 }
@@ -44,6 +56,10 @@ pub(crate) fn default_output_format() -> String {
 
 pub(crate) fn default_count() -> u8 {
     1
+}
+
+pub(crate) fn default_prompt_fidelity() -> String {
+    "strict".into()
 }
 
 pub(crate) fn default_true() -> bool {

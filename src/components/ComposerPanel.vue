@@ -14,33 +14,17 @@
     <div class="control-surface">
       <n-form label-placement="top" :show-feedback="false">
         <div class="control-grid">
-          <n-form-item label="尺寸">
-            <n-select v-model:value="form.size" :options="sizeOptions" size="small" />
+          <n-form-item label="提示词模式">
+            <n-select v-model:value="form.promptMode" :options="promptModeOptions" size="small" />
+          </n-form-item>
+          <n-form-item label="分辨率">
+            <n-select v-model:value="form.resolution" :options="resolutionOptions" size="small" />
+          </n-form-item>
+          <n-form-item label="比例">
+            <n-select v-model:value="form.ratio" :options="ratioOptions" size="small" />
           </n-form-item>
           <n-form-item label="质量">
             <n-select v-model:value="form.quality" :options="qualityOptions" size="small" />
-          </n-form-item>
-          <n-form-item label="格式">
-            <n-select v-model:value="form.outputFormat" :options="formatOptions" size="small" />
-          </n-form-item>
-          <n-form-item label="数量">
-            <n-input-number v-model:value="form.count" :min="1" :max="8" size="small" />
-          </n-form-item>
-          <n-form-item label="背景">
-            <n-select v-model:value="form.background" :options="backgroundOptions" size="small" />
-          </n-form-item>
-          <n-form-item label="压缩">
-            <n-input-number
-              v-model:value="form.outputCompression"
-              size="small"
-              clearable
-              :min="0"
-              :max="100"
-              placeholder="可空"
-            />
-          </n-form-item>
-          <n-form-item label="保真">
-            <n-select v-model:value="form.inputFidelity" :options="fidelityOptions" size="small" />
           </n-form-item>
         </div>
       </n-form>
@@ -91,11 +75,10 @@
 <script setup>
 import { BookOpen, Image, Layers, Plus, Upload, WandSparkles, XCircle } from "@lucide/vue";
 import {
-  backgroundOptions,
-  fidelityOptions,
-  formatOptions,
+  promptModeOptions,
   qualityOptions,
-  sizeOptions,
+  ratioOptions,
+  resolutionOptions,
 } from "../lib/options";
 
 defineProps({

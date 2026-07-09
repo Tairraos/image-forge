@@ -18,7 +18,11 @@ use crate::{
         ApiProvider, GalleryState, GenerateRequest, GenerationParams, PromptSnippet,
         PromptTemplate, QueueRun, QueueState, Settings, TaskRecord,
     },
-    utils::{clean_text, normalize_base_url, normalize_output_format, sanitize_id, utc_now},
+    utils::{
+        clean_text, normalize_base_url, normalize_output_format, normalize_prompt_fidelity,
+        normalize_quality, normalize_ratio, normalize_resolution, orientation_for_ratio,
+        sanitize_id, size_for_preset, utc_now,
+    },
 };
 
 pub(crate) fn ensure_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
@@ -195,20 +199,27 @@ pub(crate) fn normalize_request(mut request: GenerateRequest) -> Result<Generate
         .map(|path| path.trim().to_string())
         .filter(|path| !path.is_empty())
         .collect();
-    request.count = request.count.clamp(1, 8);
-    request.output_format = normalize_output_format(&request.output_format);
-    request.quality = clean_text(request.quality, "auto");
-    request.size = clean_text(request.size, "1024x1024");
-    request.background = request.background.trim().to_string();
-    request.input_fidelity = request.input_fidelity.trim().to_string();
-    request.moderation = request.moderation.trim().to_string();
-    request.output_compression = request.output_compression.map(|value| value.min(100));
+    request.count = 1;
+    request.output_format = normalize_output_format("png");
+    request.resolution = normalize_resolution(&request.resolution);
+    request.ratio = normalize_ratio(&request.ratio);
+    request.orientation = orientation_for_ratio(&request.ratio);
+    request.size = size_for_preset(&request.resolution, &request.ratio);
+    request.quality = normalize_quality(&request.quality);
+    request.background = String::new();
+    request.input_fidelity = String::new();
+    request.moderation = String::new();
+    request.output_compression = None;
+    request.prompt_fidelity = normalize_prompt_fidelity(&request.prompt_fidelity);
     Ok(request)
 }
 
 pub(crate) fn params_from_request(request: &GenerateRequest) -> GenerationParams {
     GenerationParams {
         size: request.size.clone(),
+        resolution: request.resolution.clone(),
+        ratio: request.ratio.clone(),
+        orientation: request.orientation.clone(),
         quality: request.quality.clone(),
         output_format: request.output_format.clone(),
         count: request.count,
@@ -216,6 +227,7 @@ pub(crate) fn params_from_request(request: &GenerateRequest) -> GenerationParams
         output_compression: request.output_compression,
         input_fidelity: request.input_fidelity.clone(),
         moderation: request.moderation.clone(),
+        prompt_fidelity: request.prompt_fidelity.clone(),
     }
 }
 
@@ -266,6 +278,9 @@ pub(crate) fn fallback_failed_record(task_id: &str, error: &str) -> TaskRecord {
         status: "failed".into(),
         params: GenerationParams {
             size: String::new(),
+            resolution: String::new(),
+            ratio: String::new(),
+            orientation: String::new(),
             quality: String::new(),
             output_format: String::new(),
             count: 1,
@@ -273,6 +288,7 @@ pub(crate) fn fallback_failed_record(task_id: &str, error: &str) -> TaskRecord {
             output_compression: None,
             input_fidelity: String::new(),
             moderation: String::new(),
+            prompt_fidelity: String::new(),
         },
         reference_paths: Vec::new(),
         outputs: Vec::new(),

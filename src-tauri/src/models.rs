@@ -2,9 +2,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::defaults::{
-    default_base_url, default_count, default_image_model, default_model_type,
-    default_output_format, default_provider_concurrency, default_provider_id,
-    default_provider_name, default_quality, default_size, default_true,
+    default_base_url, default_count, default_image_model, default_model_type, default_orientation,
+    default_output_format, default_prompt_fidelity, default_provider_concurrency,
+    default_provider_id, default_provider_name, default_quality, default_ratio, default_resolution,
+    default_size, default_true,
 };
 use crate::utils::utc_now;
 
@@ -107,6 +108,12 @@ pub struct GenerateRequest {
     pub mask_path: Option<String>,
     #[serde(default = "default_size")]
     pub size: String,
+    #[serde(default = "default_resolution")]
+    pub resolution: String,
+    #[serde(default = "default_ratio")]
+    pub ratio: String,
+    #[serde(default = "default_orientation")]
+    pub orientation: String,
     #[serde(default = "default_quality")]
     pub quality: String,
     #[serde(default = "default_output_format")]
@@ -121,6 +128,8 @@ pub struct GenerateRequest {
     pub input_fidelity: String,
     #[serde(default)]
     pub moderation: String,
+    #[serde(default = "default_prompt_fidelity")]
+    pub prompt_fidelity: String,
 }
 
 impl Default for GenerateRequest {
@@ -131,6 +140,9 @@ impl Default for GenerateRequest {
             reference_paths: Vec::new(),
             mask_path: None,
             size: default_size(),
+            resolution: default_resolution(),
+            ratio: default_ratio(),
+            orientation: default_orientation(),
             quality: default_quality(),
             output_format: default_output_format(),
             count: default_count(),
@@ -138,6 +150,7 @@ impl Default for GenerateRequest {
             output_compression: None,
             input_fidelity: String::new(),
             moderation: String::new(),
+            prompt_fidelity: default_prompt_fidelity(),
         }
     }
 }
@@ -145,14 +158,30 @@ impl Default for GenerateRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GenerationParams {
+    #[serde(default = "default_size")]
     pub size: String,
+    #[serde(default = "default_resolution")]
+    pub resolution: String,
+    #[serde(default = "default_ratio")]
+    pub ratio: String,
+    #[serde(default = "default_orientation")]
+    pub orientation: String,
+    #[serde(default = "default_quality")]
     pub quality: String,
+    #[serde(default = "default_output_format")]
     pub output_format: String,
+    #[serde(default = "default_count")]
     pub count: u8,
+    #[serde(default)]
     pub background: String,
+    #[serde(default)]
     pub output_compression: Option<u8>,
+    #[serde(default)]
     pub input_fidelity: String,
+    #[serde(default)]
     pub moderation: String,
+    #[serde(default = "default_prompt_fidelity")]
+    pub prompt_fidelity: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

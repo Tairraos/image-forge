@@ -45,7 +45,10 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::utils::{normalize_base_url, sanitize_id, should_send_input_fidelity};
+    use super::utils::{
+        image_prompt_for_transport, normalize_base_url, prompt_with_ratio_instruction, sanitize_id,
+        should_send_input_fidelity, size_for_preset,
+    };
 
     #[test]
     fn normalize_base_url_strips_known_endpoints() {
@@ -65,5 +68,33 @@ mod tests {
     fn provider_ids_are_stable() {
         assert_eq!(sanitize_id("OpenAI Official"), "OpenAI-Official");
         assert_eq!(sanitize_id(""), "default");
+    }
+
+    #[test]
+    fn image_size_presets_match_reference_project() {
+        assert_eq!(size_for_preset("standard", "4:5"), "1024x1280");
+        assert_eq!(size_for_preset("2k", "16:9"), "2048x1152");
+        assert_eq!(size_for_preset("4k", "9:21"), "1632x3808");
+    }
+
+    #[test]
+    fn ratio_instruction_is_appended_once() {
+        let prompt = prompt_with_ratio_instruction("一只猫", "16:9");
+        assert_eq!(prompt, "一只猫\n\n将宽高比设为 16:9");
+        assert_eq!(
+            prompt_with_ratio_instruction(&prompt, "16:9"),
+            "一只猫\n\n将宽高比设为 16:9"
+        );
+    }
+
+    #[test]
+    fn strict_prompt_fidelity_wraps_prompt_for_images_transport() {
+        let prompt = image_prompt_for_transport("一只猫", "1:1", "strict");
+        assert!(prompt.contains("提示词保真规则"));
+        assert!(prompt.contains("用户原始提示词：\n一只猫\n\n将宽高比设为 1:1"));
+        assert_eq!(
+            image_prompt_for_transport("一只猫", "1:1", "off"),
+            "一只猫\n\n将宽高比设为 1:1"
+        );
     }
 }

@@ -154,6 +154,13 @@ import GalleryDrawer from "./components/drawers/GalleryDrawer.vue";
 import TemplateDrawer from "./components/drawers/TemplateDrawer.vue";
 import { clamp, fileName, fileUrl } from "./lib/formatters";
 import { deepClone, defaultSettings, emptySnippet, emptyTemplate, normalizeSettingsForUi } from "./lib/models";
+import {
+  DEFAULT_PROMPT_MODE,
+  DEFAULT_RATIO,
+  DEFAULT_RESOLUTION,
+  orientationForRatio,
+  sizeForPreset,
+} from "./lib/options";
 import { themeOverrides } from "./lib/theme";
 import { invoke, openDialog } from "./tauri";
 
@@ -193,14 +200,10 @@ const form = reactive({
   providerId: "",
   chatProviderId: "",
   prompt: "",
-  size: "1024x1024",
+  promptMode: DEFAULT_PROMPT_MODE,
+  resolution: DEFAULT_RESOLUTION,
+  ratio: DEFAULT_RATIO,
   quality: "auto",
-  outputFormat: "png",
-  count: 1,
-  background: "",
-  outputCompression: null,
-  inputFidelity: "",
-  moderation: "",
 });
 
 const panelSizes = reactive({
@@ -398,14 +401,14 @@ async function submitTask() {
       providerId: form.providerId || settings.value.activeImageProviderId || settings.value.activeProviderId,
       prompt: form.prompt,
       referencePaths: references.value.map((item) => item.path),
-      size: form.size,
+      size: sizeForPreset(form.resolution, form.ratio),
+      resolution: form.resolution,
+      ratio: form.ratio,
+      orientation: orientationForRatio(form.ratio),
       quality: form.quality,
-      outputFormat: form.outputFormat,
-      count: Number(form.count) || 1,
-      background: form.background || "",
-      outputCompression: form.outputCompression ?? null,
-      inputFidelity: form.inputFidelity || "",
-      moderation: form.moderation || "",
+      outputFormat: "png",
+      count: 1,
+      promptFidelity: form.promptMode,
     };
     const task = await invoke("enqueue_generation", { request });
     selectedTaskId.value = task.id;

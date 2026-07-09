@@ -41,6 +41,124 @@ pub(crate) fn should_send_input_fidelity(model: &str, input_fidelity: &str) -> b
     !input_fidelity.trim().is_empty() && model.trim().to_lowercase() != "gpt-image-2"
 }
 
+pub(crate) fn normalize_prompt_fidelity(value: &str) -> String {
+    match value.trim().to_lowercase().as_str() {
+        "original" => "original".into(),
+        "off" => "off".into(),
+        _ => "strict".into(),
+    }
+}
+
+pub(crate) fn normalize_resolution(value: &str) -> String {
+    match value.trim().to_lowercase().as_str() {
+        "2k" => "2k".into(),
+        "4k" => "4k".into(),
+        "1k" | "standard" => "standard".into(),
+        _ => "standard".into(),
+    }
+}
+
+pub(crate) fn normalize_ratio(value: &str) -> String {
+    match value.trim() {
+        "1:1" | "4:5" | "5:4" | "3:4" | "4:3" | "2:3" | "3:2" | "9:16" | "16:9" | "9:21"
+        | "21:9" => value.trim().into(),
+        _ => "1:1".into(),
+    }
+}
+
+pub(crate) fn normalize_quality(value: &str) -> String {
+    match value.trim().to_lowercase().as_str() {
+        "low" => "low".into(),
+        "medium" => "medium".into(),
+        "high" => "high".into(),
+        _ => "auto".into(),
+    }
+}
+
+pub(crate) fn orientation_for_ratio(ratio: &str) -> String {
+    match normalize_ratio(ratio).as_str() {
+        "4:5" | "3:4" | "2:3" | "9:16" | "9:21" => "portrait".into(),
+        "5:4" | "4:3" | "3:2" | "16:9" | "21:9" => "landscape".into(),
+        _ => "square".into(),
+    }
+}
+
+pub(crate) fn size_for_preset(resolution: &str, ratio: &str) -> String {
+    let resolution = normalize_resolution(resolution);
+    let ratio = normalize_ratio(ratio);
+    let (width, height) = match (resolution.as_str(), ratio.as_str()) {
+        ("standard", "1:1") => (1024, 1024),
+        ("standard", "4:5") => (1024, 1280),
+        ("standard", "5:4") => (1280, 1024),
+        ("standard", "3:4") => (1152, 1536),
+        ("standard", "4:3") => (1536, 1152),
+        ("standard", "2:3") => (1024, 1536),
+        ("standard", "3:2") => (1536, 1024),
+        ("standard", "9:16") => (864, 1536),
+        ("standard", "16:9") => (1536, 864),
+        ("standard", "9:21") => (672, 1568),
+        ("standard", "21:9") => (1568, 672),
+        ("2k", "1:1") => (2048, 2048),
+        ("2k", "4:5") => (1600, 2000),
+        ("2k", "5:4") => (2000, 1600),
+        ("2k", "3:4") => (1536, 2048),
+        ("2k", "4:3") => (2048, 1536),
+        ("2k", "2:3") => (1344, 2016),
+        ("2k", "3:2") => (2016, 1344),
+        ("2k", "9:16") => (1152, 2048),
+        ("2k", "16:9") => (2048, 1152),
+        ("2k", "9:21") => (1152, 2688),
+        ("2k", "21:9") => (2688, 1152),
+        ("4k", "1:1") => (2880, 2880),
+        ("4k", "4:5") => (2560, 3200),
+        ("4k", "5:4") => (3200, 2560),
+        ("4k", "3:4") => (2448, 3264),
+        ("4k", "4:3") => (3264, 2448),
+        ("4k", "2:3") => (2336, 3504),
+        ("4k", "3:2") => (3504, 2336),
+        ("4k", "9:16") => (2160, 3840),
+        ("4k", "16:9") => (3840, 2160),
+        ("4k", "9:21") => (1632, 3808),
+        ("4k", "21:9") => (3808, 1632),
+        _ => (1024, 1024),
+    };
+    format!("{width}x{height}")
+}
+
+pub(crate) fn prompt_with_ratio_instruction(prompt: &str, ratio: &str) -> String {
+    let ratio = normalize_ratio(ratio);
+    let instruction = format!("将宽高比设为 {ratio}");
+    let prompt = prompt.trim_end();
+    if prompt.contains(&instruction) {
+        return prompt.to_string();
+    }
+    if prompt.is_empty() {
+        instruction
+    } else {
+        format!("{prompt}\n\n{instruction}")
+    }
+}
+
+pub(crate) fn image_prompt_for_transport(
+    prompt: &str,
+    ratio: &str,
+    prompt_fidelity: &str,
+) -> String {
+    let prompt = prompt_with_ratio_instruction(prompt, ratio);
+    if normalize_prompt_fidelity(prompt_fidelity) != "strict" {
+        return prompt;
+    }
+    format!(
+        "{}\n\n用户原始提示词：\n{}",
+        prompt_guard_instructions(),
+        prompt
+    )
+}
+
+fn prompt_guard_instructions() -> &'static str {
+    "提示词保真规则：\n你只能扩写用户提示词，不得改变原意，不得删除、弱化或转移用户的硬性约束。\n如果硬性约束之间有冲突，优先保留用户明确指定的对象、文字、字体、颜色、构图和限制项。"
+}
+
 pub(crate) fn normalize_output_format(format: &str) -> String {
     match format.trim().to_lowercase().as_str() {
         "jpg" | "jpeg" => "jpeg".into(),

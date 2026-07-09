@@ -36,7 +36,7 @@ flowchart LR
 | `src/components/dialogs/SettingsDialog.vue` | 输出目录、队列重试和通知设置。 |
 | `src/components/dialogs/TaskDetailDialog.vue` | 任务详情和输出图列表。 |
 | `src/lib/models.js` | 前端默认数据结构、空草稿对象、深拷贝和设置归一化。 |
-| `src/lib/options.js` | 生图参数选项：尺寸、质量、格式、背景、保真度。 |
+| `src/lib/options.js` | 生图参数选项和预设换算：提示词模式、分辨率、比例、质量、尺寸映射。 |
 | `src/lib/formatters.js` | 状态标签、短 ID、文件名、文件 URL、clamp 等展示工具。 |
 | `src/lib/theme.js` | Naive UI 主题覆盖。 |
 | `src/tauri.js` | 对 `window.__TAURI_INTERNALS__` 的轻封装。 |
@@ -45,6 +45,8 @@ flowchart LR
 
 - `App.vue` 持有唯一业务状态源：`settings`、`queue`、`history`、`gallery`、`snippets`、`templates`、`references`、`form`。
 - 顶部栏维护两个当前选择：`form.providerId` 用于生图模型，`form.chatProviderId` 预留给后续对话模型填充模板。
+- 生成工作台只暴露四类参数：提示词模式、分辨率、比例、质量；数量固定为 `1`，输出格式固定为 `png`。
+- 前端提交前用 `sizeForPreset(resolution, ratio)` 把 `1K/2K/4K + 比例` 换算成 Images API 需要的像素尺寸。
 - 展示组件通过 props 接收数据，通过 events 把动作抛回 `App.vue`。
 - 表单型组件接收草稿对象并直接修改对象字段，保存动作仍由 `App.vue` 调用 Rust 命令。
 - `App.vue` 启动后调用 `load_app_state`，随后每 1.6 秒调用 `queue_snapshot` 刷新队列。
@@ -143,6 +145,30 @@ sequenceDiagram
 - Base URL 会归一化，自动去掉 `/images/generations` 或 `/images/edits` 后缀。
 - 响应支持 `b64_json` 和 `url` 两种图像返回方式。
 - 输出格式会根据 API 字段和文件头归一化为 `png`、`jpeg` 或 `webp`。
+- 生图请求参数与 `example/codex_image/webui` 保持一致：`size` 是像素尺寸，`quality` 是 `auto/low/medium/high`，`n` 固定 `1`，`output_format` 固定 `png`。
+- `resolution`、`ratio`、`orientation`、`prompt_fidelity` 会作为任务元数据保存；Rust 端也会重新归一化并在前端漏传时兜底计算 `size`。
+- 发送 API 前会把比例写入模型提示词，例如 `16:9` 会追加 `将宽高比设为 16:9`，避免只靠 `size` 时模型忽略构图比例。
+- `prompt_fidelity=strict` 会参考 example 的 direct Images transport，在出站 prompt 前追加保真守护指令；`original/off` 则保持用户提示词本身。
+
+### 生图参数映射
+
+| UI 字段 | 前端值 | API/存储字段 | 说明 |
+| --- | --- | --- | --- |
+| 提示词模式 | `original` / `strict` / `off` | `prompt_fidelity` | 原始模式、保真模式、创意模式；`strict` 会包装出站 prompt，后续对话模型填模板也会继续使用。 |
+| 分辨率 | `standard` / `2k` / `4k` | `resolution` | UI 显示为 `1K`、`2K`、`4K`。 |
+| 比例 | `1:1` 等 11 种比例 | `ratio` / `orientation` | `orientation` 自动归类为 `square`、`portrait`、`landscape`。 |
+| 质量 | `auto` / `low` / `medium` / `high` | `quality` | UI 显示为自动、低、中、高。 |
+| 数量 | 固定 `1` | `n` / `count` | UI 不再展示，Rust 端也强制归一化为 `1`。 |
+| 输出格式 | 固定 `png` | `output_format` | UI 不再展示，Rust 端也强制归一化为 `png`。 |
+
+```mermaid
+flowchart LR
+  Form["工作台表单\n模式/分辨率/比例/质量"] --> Size["sizeForPreset\n计算像素 size"]
+  Size --> Request["GenerateRequest\nsize + resolution + ratio + orientation"]
+  Request --> Normalize["store.normalize_request\n强制 n=1/png 并兜底计算"]
+  Normalize --> Prompt["services/images\n追加比例提示词"]
+  Prompt --> Payload["Images API payload\nmodel/prompt/size/quality/n/output_format"]
+```
 
 ## 模型选择设计
 
