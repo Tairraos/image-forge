@@ -27,13 +27,13 @@
 
     <div v-if="currentOutputs.length" class="output-grid">
       <article v-for="output in currentOutputs" :key="output.path" class="output-card">
-        <img :src="fileUrl(output.path)" :alt="output.fileName" />
-        <footer>
-          <span>{{ output.size || selectedTask?.params?.size }} · {{ output.outputFormat }}</span>
-          <div>
-            <n-button size="tiny" secondary @click="$emit('reveal', output.path)">定位</n-button>
-            <n-button size="tiny" secondary @click="$emit('save-output', output)">入图库</n-button>
-          </div>
+        <div class="output-image-frame">
+          <img :src="fileUrl(output.path)" :alt="output.fileName" />
+        </div>
+        <footer class="output-status-bar">
+          <span>{{ output.size || selectedTask?.params?.size }}</span>
+          <span>{{ output.outputFormat }}</span>
+          <span>{{ outputDate }}</span>
         </footer>
       </article>
     </div>
@@ -42,13 +42,26 @@
 </template>
 
 <script setup>
+import { computed } from "vue";
 import { Eye } from "@lucide/vue";
 import { fileUrl, shortId, statusLabel, statusType } from "../lib/formatters";
 
-defineProps({
+const props = defineProps({
   selectedTask: { type: Object, default: null },
   currentOutputs: { type: Array, default: () => [] },
 });
 
-defineEmits(["show-detail", "reveal", "save-output"]);
+defineEmits(["show-detail"]);
+
+const outputDate = computed(() => {
+  const value = props.selectedTask?.completedAt || props.selectedTask?.updatedAt || props.selectedTask?.createdAt;
+  if (!value) return "未完成";
+  return new Date(value).toLocaleString("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+});
 </script>

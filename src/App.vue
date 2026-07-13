@@ -10,7 +10,6 @@
         :queue="queue"
         @reveal-output-dir="revealOutputDir"
         @show-api="showApiDialog = true"
-        @show-gallery="showGalleryDrawer = true"
         @show-template="showTemplateDrawer = true"
         @show-snippet="showSnippetModal = true"
         @show-settings="showSettingsDialog = true"
@@ -46,8 +45,6 @@
           :selected-task="selectedTask"
           :current-outputs="currentOutputs"
           @show-detail="showTaskDetail = true"
-          @reveal="reveal"
-          @save-output="saveOutputToGallery"
         />
 
         <div
@@ -64,7 +61,6 @@
           @submit="submitTask"
           @show-template="showTemplateDrawer = true"
           @show-snippet="showSnippetModal = true"
-          @show-gallery="showGalleryDrawer = true"
           @add-reference="addReferenceImages"
           @remove-reference="references.splice($event, 1)"
         />
@@ -74,16 +70,6 @@
         v-model:show="showApiDialog"
         :settings="settings"
         @save="saveApiSettings"
-      />
-
-      <GalleryDrawer
-        v-model:show="showGalleryDrawer"
-        v-model:query="galleryQuery"
-        :items="filteredGallery"
-        @add="addGalleryImages"
-        @use="useGalleryItem"
-        @edit="editGalleryItem"
-        @delete="deleteGallery"
       />
 
       <TemplateDrawer
@@ -125,12 +111,6 @@
         @save="savePromptTemplate"
       />
 
-      <GalleryEditorDialog
-        v-model:show="showGalleryEditor"
-        :item="galleryDraft"
-        @save="saveGalleryEdit"
-      />
-
       <TaskDetailDialog v-model:show="showTaskDetail" :task="selectedTask" />
     </main>
   </n-config-provider>
@@ -143,15 +123,13 @@ import ComposerPanel from "./components/ComposerPanel.vue";
 import QueuePanel from "./components/QueuePanel.vue";
 import ResultPanel from "./components/ResultPanel.vue";
 import ApiSourceDialog from "./components/dialogs/ApiSourceDialog.vue";
-import GalleryEditorDialog from "./components/dialogs/GalleryEditorDialog.vue";
 import SettingsDialog from "./components/dialogs/SettingsDialog.vue";
 import SnippetDialog from "./components/dialogs/SnippetDialog.vue";
 import SnippetEditorDialog from "./components/dialogs/SnippetEditorDialog.vue";
 import TaskDetailDialog from "./components/dialogs/TaskDetailDialog.vue";
 import TemplateEditorDialog from "./components/dialogs/TemplateEditorDialog.vue";
-import GalleryDrawer from "./components/drawers/GalleryDrawer.vue";
 import TemplateDrawer from "./components/drawers/TemplateDrawer.vue";
-import { clamp, fileName, fileUrl } from "./lib/formatters";
+import { clamp, fileName } from "./lib/formatters";
 import { deepClone, defaultSettings, emptySnippet, emptyTemplate, normalizeSettingsForUi } from "./lib/models";
 import {
   DEFAULT_PROMPT_MODE,
@@ -170,30 +148,25 @@ const settings = ref(defaultSettings());
 const settingsDraft = reactive(defaultSettings());
 const history = ref([]);
 const queue = reactive({ waiting: [], running: [], recent: [], workerActive: false, updatedAt: "" });
-const gallery = reactive({ items: [], categories: [] });
 const snippets = ref([]);
 const templates = ref([]);
 const references = ref([]);
 const selectedTaskId = ref("");
 const submitting = ref(false);
 const historyQuery = ref("");
-const galleryQuery = ref("");
 const snippetQuery = ref("");
 const templateQuery = ref("");
 
 const showApiDialog = ref(false);
-const showGalleryDrawer = ref(false);
 const showTemplateDrawer = ref(false);
 const showSnippetModal = ref(false);
 const showSettingsDialog = ref(false);
 const showSnippetEditor = ref(false);
 const showTemplateEditor = ref(false);
-const showGalleryEditor = ref(false);
 const showTaskDetail = ref(false);
 
 const snippetDraft = reactive(emptySnippet());
 const templateDraft = reactive(emptyTemplate());
-const galleryDraft = reactive({ id: "", name: "", category: "", note: "" });
 
 const form = reactive({
   providerId: "",
@@ -278,13 +251,6 @@ const selectedTask = computed(() =>
 
 const currentOutputs = computed(() => selectedTask.value?.outputs || []);
 
-const filteredGallery = computed(() => {
-  const query = galleryQuery.value.trim().toLowerCase();
-  if (!query) return gallery.items;
-  return gallery.items.filter((item) =>
-    [item.name, item.category, item.note].join(" ").toLowerCase().includes(query),
-  );
-});
 
 const filteredSnippets = computed(() => {
   const query = snippetQuery.value.trim().toLowerCase();
@@ -369,7 +335,6 @@ function applyState(state) {
   ensureSelectedModels();
   history.value = state.history || [];
   applyQueue(state.queue || {});
-  Object.assign(gallery, state.gallery || { items: [], categories: [] });
   snippets.value = state.snippets || [];
   templates.value = state.templates || [];
   dataDir.value = state.dataDir || "";
@@ -513,81 +478,6 @@ async function saveStorageSettings() {
     ensureSelectedModels(true);
     showSettingsDialog.value = false;
     setStatus("设置已保存", "ok");
-  } catch (error) {
-    setStatus(String(error), "error");
-  }
-}
-
-async function addGalleryImages() {
-  try {
-    const selected = await openDialog({
-      multiple: true,
-      filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "gif"] }],
-    });
-    const paths = Array.isArray(selected) ? selected : selected ? [selected] : [];
-    for (const path of paths) {
-      const next = await invoke("add_gallery_item", {
-        payload: { path, category: "默认", name: fileName(path), note: "" },
-      });
-      Object.assign(gallery, next);
-    }
-    if (paths.length) setStatus("图片已加入图库", "ok");
-  } catch (error) {
-    setStatus(String(error), "error");
-  }
-}
-
-function useGalleryItem(item) {
-  if (!references.value.some((refItem) => refItem.path === item.path)) {
-    references.value.push({
-      path: item.path,
-      fileName: item.name,
-      mimeType: item.mimeType,
-      previewUrl: fileUrl(item.path),
-    });
-  }
-  setStatus("图库图片已加入参考图", "ok");
-}
-
-function editGalleryItem(item) {
-  Object.assign(galleryDraft, {
-    id: item.id,
-    name: item.name,
-    category: item.category,
-    note: item.note,
-  });
-  showGalleryEditor.value = true;
-}
-
-async function saveGalleryEdit() {
-  try {
-    const next = await invoke("update_gallery_item", { payload: deepClone(galleryDraft) });
-    Object.assign(gallery, next);
-    showGalleryEditor.value = false;
-    setStatus("图库已更新", "ok");
-  } catch (error) {
-    setStatus(String(error), "error");
-  }
-}
-
-async function deleteGallery(id) {
-  if (!window.confirm("删除这个图库条目？")) return;
-  try {
-    const next = await invoke("delete_gallery_item", { itemId: id });
-    Object.assign(gallery, next);
-    setStatus("图库条目已删除", "ok");
-  } catch (error) {
-    setStatus(String(error), "error");
-  }
-}
-
-async function saveOutputToGallery(output) {
-  try {
-    const next = await invoke("add_gallery_item", {
-      payload: { path: output.path, category: "生成结果", name: output.fileName, note: selectedTask.value?.prompt || "" },
-    });
-    Object.assign(gallery, next);
-    setStatus("结果已保存到图库", "ok");
   } catch (error) {
     setStatus(String(error), "error");
   }

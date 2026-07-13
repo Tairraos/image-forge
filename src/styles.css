@@ -501,8 +501,9 @@ button:disabled {
 }
 
 .task-output-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(54px, 1fr));
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
@@ -517,9 +518,10 @@ button:disabled {
 
 .task-output-thumb img {
   display: block;
-  width: 100%;
-  aspect-ratio: 1;
-  object-fit: cover;
+  width: auto;
+  height: 80px;
+  max-width: 100%;
+  object-fit: contain;
 }
 
 .task-card footer,
@@ -604,28 +606,61 @@ button:disabled {
 
 .output-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-  align-content: start;
+  grid-template-columns: minmax(0, 1fr);
+  grid-auto-rows: minmax(0, 1fr);
+  align-content: stretch;
   gap: 9px;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
   margin-top: 10px;
-  padding-right: 2px;
 }
 
 .output-card {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 0;
   overflow: hidden;
   border: 1px solid #e4dbff;
   border-radius: 8px;
   background: #fffdfa;
 }
 
-.output-card img,
+.output-image-frame {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  padding: 10px;
+  background:
+    linear-gradient(45deg, #f1ecff 25%, transparent 25%),
+    linear-gradient(-45deg, #f1ecff 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #f1ecff 75%),
+    linear-gradient(-45deg, transparent 75%, #f1ecff 75%);
+  background-position:
+    0 0,
+    0 8px,
+    8px -8px,
+    -8px 0;
+  background-size: 16px 16px;
+}
+
+.output-card img {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  object-fit: contain;
+  object-position: center center;
+  display: block;
+}
+
 .detail-output-list img {
   width: 100%;
   aspect-ratio: 1;
   object-fit: contain;
-  object-position: top center;
+  object-position: center center;
   display: block;
   background:
     linear-gradient(45deg, #f1ecff 25%, transparent 25%),
@@ -640,15 +675,18 @@ button:disabled {
   background-size: 16px 16px;
 }
 
-.output-card footer {
+.output-status-bar {
   padding: 8px;
+  border-top: 1px solid #e4dbff;
+  background: rgba(255, 253, 250, 0.96);
   color: #736883;
   font-size: 11px;
 }
 
-.output-card footer div {
-  display: flex;
-  gap: 5px;
+.output-status-bar span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .empty-panel {

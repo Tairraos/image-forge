@@ -50,10 +50,6 @@
         <template #icon><Settings :size="16" /></template>
         API 源
       </n-button>
-      <n-button quaternary size="small" @click="$emit('show-gallery')">
-        <template #icon><Image :size="16" /></template>
-        图库
-      </n-button>
       <n-button quaternary size="small" @click="$emit('show-template')">
         <template #icon><BookOpen :size="16" /></template>
         模板
@@ -71,7 +67,7 @@
 </template>
 
 <script setup>
-import { BookOpen, Image, Layers, Settings, SlidersHorizontal } from "@lucide/vue";
+import { BookOpen, Layers, Settings, SlidersHorizontal } from "@lucide/vue";
 import logoUrl from "../assets/app-icon.png";
 
 defineProps({
@@ -85,7 +81,6 @@ defineProps({
 defineEmits([
   "reveal-output-dir",
   "show-api",
-  "show-gallery",
   "show-template",
   "show-snippet",
   "show-settings",

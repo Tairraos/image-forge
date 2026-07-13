@@ -55,10 +55,6 @@
         <template #icon><Layers :size="15" /></template>
         插入片段
       </n-button>
-      <n-button size="small" secondary @click="$emit('show-gallery')">
-        <template #icon><Image :size="15" /></template>
-        从图库选图
-      </n-button>
       <n-button size="small" secondary @click="$emit('add-reference')">
         <template #icon><Upload :size="15" /></template>
         添加参考图
@@ -81,7 +77,7 @@
 </template>
 
 <script setup>
-import { BookOpen, Image, Layers, Plus, Upload, WandSparkles, XCircle } from "@lucide/vue";
+import { BookOpen, Layers, Plus, Upload, WandSparkles, XCircle } from "@lucide/vue";
 import {
   promptModeOptions,
   qualityOptions,
@@ -99,7 +95,6 @@ defineEmits([
   "submit",
   "show-template",
   "show-snippet",
-  "show-gallery",
   "add-reference",
   "remove-reference",
 ]);
