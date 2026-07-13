@@ -523,6 +523,43 @@ button:disabled {
   object-fit: contain;
 }
 
+.task-timer-preview {
+  display: grid;
+  place-items: center;
+  gap: 4px;
+  min-height: 80px;
+  border: 1px dashed #d7caff;
+  border-radius: 7px;
+  background: linear-gradient(135deg, rgba(255, 246, 227, 0.95), rgba(246, 241, 255, 0.95));
+  color: #725b26;
+  text-align: center;
+}
+
+.task-timer-preview span,
+.generation-timer-panel span {
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.task-timer-preview strong,
+.generation-timer-panel strong {
+  color: #5e42b5;
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+.task-timer-preview small,
+.generation-timer-panel small {
+  color: #a66b22;
+  font-size: 11px;
+}
+
+.task-timer-preview.timeout,
+.generation-timer-panel.timeout {
+  border-color: #ffc3d0;
+  background: linear-gradient(135deg, rgba(255, 243, 246, 0.95), rgba(255, 248, 235, 0.95));
+}
+
 .task-card footer,
 .output-card footer,
 .gallery-card footer,
@@ -660,6 +697,26 @@ button:disabled {
   object-fit: contain;
   object-position: center center;
   display: block;
+}
+
+.generation-timer-panel {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  min-height: 0;
+  margin-top: 10px;
+  border: 1px dashed #d7caff;
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at top, rgba(255, 244, 220, 0.9), transparent 36%),
+    rgba(250, 247, 255, 0.82);
+  color: #725b26;
+  text-align: center;
+}
+
+.generation-timer-panel strong {
+  font-size: 28px;
 }
 
 .detail-output-list img {

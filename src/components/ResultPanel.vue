@@ -24,13 +24,19 @@
         </footer>
       </article>
     </div>
+    <div v-else-if="isWaitingForOutput" class="generation-timer-panel" :class="{ timeout: isTimedOut }">
+      <span>{{ label }}</span>
+      <strong>{{ elapsedText }} / {{ timeoutText }}</strong>
+      <small v-if="isTimedOut">超过 3 分钟，等待后端标记失败…</small>
+    </div>
     <div v-else class="empty-panel">选择已完成任务后预览结果</div>
   </aside>
 </template>
 
 <script setup>
-import { computed } from "vue";
+import { computed, toRef } from "vue";
 import { fileUrl, statusLabel, statusType } from "../lib/formatters";
+import { useGenerationTimer } from "../lib/generationTimer";
 
 const props = defineProps({
   selectedTask: { type: Object, default: null },
@@ -38,6 +44,14 @@ const props = defineProps({
 });
 
 defineEmits(["show-detail"]);
+
+const {
+  elapsedText,
+  isTimedOut,
+  isWaitingForOutput,
+  label,
+  timeoutText,
+} = useGenerationTimer(toRef(props, "selectedTask"));
 
 const outputDate = computed(() => {
   const value = props.selectedTask?.completedAt || props.selectedTask?.updatedAt || props.selectedTask?.createdAt;

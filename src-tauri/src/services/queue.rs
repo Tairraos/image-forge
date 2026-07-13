@@ -11,7 +11,7 @@ use crate::{
         output_dir_for, pop_next_runnable, read_history, read_json, read_queue, read_settings,
         request_path, upsert_history, write_queue,
     },
-    utils::{http_client, utc_now},
+    utils::{http_client, utc_now, REQUEST_TIMEOUT_SECONDS},
 };
 
 pub(crate) fn ensure_queue_worker(app: &AppHandle) {
@@ -178,7 +178,15 @@ async fn run_task(app: AppHandle, task_id: String, provider: ApiProvider) -> Res
     }
 
     let client = http_client()?;
-    let result = execute_generation(&client, &provider, &request).await;
+    let result = match tokio::time::timeout(
+        Duration::from_secs(REQUEST_TIMEOUT_SECONDS),
+        execute_generation(&client, &provider, &request),
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(_) => Err("生成超时：超过 3 分钟未返回结果".into()),
+    };
 
     if is_cancel_requested(&app, &task_id) {
         mark_cancelled(&app, &data_dir, &task_id)?;

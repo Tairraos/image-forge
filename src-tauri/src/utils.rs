@@ -7,12 +7,21 @@ use url::Url;
 
 use crate::defaults::{APP_USER_AGENT, DEFAULT_BASE_URL, DEFAULT_PROVIDER_ID};
 
+pub(crate) const REQUEST_TIMEOUT_SECONDS: u64 = 180;
+
 pub(crate) fn http_client() -> Result<Client, String> {
     Client::builder()
-        .timeout(Duration::from_secs(600))
+        .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECONDS))
         .user_agent(APP_USER_AGENT)
         .build()
         .map_err(|error| format!("创建 HTTP 客户端失败: {error}"))
+}
+
+pub(crate) fn format_request_error(label: &str, error: reqwest::Error) -> String {
+    if error.is_timeout() {
+        return format!("{label} 超时：超过 3 分钟未返回结果");
+    }
+    format!("{label} 失败: {error}")
 }
 
 pub(crate) fn normalize_base_url(base_url: &str) -> Result<String, String> {

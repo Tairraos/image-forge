@@ -11,6 +11,11 @@
         <img :src="fileUrl(output.path)" :alt="output.fileName" />
       </figure>
     </div>
+    <div v-else-if="isWaitingForOutput" class="task-timer-preview" :class="{ timeout: isTimedOut }">
+      <span>{{ label }}</span>
+      <strong>{{ elapsedText }} / {{ timeoutText }}</strong>
+      <small v-if="isTimedOut">等待后端标记失败…</small>
+    </div>
 
     <footer>
       <span>{{ createdTime }}</span>
@@ -39,8 +44,9 @@
 </template>
 
 <script setup>
-import { computed } from "vue";
+import { computed, toRef } from "vue";
 import { fileUrl, shortId } from "../lib/formatters";
+import { useGenerationTimer } from "../lib/generationTimer";
 
 const props = defineProps({
   task: { type: Object, required: true },
@@ -54,6 +60,13 @@ const isFailed = computed(() => props.task.status === "failed" || props.task.sta
 const canRetry = computed(() => isFailed.value);
 const canDelete = computed(() => isCompleted.value || isFailed.value);
 const downloadableOutputs = computed(() => (isCompleted.value ? props.task.outputs || [] : []));
+const {
+  elapsedText,
+  isTimedOut,
+  isWaitingForOutput,
+  label,
+  timeoutText,
+} = useGenerationTimer(toRef(props, "task"));
 const createdTime = computed(() => {
   const value = props.task.completedAt || props.task.createdAt || props.task.updatedAt;
   if (!value) return "";

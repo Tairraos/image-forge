@@ -12,8 +12,9 @@ use crate::{
     defaults::APP_USER_AGENT,
     models::{ApiImageResult, ApiProvider, GenerateRequest, OutputImage, ReferencePreview},
     utils::{
-        extension_for_format, format_api_error, image_mime_type, image_prompt_for_transport,
-        mime_for_format, normalize_base_url, normalize_output_format, should_send_input_fidelity,
+        extension_for_format, format_api_error, format_request_error, image_mime_type,
+        image_prompt_for_transport, mime_for_format, normalize_base_url, normalize_output_format,
+        should_send_input_fidelity,
     },
 };
 
@@ -126,7 +127,7 @@ async fn call_images_generation(
         .json(&payload)
         .send()
         .await
-        .map_err(|error| format!("Images API 请求失败: {error}"))?;
+        .map_err(|error| format_request_error("Images API 请求", error))?;
 
     let body = checked_body(response, "Images API").await?;
     parse_images_response(client, &provider.api_key, &body, request).await
@@ -175,7 +176,7 @@ async fn call_images_edit(
         .multipart(form)
         .send()
         .await
-        .map_err(|error| format!("Images API 编辑请求失败: {error}"))?;
+        .map_err(|error| format_request_error("Images API 编辑请求", error))?;
 
     let body = checked_body(response, "Images API").await?;
     parse_images_response(client, &provider.api_key, &body, request).await
@@ -259,7 +260,7 @@ async fn download_image_url(client: &Client, api_key: &str, url: &str) -> Result
         .header(USER_AGENT, APP_USER_AGENT)
         .send()
         .await
-        .map_err(|error| format!("下载图像失败: {error}"))?;
+        .map_err(|error| format_request_error("下载图像", error))?;
     if response.status().as_u16() == 401 || response.status().as_u16() == 403 {
         response = client
             .get(url)
@@ -268,7 +269,7 @@ async fn download_image_url(client: &Client, api_key: &str, url: &str) -> Result
             .header(AUTHORIZATION, format!("Bearer {api_key}"))
             .send()
             .await
-            .map_err(|error| format!("带认证下载图像失败: {error}"))?;
+            .map_err(|error| format_request_error("带认证下载图像", error))?;
     }
     checked_body(response, "图像下载").await
 }
