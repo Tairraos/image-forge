@@ -3,11 +3,12 @@
     <n-global-style />
     <main class="app">
       <AppTopbar
-        :data-dir="dataDir"
+        :output-dir="outputDir"
         :form="form"
         :image-provider-options="imageProviderOptions"
         :chat-provider-options="chatProviderOptions"
         :queue="queue"
+        @reveal-output-dir="revealOutputDir"
         @show-api="showApiDialog = true"
         @show-gallery="showGalleryDrawer = true"
         @show-template="showTemplateDrawer = true"
@@ -34,6 +35,7 @@
           @cancel="cancelTask"
           @retry="retryTask"
           @promote="promoteTask"
+          @download-output="downloadOutput"
         />
 
         <div
@@ -214,6 +216,10 @@ const panelSizes = reactive({
 const workspaceStyle = computed(() => ({
   gridTemplateColumns: `${panelSizes.queue}px 10px minmax(0, 1fr) 10px ${panelSizes.composer}px`,
 }));
+
+const outputDir = computed(() =>
+  settings.value.outputDir || (dataDir.value ? `${dataDir.value}/outputs` : ""),
+);
 
 let pollTimer = 0;
 
@@ -582,6 +588,15 @@ async function saveOutputToGallery(output) {
   }
 }
 
+async function downloadOutput(output) {
+  try {
+    const savedPath = await invoke("download_output", { path: output.path });
+    setStatus(`已保存到下载目录：${fileName(savedPath)}`, "ok");
+  } catch (error) {
+    setStatus(String(error), "error");
+  }
+}
+
 function newSnippet() {
   Object.assign(snippetDraft, emptySnippet());
   showSnippetEditor.value = true;
@@ -662,6 +677,11 @@ async function reveal(path) {
   } catch (error) {
     setStatus(String(error), "error");
   }
+}
+
+async function revealOutputDir() {
+  if (!outputDir.value) return;
+  await reveal(outputDir.value);
 }
 
 function setStatus(message, tone = "idle") {

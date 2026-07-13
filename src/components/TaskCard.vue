@@ -5,6 +5,14 @@
       <span>{{ shortId(task.id) }}</span>
     </header>
     <p>{{ task.providerName || "API" }} · {{ task.model || "" }}</p>
+    <div v-if="task.outputs?.length" class="task-output-list">
+      <figure v-for="output in task.outputs" :key="output.path" class="task-output-thumb">
+        <img :src="fileUrl(output.path)" :alt="output.fileName" />
+        <button type="button" title="下载到 Downloads" @click.stop="$emit('download-output', output)">
+          <Download :size="13" />
+        </button>
+      </figure>
+    </div>
     <footer>
       <span class="task-status" :class="task.status">{{ statusLabel(task.status) }}</span>
       <div class="task-actions">
@@ -38,13 +46,13 @@
 </template>
 
 <script setup>
-import { ArrowUp, RotateCcw, XCircle } from "@lucide/vue";
-import { shortId, statusLabel } from "../lib/formatters";
+import { ArrowUp, Download, RotateCcw, XCircle } from "@lucide/vue";
+import { fileUrl, shortId, statusLabel } from "../lib/formatters";
 
 defineProps({
   task: { type: Object, required: true },
   selected: { type: Boolean, default: false },
 });
 
-defineEmits(["select", "cancel", "retry", "promote"]);
+defineEmits(["select", "cancel", "retry", "promote", "download-output"]);
 </script>

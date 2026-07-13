@@ -22,6 +22,7 @@
             @cancel="$emit('cancel', $event)"
             @retry="$emit('retry', $event)"
             @promote="$emit('promote', $event)"
+            @download-output="$emit('download-output', $event)"
           />
           <div v-if="!runningAndWaiting.length" class="empty-panel compact">队列为空</div>
         </div>
@@ -46,6 +47,7 @@
             @cancel="$emit('cancel', $event)"
             @retry="$emit('retry', $event)"
             @promote="$emit('promote', $event)"
+            @download-output="$emit('download-output', $event)"
           />
           <div v-if="!filteredHistory.length" class="empty-panel compact">没有匹配历史</div>
         </div>
@@ -73,5 +75,6 @@ defineEmits([
   "cancel",
   "retry",
   "promote",
+  "download-output",
 ]);
 </script>

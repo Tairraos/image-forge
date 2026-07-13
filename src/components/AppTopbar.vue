@@ -4,7 +4,17 @@
       <img :src="logoUrl" alt="Image Forge" />
       <div>
         <h1>Image Forge</h1>
-        <p>{{ dataDir || "加载应用数据目录" }}</p>
+        <div class="brand-path-row">
+          <p>{{ outputDir || "加载输出目录" }}</p>
+          <n-button
+            size="tiny"
+            secondary
+            :disabled="!outputDir"
+            @click="$emit('reveal-output-dir')"
+          >
+            定位
+          </n-button>
+        </div>
       </div>
     </div>
 
@@ -65,12 +75,19 @@ import { BookOpen, Image, Layers, Settings, SlidersHorizontal } from "@lucide/vu
 import logoUrl from "../assets/app-icon.png";
 
 defineProps({
-  dataDir: { type: String, default: "" },
+  outputDir: { type: String, default: "" },
   form: { type: Object, required: true },
   imageProviderOptions: { type: Array, default: () => [] },
   chatProviderOptions: { type: Array, default: () => [] },
   queue: { type: Object, required: true },
 });
 
-defineEmits(["show-api", "show-gallery", "show-template", "show-snippet", "show-settings"]);
+defineEmits([
+  "reveal-output-dir",
+  "show-api",
+  "show-gallery",
+  "show-template",
+  "show-snippet",
+  "show-settings",
+]);
 </script>

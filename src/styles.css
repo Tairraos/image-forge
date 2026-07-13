@@ -83,6 +83,14 @@ button:disabled {
   letter-spacing: 0;
 }
 
+.brand-path-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
 .brand p,
 .section-head p,
 .selected-task span {
@@ -441,6 +449,43 @@ button:disabled {
   white-space: nowrap;
 }
 
+.task-output-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(54px, 1fr));
+  gap: 6px;
+}
+
+.task-output-thumb {
+  position: relative;
+  overflow: hidden;
+  margin: 0;
+  border: 1px solid #e4dbff;
+  border-radius: 7px;
+  background: #faf7ff;
+}
+
+.task-output-thumb img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+}
+
+.task-output-thumb button {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  border-radius: 7px;
+  background: rgba(49, 37, 79, 0.76);
+  color: #fff;
+  box-shadow: 0 6px 16px rgba(49, 37, 79, 0.22);
+}
+
 .task-card footer,
 .output-card footer,
 .gallery-card footer,
@@ -541,6 +586,7 @@ button:disabled {
   width: 100%;
   aspect-ratio: 1;
   object-fit: contain;
+  object-position: top center;
   display: block;
   background:
     linear-gradient(45deg, #f1ecff 25%, transparent 25%),

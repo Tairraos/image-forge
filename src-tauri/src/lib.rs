@@ -26,6 +26,7 @@ pub fn run() {
             commands::delete_gallery_item,
             commands::delete_snippet,
             commands::delete_template,
+            commands::download_output,
             commands::enqueue_generation,
             commands::load_app_state,
             commands::mark_template_used,

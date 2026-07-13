@@ -356,6 +356,27 @@ pub(crate) fn mark_template_used(
 }
 
 #[tauri::command]
+pub(crate) fn download_output(app: AppHandle, path: String) -> Result<String, String> {
+    let source = PathBuf::from(path);
+    if !source.is_file() {
+        return Err("找不到要下载的图片".into());
+    }
+    let downloads_dir = app
+        .path()
+        .download_dir()
+        .map_err(|error| format!("找不到下载目录: {error}"))?;
+    fs::create_dir_all(&downloads_dir).map_err(|error| format!("创建下载目录失败: {error}"))?;
+    let file_name = source
+        .file_name()
+        .ok_or("图片文件名无效")?
+        .to_string_lossy()
+        .into_owned();
+    let target = unique_download_path(&downloads_dir, &file_name);
+    fs::copy(&source, &target).map_err(|error| format!("保存到下载目录失败: {error}"))?;
+    Ok(target.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
 pub(crate) fn reveal_path(path: String) -> Result<(), String> {
     let path = PathBuf::from(path);
     if !path.exists() {
@@ -365,7 +386,11 @@ pub(crate) fn reveal_path(path: String) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     let mut command = {
         let mut command = Command::new("open");
-        command.arg("-R").arg(&path);
+        if path.is_dir() {
+            command.arg(&path);
+        } else {
+            command.arg("-R").arg(&path);
+        }
         command
     };
 
@@ -389,4 +414,34 @@ pub(crate) fn reveal_path(path: String) -> Result<(), String> {
         .spawn()
         .map_err(|error| format!("打开路径失败: {error}"))?;
     Ok(())
+}
+
+fn unique_download_path(downloads_dir: &Path, file_name: &str) -> PathBuf {
+    let candidate = downloads_dir.join(file_name);
+    if !candidate.exists() {
+        return candidate;
+    }
+
+    let source_path = Path::new(file_name);
+    let stem = source_path
+        .file_stem()
+        .map(|value| value.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "image".into());
+    let extension = source_path
+        .extension()
+        .map(|value| value.to_string_lossy().into_owned())
+        .filter(|value| !value.is_empty());
+
+    for index in 1.. {
+        let next_name = if let Some(extension) = &extension {
+            format!("{stem}-{index}.{extension}")
+        } else {
+            format!("{stem}-{index}")
+        };
+        let next = downloads_dir.join(next_name);
+        if !next.exists() {
+            return next;
+        }
+    }
+    unreachable!()
 }
