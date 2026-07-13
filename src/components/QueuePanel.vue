@@ -1,24 +1,17 @@
 <template>
   <aside class="queue-column">
-    <div class="section-head">
-      <div>
-        <h2>生成历史</h2>
-        <p>{{ historyQuery ? "搜索结果" : "从旧到新" }}</p>
-      </div>
-      <n-button circle quaternary size="small" @click="$emit('refresh')">
-        <template #icon><RotateCcw :size="16" /></template>
-      </n-button>
+    <div class="history-toolbar">
+      <n-input
+        :value="historyQuery"
+        size="small"
+        clearable
+        placeholder="搜索提示词或任务 ID"
+        @update:value="$emit('update:history-query', $event)"
+      >
+        <template #prefix><Search :size="15" /></template>
+      </n-input>
+      <n-button text size="small" @click="$emit('refresh')">刷新</n-button>
     </div>
-
-    <n-input
-      :value="historyQuery"
-      size="small"
-      clearable
-      placeholder="搜索提示词或任务 ID"
-      @update:value="$emit('update:history-query', $event)"
-    >
-      <template #prefix><Search :size="15" /></template>
-    </n-input>
 
     <div ref="historyListRef" class="task-stack history-stack">
       <TaskCard
@@ -30,6 +23,7 @@
         @retry="$emit('retry', $event)"
         @delete="$emit('delete', $event)"
         @download-output="$emit('download-output', $event)"
+        @reveal-output="$emit('reveal-output', $event)"
       />
       <div v-if="!filteredHistory.length" class="empty-panel compact">没有生成历史</div>
     </div>
@@ -38,7 +32,7 @@
 
 <script setup>
 import { nextTick, ref, watch } from "vue";
-import { RotateCcw, Search } from "@lucide/vue";
+import { Search } from "@lucide/vue";
 import TaskCard from "./TaskCard.vue";
 
 const props = defineProps({
@@ -54,6 +48,7 @@ defineEmits([
   "retry",
   "delete",
   "download-output",
+  "reveal-output",
 ]);
 
 const historyListRef = ref(null);

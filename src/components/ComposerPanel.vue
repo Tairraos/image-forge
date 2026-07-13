@@ -1,12 +1,5 @@
 <template>
   <section class="composer-column">
-    <div class="section-head">
-      <div>
-        <h2>生成工作台</h2>
-        <p>OpenAI 兼容 Images API</p>
-      </div>
-    </div>
-
     <div class="control-surface">
       <n-form label-placement="top" :show-feedback="false">
         <div class="control-grid">
@@ -28,7 +21,7 @@
 
     <div class="prompt-live-panel">
       <div class="prompt-live-head">
-        <span>提示实况</span>
+        <span>提示词</span>
         <small>{{ form.prompt.length }} 字</small>
       </div>
       <n-input

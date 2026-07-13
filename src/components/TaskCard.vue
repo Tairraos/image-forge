@@ -23,6 +23,14 @@
         >
           下载
         </button>
+        <button
+          v-for="output in downloadableOutputs"
+          :key="`${output.path}-reveal`"
+          type="button"
+          @click.stop="$emit('reveal-output', output)"
+        >
+          定位
+        </button>
         <button v-if="canRetry" type="button" @click.stop="$emit('retry', task)">重试</button>
         <button v-if="canDelete" type="button" @click.stop="$emit('delete', task)">删除</button>
       </div>
@@ -39,7 +47,7 @@ const props = defineProps({
   selected: { type: Boolean, default: false },
 });
 
-defineEmits(["select", "retry", "delete", "download-output"]);
+defineEmits(["select", "retry", "delete", "download-output", "reveal-output"]);
 
 const isCompleted = computed(() => props.task.status === "completed");
 const isFailed = computed(() => props.task.status === "failed" || props.task.status === "cancelled");

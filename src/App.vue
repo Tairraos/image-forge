@@ -3,12 +3,10 @@
     <n-global-style />
     <main class="app">
       <AppTopbar
-        :output-dir="outputDir"
         :form="form"
         :image-provider-options="imageProviderOptions"
         :chat-provider-options="chatProviderOptions"
         :queue="queue"
-        @reveal-output-dir="revealOutputDir"
         @show-api="showApiDialog = true"
         @show-template="showTemplateDrawer = true"
         @show-snippet="showSnippetModal = true"
@@ -32,6 +30,7 @@
           @retry="retryTask"
           @delete="deleteTask"
           @download-output="downloadOutput"
+          @reveal-output="reveal($event.path)"
         />
 
         <div
@@ -134,7 +133,6 @@ import { deepClone, defaultSettings, emptySnippet, emptyTemplate, normalizeSetti
 import {
   DEFAULT_PROMPT_MODE,
   DEFAULT_RATIO,
-  DEFAULT_RESOLUTION,
   orientationForRatio,
   sizeForPreset,
 } from "./lib/options";
@@ -173,9 +171,9 @@ const form = reactive({
   chatProviderId: "",
   prompt: "",
   promptMode: DEFAULT_PROMPT_MODE,
-  resolution: DEFAULT_RESOLUTION,
+  resolution: "4k",
   ratio: DEFAULT_RATIO,
-  quality: "auto",
+  quality: "medium",
 });
 
 const panelSizes = reactive({
@@ -186,10 +184,6 @@ const panelSizes = reactive({
 const workspaceStyle = computed(() => ({
   gridTemplateColumns: `${panelSizes.queue}px 10px minmax(0, 1fr) 10px ${panelSizes.composer}px`,
 }));
-
-const outputDir = computed(() =>
-  settings.value.outputDir || (dataDir.value ? `${dataDir.value}/outputs` : ""),
-);
 
 let pollTimer = 0;
 
@@ -572,11 +566,6 @@ async function reveal(path) {
   } catch (error) {
     setStatus(String(error), "error");
   }
-}
-
-async function revealOutputDir() {
-  if (!outputDir.value) return;
-  await reveal(outputDir.value);
 }
 
 function setStatus(message, tone = "idle") {

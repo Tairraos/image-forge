@@ -1,25 +1,12 @@
 <template>
   <aside class="result-column">
-    <div class="section-head">
-      <div>
-        <h2>结果预览</h2>
-        <p>{{ selectedTask ? shortId(selectedTask.id) : "未选择任务" }}</p>
-      </div>
-      <n-button
-        circle
-        quaternary
-        size="small"
-        :disabled="!selectedTask"
-        @click="$emit('show-detail')"
-      >
-        <template #icon><Eye :size="16" /></template>
-      </n-button>
-    </div>
-
     <div v-if="selectedTask" class="selected-task">
-      <n-tag :type="statusType(selectedTask.status)" size="small">
-        {{ statusLabel(selectedTask.status) }}
-      </n-tag>
+      <div class="selected-task-head">
+        <n-tag :type="statusType(selectedTask.status)" size="small">
+          {{ statusLabel(selectedTask.status) }}
+        </n-tag>
+        <n-button text size="small" @click="$emit('show-detail')">任务详情</n-button>
+      </div>
       <strong>{{ selectedTask.prompt || "空提示词" }}</strong>
       <span>{{ selectedTask.providerName }} · {{ selectedTask.model }}</span>
       <p v-if="selectedTask.error">{{ selectedTask.error }}</p>
@@ -43,8 +30,7 @@
 
 <script setup>
 import { computed } from "vue";
-import { Eye } from "@lucide/vue";
-import { fileUrl, shortId, statusLabel, statusType } from "../lib/formatters";
+import { fileUrl, statusLabel, statusType } from "../lib/formatters";
 
 const props = defineProps({
   selectedTask: { type: Object, default: null },
