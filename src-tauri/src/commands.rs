@@ -167,6 +167,32 @@ pub(crate) fn retry_task(app: AppHandle, task_id: String) -> Result<TaskRecord, 
 }
 
 #[tauri::command]
+pub(crate) fn delete_task(app: AppHandle, task_id: String) -> Result<(), String> {
+    let data_dir = ensure_data_dir(&app)?;
+    let mut history = read_history(&data_dir)?;
+    let Some(index) = history.iter().position(|item| item.id == task_id) else {
+        return Err("找不到任务".into());
+    };
+    let status = history[index].status.as_str();
+    if matches!(status, "queued" | "running" | "cancelling") {
+        return Err("任务仍在执行或排队中，不能删除".into());
+    }
+
+    history.remove(index);
+    let mut queue = read_queue(&data_dir)?;
+    queue.waiting.retain(|id| id != &task_id);
+    queue.running.retain(|run| run.task_id != task_id);
+    write_history(&data_dir, &history)?;
+    write_queue(&data_dir, &queue)?;
+
+    let request_file = request_path(&data_dir, &task_id);
+    if request_file.exists() {
+        fs::remove_file(request_file).map_err(|error| format!("删除任务请求失败: {error}"))?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub(crate) fn promote_task(app: AppHandle, task_id: String) -> Result<QueueSnapshot, String> {
     let data_dir = ensure_data_dir(&app)?;
     let mut queue = read_queue(&data_dir)?;

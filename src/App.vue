@@ -24,17 +24,14 @@
 
       <section class="workspace" :style="workspaceStyle">
         <QueuePanel
-          :queue="queue"
-          :running-and-waiting="runningAndWaiting"
           :filtered-history="filteredHistory"
           :selected-task-id="selectedTaskId"
           :history-query="historyQuery"
           @refresh="refreshAll"
           @select-task="selectedTaskId = $event"
           @update:history-query="historyQuery = $event"
-          @cancel="cancelTask"
           @retry="retryTask"
-          @promote="promoteTask"
+          @delete="deleteTask"
           @download-output="downloadOutput"
         />
 
@@ -251,11 +248,19 @@ const activeProvider = computed(() =>
   || imageProviders.value[0],
 );
 
-const runningAndWaiting = computed(() => [...queue.running, ...queue.waiting]);
+const historyTimeline = computed(() => {
+  const byId = new Map();
+  for (const task of [...history.value, ...queue.running, ...queue.waiting]) {
+    if (task?.id) byId.set(task.id, task);
+  }
+  return Array.from(byId.values()).sort((left, right) =>
+    taskTime(left).localeCompare(taskTime(right)),
+  );
+});
 
 const filteredHistory = computed(() => {
   const query = historyQuery.value.trim().toLowerCase();
-  const items = history.value;
+  const items = historyTimeline.value;
   if (!query) return items;
   return items.filter((task) =>
     [task.id, task.prompt, task.providerName, task.model]
@@ -267,9 +272,7 @@ const filteredHistory = computed(() => {
 });
 
 const selectedTask = computed(() =>
-  history.value.find((task) => task.id === selectedTaskId.value)
-  || queue.running.find((task) => task.id === selectedTaskId.value)
-  || queue.waiting.find((task) => task.id === selectedTaskId.value)
+  historyTimeline.value.find((task) => task.id === selectedTaskId.value)
   || null,
 );
 
@@ -387,7 +390,7 @@ function applyQueue(snapshot) {
 
 function ensureSelectedTask() {
   if (selectedTask.value) return;
-  const next = queue.running[0] || queue.waiting[0] || history.value[0];
+  const next = historyTimeline.value.at(-1);
   selectedTaskId.value = next?.id || "";
 }
 
@@ -418,7 +421,7 @@ async function submitTask() {
     };
     const task = await invoke("enqueue_generation", { request });
     selectedTaskId.value = task.id;
-    setStatus("任务已加入队列", "ok");
+    setStatus("已开始生成", "ok");
     await refreshQueueOnly();
   } catch (error) {
     setStatus(String(error), "error");
@@ -467,11 +470,13 @@ async function retryTask(task) {
   }
 }
 
-async function promoteTask(task) {
+async function deleteTask(task) {
+  if (!window.confirm("删除这条生成记录？")) return;
   try {
-    const snapshot = await invoke("promote_task", { taskId: task.id });
-    applyQueue(snapshot);
-    setStatus("已移到队首", "ok");
+    await invoke("delete_task", { taskId: task.id });
+    if (selectedTaskId.value === task.id) selectedTaskId.value = "";
+    setStatus("生成记录已删除", "ok");
+    await refreshAll();
   } catch (error) {
     setStatus(String(error), "error");
   }
@@ -691,6 +696,10 @@ function setStatus(message, tone = "idle") {
 
 function modelOptionLabel(provider) {
   return `${provider.name} · ${provider.imageModel || "未设置模型"}`;
+}
+
+function taskTime(task) {
+  return task.createdAt || task.updatedAt || task.completedAt || "";
 }
 
 function ensureSelectedModels(preferSaved = false) {

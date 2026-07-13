@@ -25,6 +25,7 @@ pub fn run() {
             commands::cancel_task,
             commands::delete_gallery_item,
             commands::delete_snippet,
+            commands::delete_task,
             commands::delete_template,
             commands::download_output,
             commands::enqueue_generation,

@@ -5,10 +5,6 @@
         <h2>生成工作台</h2>
         <p>OpenAI 兼容 Images API</p>
       </div>
-      <n-button size="small" type="primary" :loading="submitting" @click="$emit('submit')">
-        <template #icon><WandSparkles :size="17" /></template>
-        加入队列
-      </n-button>
     </div>
 
     <div class="control-surface">
@@ -30,13 +26,25 @@
       </n-form>
     </div>
 
-    <n-input
-      v-model:value="form.prompt"
-      type="textarea"
-      class="prompt-input"
-      :resizable="false"
-      placeholder="写下你要生成的画面、风格、主体、光线和构图"
-    />
+    <div class="prompt-live-panel">
+      <div class="prompt-live-head">
+        <span>提示实况</span>
+        <small>{{ form.prompt.length }} 字</small>
+      </div>
+      <n-input
+        v-model:value="form.prompt"
+        type="textarea"
+        class="prompt-input"
+        :resizable="false"
+        placeholder="写下你要生成的画面、风格、主体、光线和构图"
+      />
+      <div class="prompt-submit-row">
+        <n-button size="small" type="primary" :loading="submitting" @click="$emit('submit')">
+          <template #icon><WandSparkles :size="17" /></template>
+          开始生成
+        </n-button>
+      </div>
+    </div>
 
     <div class="quick-bar">
       <n-button size="small" secondary @click="$emit('show-template')">
