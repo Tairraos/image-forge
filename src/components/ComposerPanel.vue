@@ -38,24 +38,22 @@
         class="prompt-input"
         :resizable="false"
         placeholder="写下你要生成的画面、风格、主体、光线和构图"
+        @focus="$emit('prompt-focus', $event)"
+        @click="$emit('prompt-cursor', $event)"
+        @keyup="$emit('prompt-cursor', $event)"
+        @select="$emit('prompt-cursor', $event)"
       />
       <div class="prompt-submit-row">
+        <n-button size="small" secondary @click="$emit('clear-prompt')">清空</n-button>
+        <n-button size="small" secondary @click="$emit('show-template')">
+          <template #icon><BookOpen :size="15" /></template>
+          模板
+        </n-button>
         <n-button size="small" type="primary" :loading="submitting" @click="$emit('submit')">
           <template #icon><WandSparkles :size="17" /></template>
           开始生成
         </n-button>
       </div>
-    </div>
-
-    <div class="quick-bar">
-      <n-button size="small" secondary @click="$emit('show-template')">
-        <template #icon><BookOpen :size="15" /></template>
-        模板
-      </n-button>
-      <n-button size="small" secondary @click="$emit('add-reference')">
-        <template #icon><Upload :size="15" /></template>
-        添加参考图
-      </n-button>
     </div>
 
     <div class="reference-strip">
@@ -74,7 +72,7 @@
 </template>
 
 <script setup>
-import { BookOpen, Plus, Upload, WandSparkles, XCircle } from "@lucide/vue";
+import { BookOpen, Plus, WandSparkles, XCircle } from "@lucide/vue";
 import {
   promptModeOptions,
   qualityOptions,
@@ -92,6 +90,9 @@ defineProps({
 defineEmits([
   "submit",
   "show-template",
+  "clear-prompt",
+  "prompt-focus",
+  "prompt-cursor",
   "add-reference",
   "remove-reference",
 ]);

@@ -393,13 +393,26 @@ pub(crate) fn normalize_template(mut template: PromptTemplate) -> Result<PromptT
         .filter(|tag| !tag.is_empty())
         .take(8)
         .collect();
-    if template.title.is_empty() || template.content.is_empty() {
-        return Err("模板需要标题和内容".into());
+    if template.content.is_empty() {
+        return Err("模板内容不能为空".into());
+    }
+    if template.title.is_empty() {
+        template.title = template.content.chars().take(24).collect();
     }
     if template.short_title.is_empty() {
         template.short_title = template.title.chars().take(8).collect();
     }
     Ok(template)
+}
+
+pub(crate) fn next_template_id(templates: &[PromptTemplate]) -> String {
+    let next = templates
+        .iter()
+        .filter_map(|template| template.id.parse::<u64>().ok())
+        .max()
+        .unwrap_or(0)
+        + 1;
+    next.to_string()
 }
 
 pub(crate) fn read_json<T>(path: &Path) -> Result<T, String>

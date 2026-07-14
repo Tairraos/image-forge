@@ -29,7 +29,7 @@
         <template #icon><Settings :size="16" /></template>
         API 源
       </n-button>
-      <n-button quaternary size="small" @click="$emit('show-template')">
+      <n-button quaternary size="small" @click="$emit('show-template-manager')">
         <template #icon><BookOpen :size="16" /></template>
         模板
       </n-button>
@@ -53,7 +53,7 @@ defineProps({
 
 defineEmits([
   "show-api",
-  "show-template",
+  "show-template-manager",
   "show-settings",
 ]);
 </script>

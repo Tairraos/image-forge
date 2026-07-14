@@ -7,7 +7,7 @@
         :chat-provider-options="chatProviderOptions"
         :queue="queue"
         @show-api="showApiDialog = true"
-        @show-template="showTemplateDialog = true"
+        @show-template-manager="showTemplateManagerDialog = true"
         @show-settings="showSettingsDialog = true"
       />
 
@@ -59,7 +59,10 @@
           :references="references"
           :submitting="submitting"
           @submit="submitTask"
-          @show-template="showTemplateDialog = true"
+          @show-template="showTemplateReferenceDialog = true"
+          @clear-prompt="clearPrompt"
+          @prompt-focus="capturePromptCursor"
+          @prompt-cursor="capturePromptCursor"
           @add-reference="addReferenceImages"
           @remove-reference="references.splice($event, 1)"
         />
@@ -72,19 +75,29 @@
       />
 
       <TemplateManagerDialog
-        v-model:show="showTemplateDialog"
+        v-model:show="showTemplateManagerDialog"
         v-model:query="templateQuery"
-        v-model:selected-content="templatePreview"
-        :chat-provider-id="form.chatProviderId"
-        :chat-provider-options="chatProviderOptions"
         :templates="filteredTemplates"
-        @update:chat-provider-id="form.chatProviderId = $event"
         @view="viewTemplate"
         @edit="editTemplate"
         @delete="deletePromptTemplate"
-        @create="createTemplateFromContent"
-        @insert="insertTemplate"
-        @ai-fill="aiFillTemplate"
+        @create="newTemplate"
+      />
+
+      <TemplateReferenceDialog
+        v-model:show="showTemplateReferenceDialog"
+        v-model:query="templateReferenceQuery"
+        v-model:content="templateReferenceContent"
+        :templates="filteredReferenceTemplates"
+        :selected-template-id="selectedReferenceTemplateId"
+        :chat-provider-id="form.chatProviderId"
+        :chat-provider-options="chatProviderOptions"
+        :filled-ranges="templateFilledRanges"
+        :filling="templateFilling"
+        @update:chat-provider-id="form.chatProviderId = $event"
+        @select-template="selectReferenceTemplate"
+        @ai-fill="fillReferenceTemplate"
+        @insert="insertReferenceTemplate"
       />
 
       <SettingsDialog
@@ -97,6 +110,7 @@
       <TemplateEditorDialog
         v-model:show="showTemplateEditor"
         :template="templateDraft"
+        :mode="templateEditorMode"
         @save="savePromptTemplate"
       />
 
@@ -120,6 +134,7 @@ import SettingsDialog from "./components/dialogs/SettingsDialog.vue";
 import TaskDetailDialog from "./components/dialogs/TaskDetailDialog.vue";
 import TemplateEditorDialog from "./components/dialogs/TemplateEditorDialog.vue";
 import TemplateManagerDialog from "./components/dialogs/TemplateManagerDialog.vue";
+import TemplateReferenceDialog from "./components/dialogs/TemplateReferenceDialog.vue";
 import { clamp, fileName, statusLabel } from "./lib/formatters";
 import { deepClone, defaultSettings, emptyTemplate, normalizeSettingsForUi } from "./lib/models";
 import {
@@ -144,15 +159,22 @@ const selectedTaskId = ref("");
 const submitting = ref(false);
 const historyQuery = ref("");
 const templateQuery = ref("");
-const templatePreview = ref("");
+const templateReferenceQuery = ref("");
+const templateReferenceContent = ref("");
+const selectedReferenceTemplateId = ref("");
+const templateFilledRanges = ref([]);
+const templateFilling = ref(false);
+const promptCursor = ref(0);
 
 const showApiDialog = ref(false);
-const showTemplateDialog = ref(false);
+const showTemplateManagerDialog = ref(false);
+const showTemplateReferenceDialog = ref(false);
 const showSettingsDialog = ref(false);
 const showTemplateEditor = ref(false);
 const showTaskDetail = ref(false);
 
 const templateDraft = reactive(emptyTemplate());
+const templateEditorMode = ref("edit");
 
 const form = reactive({
   providerId: "",
@@ -238,7 +260,15 @@ const filteredTemplates = computed(() => {
   const query = templateQuery.value.trim().toLowerCase();
   if (!query) return templates.value;
   return templates.value.filter((item) =>
-    [item.id, item.title, item.shortTitle, item.category, item.content, item.notes].join(" ").toLowerCase().includes(query),
+    [item.id, item.content].join(" ").toLowerCase().includes(query),
+  );
+});
+
+const filteredReferenceTemplates = computed(() => {
+  const query = templateReferenceQuery.value.trim().toLowerCase();
+  if (!query) return templates.value;
+  return templates.value.filter((item) =>
+    [item.id, item.content].join(" ").toLowerCase().includes(query),
   );
 });
 
@@ -517,30 +547,21 @@ async function downloadOutput(output) {
   }
 }
 
-async function createTemplateFromContent(content) {
-  const trimmed = content.trim();
-  if (!trimmed) {
-    setStatus("模板内容不能为空", "error");
-    return;
-  }
-  try {
-    templates.value = await invoke("save_template", {
-      template: {
-        ...emptyTemplate(),
-        title: trimmed.slice(0, 24) || "新模板",
-        content: trimmed,
-        modelHint: form.chatProviderId,
-      },
-    });
-    templatePreview.value = "";
-    setStatus("模板已新增", "ok");
-  } catch (error) {
-    setStatus(String(error), "error");
-  }
+function newTemplate() {
+  Object.assign(templateDraft, emptyTemplate());
+  templateEditorMode.value = "new";
+  showTemplateEditor.value = true;
+}
+
+function viewTemplate(template) {
+  Object.assign(templateDraft, deepClone(template));
+  templateEditorMode.value = "view";
+  showTemplateEditor.value = true;
 }
 
 function editTemplate(template) {
   Object.assign(templateDraft, deepClone(template));
+  templateEditorMode.value = "edit";
   showTemplateEditor.value = true;
 }
 
@@ -555,6 +576,7 @@ async function savePromptTemplate() {
 }
 
 async function deletePromptTemplate(id) {
+  if (!window.confirm("删除这个模板？")) return;
   try {
     templates.value = await invoke("delete_template", { templateId: id });
   } catch (error) {
@@ -562,29 +584,110 @@ async function deletePromptTemplate(id) {
   }
 }
 
-async function insertTemplate(template, replace) {
-  if (replace) {
-    form.prompt = template.content;
-  } else {
-    insertText(template.content);
+function selectReferenceTemplate(template) {
+  selectedReferenceTemplateId.value = template.id;
+  templateReferenceContent.value = template.content || "";
+  templateFilledRanges.value = [];
+}
+
+async function fillReferenceTemplate() {
+  if (!templateReferenceContent.value.trim()) {
+    setStatus("请先选择或输入模板内容", "error");
+    return;
   }
-  if (template.id) {
-    templates.value = await invoke("mark_template_used", { templateId: template.id });
+  if (!form.chatProviderId) {
+    setStatus("请先选择对话模型", "error");
+    return;
   }
-  showTemplateDialog.value = false;
+  templateFilling.value = true;
+  try {
+    const original = templateReferenceContent.value;
+    const filled = await invoke("fill_prompt_template", {
+      providerId: form.chatProviderId,
+      template: original,
+    });
+    templateReferenceContent.value = filled;
+    templateFilledRanges.value = mapFilledRanges(original, filled);
+    setStatus("模板已填充", "ok");
+  } catch (error) {
+    setStatus(String(error), "error");
+  } finally {
+    templateFilling.value = false;
+  }
 }
 
-function viewTemplate(template) {
-  templatePreview.value = template.content || "";
+async function insertReferenceTemplate() {
+  const content = templateReferenceContent.value;
+  if (!content.trim()) {
+    setStatus("模板内容为空", "error");
+    return;
+  }
+  insertTextAtCursor(content);
+  if (selectedReferenceTemplateId.value) {
+    try {
+      templates.value = await invoke("mark_template_used", { templateId: selectedReferenceTemplateId.value });
+    } catch (error) {
+      setStatus(String(error), "error");
+    }
+  }
+  showTemplateReferenceDialog.value = false;
+  setStatus("模板已引用到提示词", "ok");
 }
 
-function aiFillTemplate() {
-  setStatus("AI 填充功能稍后实现", "busy");
+function clearPrompt() {
+  form.prompt = "";
+  promptCursor.value = 0;
 }
 
-function insertText(text) {
-  const glue = form.prompt.trim() ? "\n" : "";
-  form.prompt = `${form.prompt}${glue}${text}`;
+function capturePromptCursor(event) {
+  const target = event?.target;
+  if (typeof target?.selectionStart === "number") {
+    promptCursor.value = target.selectionStart;
+  }
+}
+
+function insertTextAtCursor(text) {
+  const start = clamp(promptCursor.value, 0, form.prompt.length);
+  form.prompt = `${form.prompt.slice(0, start)}${text}${form.prompt.slice(start)}`;
+  promptCursor.value = start + text.length;
+}
+
+function mapFilledRanges(original, filled) {
+  const placeholders = templatePlaceholders(original);
+  if (!placeholders.length) return [];
+  const ranges = [];
+  let originalCursor = 0;
+  let filledCursor = 0;
+  for (const placeholder of placeholders) {
+    const prefix = original.slice(originalCursor, placeholder.start);
+    const prefixIndex = prefix ? filled.indexOf(prefix, filledCursor) : filledCursor;
+    if (prefixIndex >= 0) {
+      filledCursor = prefixIndex + prefix.length;
+    }
+    const suffixStart = placeholder.end;
+    const nextPlaceholder = placeholders.find((item) => item.start >= suffixStart);
+    const suffix = nextPlaceholder
+      ? original.slice(suffixStart, nextPlaceholder.start)
+      : original.slice(suffixStart);
+    const suffixIndex = suffix ? filled.indexOf(suffix, filledCursor) : filled.length;
+    const end = suffixIndex >= 0 ? suffixIndex : filled.length;
+    if (end > filledCursor) {
+      ranges.push({ start: filledCursor, end });
+    }
+    filledCursor = end;
+    originalCursor = suffixStart;
+  }
+  return ranges;
+}
+
+function templatePlaceholders(value) {
+  const matches = [];
+  const pattern = /\{[^{}]+\}/g;
+  let match;
+  while ((match = pattern.exec(value)) !== null) {
+    matches.push({ start: match.index, end: match.index + match[0].length });
+  }
+  return matches;
 }
 
 async function reveal(path) {

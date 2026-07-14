@@ -29,8 +29,9 @@ flowchart LR
 | `src/components/ComposerPanel.vue` | 生图模型选择、生成参数、提示词输入、参考图条。 |
 | `src/components/TaskCard.vue` | 单个历史任务卡片，负责展示结果、计时器和重用/刷新/下载/定位/重试/删除动作。 |
 | `src/components/dialogs/ApiSourceDialog.vue` | API 源/模型管理、类型选择、导入、复制、排序和编辑；内部 ID 自动生成且不展示。 |
-| `src/components/dialogs/TemplateManagerDialog.vue` | 模板维护弹窗：对话模型选择、搜索、模板列表、查看/编辑/删除、新增/引用/AI 填充入口。 |
-| `src/components/dialogs/TemplateEditorDialog.vue` | 模板编辑弹窗。 |
+| `src/components/dialogs/TemplateManagerDialog.vue` | 模板维护弹窗：搜索、模板列表、查看/编辑/删除、新增入口。 |
+| `src/components/dialogs/TemplateEditorDialog.vue` | 模板新增/编辑/查看弹窗；查看模式会高亮 `{}` 占位区域。 |
+| `src/components/dialogs/TemplateReferenceDialog.vue` | 引用模板弹窗：左侧搜索和模板列表，右侧预览、AI 填充、引用到提示词光标位置。 |
 | `src/components/dialogs/SettingsDialog.vue` | 输出目录、队列重试和通知设置。 |
 | `src/components/dialogs/TaskDetailDialog.vue` | 任务详情、输出图列表和重用入口，弹窗不超过屏幕可视区域并允许滚动。 |
 | `src/lib/models.js` | 前端默认数据结构、空草稿对象、深拷贝和设置归一化。 |
@@ -42,7 +43,7 @@ flowchart LR
 ### 前端数据传递
 
 - `App.vue` 持有唯一业务状态源：`settings`、`queue`、`history`、`templates`、`references`、`form`。
-- 顶部栏维护 `form.chatProviderId`，用于后续对话模型填充模板；工作台质量参数下方维护 `form.providerId`，用于当前生图模型。
+- 顶部栏维护 `form.chatProviderId`，引用模板弹窗也可切换该对话模型并用于 AI 填充；工作台质量参数下方维护 `form.providerId`，用于当前生图模型。
 - 生图模型默认优先使用最近一次成功生成的模型；如果该模型不在当前列表里，默认选中第一个生图模型。
 - 生成工作台只暴露五类参数：提示词模式、分辨率、比例、质量、生图模型；数量固定为 `1`，输出格式固定为 `png`。
 - 前端提交前用 `sizeForPreset(resolution, ratio)` 把 `1K/2K/4K + 比例` 换算成 Images API 需要的像素尺寸。
@@ -95,7 +96,7 @@ app_data_dir/
 | 输出图片 | `outputs/` 或设置中的输出目录 | 生成图片文件。 |
 | 图库元数据 | `gallery/gallery.json` | 图库条目、分类列表。 |
 | 图库图片 | `gallery/images/` | 导入或保存到图库的图片副本。 |
-| 提示词模板 | `prompt-templates.json` | 模板内容、分类、收藏、使用次数。 |
+| 提示词模板 | `prompt-templates.json` | 模板内容、数字自增 ID、使用次数和兼容旧字段。 |
 
 ## 生图运行逻辑
 
@@ -147,6 +148,33 @@ sequenceDiagram
 - 发送 API 前会把比例写入模型提示词，例如 `16:9` 会追加 `将宽高比设为 16:9`，避免只靠 `size` 时模型忽略构图比例。
 - `prompt_fidelity=strict` 会参考 example 的 direct Images transport，在出站 prompt 前追加保真守护指令；`original/off` 则保持用户提示词本身。
 
+## 模板填充逻辑
+
+```mermaid
+sequenceDiagram
+  participant UI as 引用模板弹窗
+  participant Cmd as commands.rs
+  participant Chat as services/chat.rs
+  participant API as Chat Completions API
+
+  UI->>UI: 选择模板并显示内容
+  UI->>Cmd: fill_prompt_template(providerId, template)
+  Cmd->>Cmd: 校验 provider 是 chat 类型
+  Cmd->>Chat: fill_template()
+  Chat->>API: /chat/completions
+  API-->>Chat: 填充后的完整模板文本
+  Chat-->>Cmd: content
+  Cmd-->>UI: content
+  UI->>UI: 替换右侧文本并高亮被填充区域
+  UI->>UI: 引用模板到提示词光标位置
+```
+
+- 模板新增时后端使用现有最大数字 ID 自增，从 `1` 开始；旧 UUID 模板保留但不参与数字序列。
+- 模板只要求 `content` 字段，`title`、`category`、`notes`、`favorite` 仅作为旧数据兼容字段保留。
+- 查看模板和引用模板预览会把 `{}` 包围的占位描述显示为浅紫色底色。
+- AI 填充调用对话模型的 OpenAI 兼容 `/chat/completions`，要求模型只返回填充后的完整文本。
+- 填充完成后，前端根据原模板中的 `{}` 位置推导替换后的文本范围，并继续用浅紫色底色标记。
+
 ### 生图参数映射
 
 | UI 字段 | 前端值 | API/存储字段 | 说明 |
@@ -172,7 +200,7 @@ flowchart LR
 `settings.providers` 仍然是统一模型配置列表，每个条目用 `modelType` 区分用途：
 
 - `image`：生图模型，参与生图队列和 Images API 调用。
-- `chat`：对话模型，当前只在顶部栏展示和选择，后续用于“用对话模型填充模板”。
+- `chat`：对话模型，顶部栏和引用模板弹窗可选择，用于“AI 填充”模板中的 `{}` 占位区域。
 
 关键字段：
 

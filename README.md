@@ -22,10 +22,10 @@ Image Forge 是一个本地桌面生图工作台。它通过 OpenAI 兼容的 Im
 ## 功能
 
 - OpenAI 兼容 Images API：支持 `/images/generations` 文生图和 `/images/edits` 参考图编辑；
-- 多模型管理：API 源可标记为生图模型或对话模型，工作台选择生图模型，顶部栏和模板维护选择对话模型；
+- 多模型管理：API 源可标记为生图模型或对话模型，工作台选择生图模型，顶部栏和引用模板弹窗选择对话模型；
 - 生图历史：任务入队、后台执行、刷新、重试、删除、运行状态轮询和失败自动重试；
 - 结果预览：选择历史任务后预览输出图片，支持下载到 Downloads 和在 Finder 中定位；
-- 提示词模板：通过模板维护弹窗增删查改，支持查看、编辑、删除、新增、引用和预留 AI 填充入口；
+- 提示词模板：通过模板维护弹窗增删查改，引用模板弹窗支持搜索、预览、AI 填充 `{}` 占位并插入到提示词光标位置；
 - 参考图工作流：支持多张参考图，自动生成本地预览，并可从图库继续添加；
 - 本地持久化：设置、队列、历史、图库和模板写入应用数据目录；
 - 马卡龙偏紫界面：三栏工作台、小型按钮、可拖拽调整 panel 宽度，默认把弹性空间留给结果预览。
@@ -135,6 +135,7 @@ pnpm run release
 - 改工作台参数区和生图模型选择：修改 `src/components/ComposerPanel.vue`；
 - 改队列/结果预览：修改 `src/components/QueuePanel.vue` 和 `src/components/ResultPanel.vue`；
 - 改模板维护：修改 `src/components/dialogs/TemplateManagerDialog.vue`；
+- 改模板引用和 AI 填充：修改 `src/components/dialogs/TemplateReferenceDialog.vue` 和 `src-tauri/src/services/chat.rs`；
 - 改配色：优先修改 `src/lib/theme.js`，再修改 `src/styles.css`；
 - 改窗口最小尺寸：修改 `src-tauri/tauri.conf.json` 的 `minWidth` 和 `minHeight`。
 

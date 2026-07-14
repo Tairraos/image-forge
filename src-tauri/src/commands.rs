@@ -13,16 +13,17 @@ use crate::{
         PromptTemplate, QueueSnapshot, ReferencePreview, TaskRecord,
     },
     services::{
+        chat::fill_template,
         images::reference_preview,
         queue::{build_queue_snapshot, ensure_queue_worker, recover_stale_running},
     },
     state::RuntimeState,
     store::{
-        enqueue_task, ensure_data_dir, gallery_image_dir, normalize_request, normalize_settings,
-        normalize_template, params_from_request, provider_for_request, read_gallery, read_history,
-        read_json, read_queue, read_settings, read_templates, request_path,
-        sync_gallery_categories, templates_path, upsert_history, write_gallery, write_history,
-        write_json, write_queue, write_settings,
+        enqueue_task, ensure_data_dir, gallery_image_dir, next_template_id, normalize_request,
+        normalize_settings, normalize_template, params_from_request, provider_for_request,
+        read_gallery, read_history, read_json, read_queue, read_settings, read_templates,
+        request_path, sync_gallery_categories, templates_path, upsert_history, write_gallery,
+        write_history, write_json, write_queue, write_settings,
     },
     utils::{clean_text, extension_for_mime, file_stem, image_mime_type, utc_now},
 };
@@ -304,7 +305,7 @@ pub(crate) fn save_template(
     let mut templates = read_templates(&data_dir)?;
     let mut next = normalize_template(template)?;
     if next.id.is_empty() {
-        next.id = Uuid::new_v4().to_string();
+        next.id = next_template_id(&templates);
         next.created_at = utc_now();
     }
     next.updated_at = utc_now();
@@ -315,14 +316,16 @@ pub(crate) fn save_template(
     } else {
         templates.push(next);
     }
-    templates.sort_by(|left, right| {
-        right
-            .favorite
-            .cmp(&left.favorite)
-            .then(left.title.cmp(&right.title))
-    });
+    templates.sort_by(compare_template_id);
     write_json(&templates_path(&data_dir), &templates)?;
     Ok(templates)
+}
+
+fn compare_template_id(left: &PromptTemplate, right: &PromptTemplate) -> std::cmp::Ordering {
+    match (left.id.parse::<u64>(), right.id.parse::<u64>()) {
+        (Ok(left_id), Ok(right_id)) => left_id.cmp(&right_id),
+        _ => left.id.cmp(&right.id),
+    }
 }
 
 #[tauri::command]
@@ -353,6 +356,30 @@ pub(crate) fn mark_template_used(
     }
     write_json(&templates_path(&data_dir), &templates)?;
     Ok(templates)
+}
+
+#[tauri::command]
+pub(crate) async fn fill_prompt_template(
+    app: AppHandle,
+    provider_id: String,
+    template: String,
+) -> Result<String, String> {
+    let content = template.trim();
+    if content.is_empty() {
+        return Err("模板内容不能为空".into());
+    }
+    let data_dir = ensure_data_dir(&app)?;
+    let settings = read_settings(&data_dir)?;
+    let provider = settings
+        .providers
+        .iter()
+        .find(|provider| provider.id == provider_id && provider.model_type == "chat")
+        .ok_or("请选择可用的对话模型")?;
+    if provider.api_key.trim().is_empty() {
+        return Err(format!("对话模型「{}」还没有填写 API Key", provider.name));
+    }
+    let client = crate::utils::http_client()?;
+    fill_template(&client, provider, content).await
 }
 
 #[tauri::command]

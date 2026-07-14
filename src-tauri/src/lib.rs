@@ -28,6 +28,7 @@ pub fn run() {
             commands::delete_template,
             commands::download_output,
             commands::enqueue_generation,
+            commands::fill_prompt_template,
             commands::load_app_state,
             commands::mark_template_used,
             commands::promote_task,
