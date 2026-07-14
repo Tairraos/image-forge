@@ -164,30 +164,20 @@ button:disabled {
   display: inline-flex;
   align-items: center;
   min-width: 120px;
-  height: 28px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 0 11px;
-  background: #ffffff;
+  height: 22px;
   color: #4d3d7d;
-  font-weight: 700;
+  font-weight: 800;
 }
 
 .status-pill[data-tone="busy"] {
-  border-color: #f5c993;
-  background: #fff5e8;
   color: #8a5424;
 }
 
 .status-pill[data-tone="ok"] {
-  border-color: #a8dbc6;
-  background: #f0fbf6;
   color: #21765c;
 }
 
 .status-pill[data-tone="error"] {
-  border-color: #f2a0b2;
-  background: #fff0f4;
   color: #9b2c47;
 }
 
