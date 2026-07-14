@@ -65,21 +65,17 @@
 
     <template #footer>
       <div class="template-reference-footer">
-        <div class="template-fill-controls">
-          <n-select
-            :value="chatProviderId"
-            :options="chatProviderOptions"
-            size="small"
-            class="reference-chat-select"
-            placeholder="选择对话模型"
-            :disabled="!chatProviderOptions.length"
-            @update:value="$emit('update:chat-provider-id', $event)"
-          />
-          <n-button size="small" secondary :loading="filling" @click="$emit('ai-fill')">AI 填充</n-button>
-        </div>
-        <div class="dialog-actions">
-          <n-button size="small" type="primary" @click="$emit('insert')">引用模板</n-button>
-        </div>
+        <n-select
+          :value="chatProviderId"
+          :options="chatProviderOptions"
+          size="small"
+          class="reference-chat-select"
+          placeholder="选择对话模型"
+          :disabled="!chatProviderOptions.length"
+          @update:value="$emit('update:chat-provider-id', $event)"
+        />
+        <n-button size="small" secondary :loading="filling" @click="$emit('ai-fill')">AI 填充</n-button>
+        <n-button size="small" type="primary" @click="$emit('insert')">引用模板</n-button>
       </div>
     </template>
   </n-modal>

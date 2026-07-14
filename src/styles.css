@@ -1030,22 +1030,9 @@ button:disabled {
 .template-reference-footer {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  width: 100%;
-}
-
-.template-fill-controls {
-  display: flex;
-  align-items: center;
+  justify-content: flex-end;
   gap: 8px;
-  min-width: 0;
-}
-
-.template-reference-footer > .dialog-actions {
-  width: auto;
-  padding-top: 0;
-  margin-left: auto;
+  width: 100%;
 }
 
 .reference-chat-select {

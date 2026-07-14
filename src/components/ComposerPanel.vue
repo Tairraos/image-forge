@@ -61,7 +61,7 @@
         <n-button size="small" secondary @click="$emit('clear-prompt')">清空</n-button>
         <n-button size="small" secondary @click="$emit('save-template')">存为模板</n-button>
         <n-button size="small" secondary @click="$emit('show-template')">
-          调用模板
+          引用模板
         </n-button>
         <n-button size="small" type="primary" :loading="submitting" @click="$emit('submit')">
           <template #icon><WandSparkles :size="17" /></template>
