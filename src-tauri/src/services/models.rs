@@ -1,9 +1,13 @@
 use std::time::Duration;
 
-use reqwest::{header::ACCEPT, Client};
+use reqwest::{
+    header::{ACCEPT, ACCEPT_LANGUAGE},
+    Client,
+};
 use serde_json::Value;
 
 use crate::{
+    defaults::APP_USER_AGENT,
     models::ApiProvider,
     utils::{format_api_error, normalize_base_url},
 };
@@ -19,10 +23,12 @@ pub(crate) async fn list_provider_models(
     }
 
     let base_url = normalize_base_url(&provider.base_url)?;
+    let client = model_list_client().unwrap_or_else(|_| client.clone());
     let response = client
         .get(format!("{base_url}/models"))
         .bearer_auth(provider.api_key.trim())
-        .header(ACCEPT, "application/json")
+        .header(ACCEPT, "*/*")
+        .header(ACCEPT_LANGUAGE, "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7")
         .timeout(Duration::from_secs(MODEL_LIST_TIMEOUT_SECONDS))
         .send()
         .await
@@ -61,4 +67,14 @@ pub(crate) async fn list_provider_models(
     models.sort_unstable();
     models.dedup();
     Ok(models)
+}
+
+fn model_list_client() -> Result<Client, String> {
+    Client::builder()
+        .timeout(Duration::from_secs(MODEL_LIST_TIMEOUT_SECONDS))
+        .connect_timeout(Duration::from_secs(10))
+        .user_agent(APP_USER_AGENT)
+        .http1_only()
+        .build()
+        .map_err(|error| format!("创建模型列表 HTTP 客户端失败: {error}"))
 }
