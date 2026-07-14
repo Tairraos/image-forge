@@ -45,6 +45,11 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
+    use uuid::Uuid;
+
+    use super::services::references::persist_reference_bytes;
     use super::utils::{
         image_prompt_for_transport, normalize_base_url, prompt_with_ratio_instruction, sanitize_id,
         should_send_input_fidelity, size_for_preset,
@@ -100,5 +105,19 @@ mod tests {
             image_prompt_for_transport("一只猫", "1:1", "off"),
             "一只猫\n\n将宽高比设为 1:1"
         );
+    }
+
+    #[test]
+    fn reference_resources_are_deduplicated_by_content() {
+        let data_dir = std::env::temp_dir().join(format!("image-forge-test-{}", Uuid::new_v4()));
+        fs::create_dir_all(&data_dir).unwrap();
+        let first = persist_reference_bytes(&data_dir, b"same-image", "png").unwrap();
+        let second = persist_reference_bytes(&data_dir, b"same-image", "jpg").unwrap();
+        assert_eq!(first, second);
+        assert_eq!(
+            fs::read_dir(data_dir.join("references")).unwrap().count(),
+            1
+        );
+        fs::remove_dir_all(data_dir).unwrap();
     }
 }

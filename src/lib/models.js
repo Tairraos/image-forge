@@ -61,6 +61,7 @@ export function emptyTemplate() {
     shortTitle: "",
     category: "常用",
     content: "",
+    referencePaths: [],
     notes: "",
     tags: [],
     favorite: false,

@@ -34,6 +34,7 @@ pub(crate) fn ensure_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
         data_dir.join("outputs"),
         data_dir.join("requests"),
         data_dir.join("clipboard"),
+        data_dir.join("references"),
     ] {
         fs::create_dir_all(dir).map_err(|error| format!("创建应用目录失败: {error}"))?;
     }
@@ -390,6 +391,14 @@ pub(crate) fn normalize_template(mut template: PromptTemplate) -> Result<PromptT
     template.short_title = template.short_title.trim().to_string();
     template.category = clean_text(template.category, "常用");
     template.content = template.content.trim().to_string();
+    let mut seen_reference_paths = HashSet::new();
+    template.reference_paths = template
+        .reference_paths
+        .into_iter()
+        .map(|path| path.trim().to_string())
+        .filter(|path| !path.is_empty())
+        .filter(|path| seen_reference_paths.insert(path.clone()))
+        .collect();
     template.notes = template.notes.trim().to_string();
     template.model_hint = template.model_hint.trim().to_string();
     template.tags = template

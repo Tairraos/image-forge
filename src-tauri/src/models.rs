@@ -308,6 +308,8 @@ pub struct PromptTemplate {
     #[serde(default)]
     pub content: String,
     #[serde(default)]
+    pub reference_paths: Vec<String>,
+    #[serde(default)]
     pub notes: String,
     #[serde(default)]
     pub tags: Vec<String>,

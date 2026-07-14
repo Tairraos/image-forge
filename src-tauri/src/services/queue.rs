@@ -5,6 +5,7 @@ use tauri::{AppHandle, Manager};
 use crate::{
     models::{ApiProvider, GenerateRequest, QueueSnapshot, TaskRecord},
     services::images::{execute_generation, save_outputs},
+    services::references::prune_unreferenced_files,
     state::RuntimeState,
     store::{
         clear_running_task, enqueue_task, ensure_data_dir, fallback_failed_record, history_record,
@@ -311,6 +312,7 @@ fn finish_deleted_task(app: &AppHandle, data_dir: &Path, task_id: &str) -> Resul
     if let Ok(mut tasks) = app.state::<RuntimeState>().deleted_tasks.lock() {
         tasks.remove(task_id);
     }
+    prune_unreferenced_files(data_dir)?;
     Ok(())
 }
 

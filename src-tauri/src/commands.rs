@@ -17,6 +17,7 @@ use crate::{
         chat::fill_template,
         images::reference_preview,
         queue::{build_queue_snapshot, ensure_queue_worker, recover_stale_running},
+        references::{persist_reference_paths, prune_unreferenced_files},
     },
     state::RuntimeState,
     store::{
@@ -43,6 +44,7 @@ pub(crate) fn about_info(app: AppHandle) -> AboutInfo {
 pub(crate) fn load_app_state(app: AppHandle) -> Result<AppState, String> {
     let data_dir = ensure_data_dir(&app)?;
     recover_stale_running(&app, &data_dir)?;
+    prune_unreferenced_files(&data_dir)?;
     let settings = read_settings(&data_dir)?;
     let mut history = read_history(&data_dir)?;
     if refresh_history_output_sizes(&mut history) {
@@ -92,6 +94,7 @@ pub(crate) fn enqueue_generation(
     if provider.api_key.trim().is_empty() {
         return Err(format!("API 源「{}」还没有填写 API Key", provider.name));
     }
+    request.reference_paths = persist_reference_paths(&data_dir, &request.reference_paths)?;
 
     let now = utc_now();
     let id = Uuid::new_v4().to_string();
@@ -161,6 +164,8 @@ pub(crate) fn delete_task(app: AppHandle, task_id: String) -> Result<(), String>
     let Some(index) = history.iter().position(|item| item.id == task_id) else {
         return Err("找不到任务".into());
     };
+    let defer_reference_cleanup =
+        matches!(history[index].status.as_str(), "running" | "cancelling");
     if matches!(
         history[index].status.as_str(),
         "queued" | "running" | "cancelling"
@@ -188,6 +193,9 @@ pub(crate) fn delete_task(app: AppHandle, task_id: String) -> Result<(), String>
     let request_file = request_path(&data_dir, &task_id);
     if request_file.exists() {
         fs::remove_file(request_file).map_err(|error| format!("删除任务请求失败: {error}"))?;
+    }
+    if !defer_reference_cleanup {
+        prune_unreferenced_files(&data_dir)?;
     }
     Ok(())
 }
@@ -229,6 +237,7 @@ pub(crate) fn save_template(
     let data_dir = ensure_data_dir(&app)?;
     let mut templates = read_templates(&data_dir)?;
     let mut next = normalize_template(template)?;
+    next.reference_paths = persist_reference_paths(&data_dir, &next.reference_paths)?;
     if next.id.is_empty() {
         next.id = next_template_id(&templates);
         next.created_at = utc_now();
@@ -243,6 +252,7 @@ pub(crate) fn save_template(
     }
     templates.sort_by(compare_template_id);
     write_json(&templates_path(&data_dir), &templates)?;
+    prune_unreferenced_files(&data_dir)?;
     Ok(templates)
 }
 
@@ -264,6 +274,7 @@ pub(crate) fn delete_template(
     let mut templates = read_templates(&data_dir)?;
     templates.retain(|template| template.id != template_id);
     write_json(&templates_path(&data_dir), &templates)?;
+    prune_unreferenced_files(&data_dir)?;
     Ok(templates)
 }
 

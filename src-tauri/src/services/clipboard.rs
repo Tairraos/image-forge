@@ -1,12 +1,12 @@
-use std::{borrow::Cow, fs, path::Path};
+use std::{borrow::Cow, io::Cursor, path::Path};
 
 use arboard::{Clipboard, ImageData};
-use chrono::Utc;
 use tauri::AppHandle;
-use uuid::Uuid;
 
 use crate::{
-    models::ReferencePreview, services::images::reference_preview, store::ensure_data_dir,
+    models::ReferencePreview,
+    services::{images::reference_preview, references::persist_reference_bytes},
+    store::ensure_data_dir,
 };
 
 pub(crate) fn copy_image_to_clipboard(path: &Path) -> Result<(), String> {
@@ -38,15 +38,10 @@ pub(crate) fn reference_from_clipboard(app: &AppHandle) -> Result<ReferencePrevi
         image.bytes.into_owned(),
     )
     .ok_or("剪贴板图片数据无效")?;
-    let clipboard_dir = data_dir.join("clipboard");
-    fs::create_dir_all(&clipboard_dir).map_err(|error| format!("创建剪贴板目录失败: {error}"))?;
-    let file_name = format!(
-        "clipboard-{}-{}.png",
-        Utc::now().format("%Y%m%d-%H%M%S"),
-        Uuid::new_v4()
-    );
-    let path = clipboard_dir.join(file_name);
-    rgba.save_with_format(&path, image::ImageFormat::Png)
-        .map_err(|error| format!("保存剪贴板图片失败: {error}"))?;
+    let mut cursor = Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgba8(rgba)
+        .write_to(&mut cursor, image::ImageFormat::Png)
+        .map_err(|error| format!("编码剪贴板图片失败: {error}"))?;
+    let path = persist_reference_bytes(&data_dir, cursor.get_ref(), "png")?;
     reference_preview(Path::new(&path))
 }
