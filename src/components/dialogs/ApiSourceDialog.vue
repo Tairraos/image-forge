@@ -2,21 +2,6 @@
   <n-modal v-model:show="visible" preset="card" title="API 源管理" class="api-modal">
     <div class="api-manager stacked">
       <section class="provider-list provider-list-horizontal" aria-label="API 源列表">
-        <div class="provider-list-actions">
-          <n-button size="small" type="primary" @click="addProvider">
-            <template #icon><Plus :size="15" /></template>
-            新增
-          </n-button>
-          <n-button size="small" secondary @click="showImport = true">
-            <template #icon><Upload :size="15" /></template>
-            导入
-          </n-button>
-          <n-button size="small" secondary @click="copyProvider">
-            <template #icon><Copy :size="15" /></template>
-            复制
-          </n-button>
-        </div>
-
         <div class="provider-card-grid">
           <article
             v-for="(provider, index) in draft.providers"
@@ -66,8 +51,8 @@
       </section>
 
       <section v-if="selectedProvider" class="provider-editor">
-        <n-form label-placement="top" :show-feedback="false">
-          <div class="two-col">
+        <n-form class="provider-form" label-placement="top" :show-feedback="false">
+          <div class="provider-form-row provider-identity-row">
             <n-form-item label="名称">
               <n-input v-model:value="selectedProvider.name" placeholder="例如 OpenAI / Azure / 自建服务" />
             </n-form-item>
@@ -75,25 +60,27 @@
               <n-select v-model:value="selectedProvider.modelType" :options="modelTypeOptions" />
             </n-form-item>
           </div>
-          <n-form-item label="Base URL">
-            <n-input v-model:value="selectedProvider.baseUrl" placeholder="https://api.openai.com/v1" />
-          </n-form-item>
-          <n-form-item label="API Key">
-            <n-input
-              v-model:value="selectedProvider.apiKey"
-              type="password"
-              show-password-on="click"
-              placeholder="sk-..."
-            />
-          </n-form-item>
-          <n-form-item label="代理地址">
-            <n-input
-              v-model:value="selectedProvider.proxyUrl"
-              placeholder="可选，例如 socks5h://127.0.0.1:7890 或 http://127.0.0.1:7890"
-            />
-          </n-form-item>
-          <n-form-item label="模型">
-            <div class="model-select-row">
+          <div class="provider-form-row provider-credentials-row">
+            <n-form-item label="Base URL">
+              <n-input v-model:value="selectedProvider.baseUrl" placeholder="https://api.openai.com/v1" />
+            </n-form-item>
+            <n-form-item label="API Key">
+              <n-input
+                v-model:value="selectedProvider.apiKey"
+                type="password"
+                show-password-on="click"
+                placeholder="sk-..."
+              />
+            </n-form-item>
+          </div>
+          <div class="provider-form-row provider-model-row">
+            <n-form-item label="代理地址">
+              <n-input
+                v-model:value="selectedProvider.proxyUrl"
+                placeholder="可选，例如 http://127.0.0.1:7890"
+              />
+            </n-form-item>
+            <n-form-item label="模型">
               <n-select
                 v-model:value="selectedProvider.imageModel"
                 filterable
@@ -101,11 +88,13 @@
                 :options="modelOptions"
                 placeholder="选择或输入模型 ID"
               />
-              <n-button size="small" secondary :loading="loadingModels" @click="fetchModels">
-                获取模型
+            </n-form-item>
+            <div class="model-fetch-action">
+              <n-button secondary :loading="loadingModels" @click="fetchModels">
+                获取
               </n-button>
             </div>
-          </n-form-item>
+          </div>
           <p v-if="modelFetchMessage" class="model-fetch-message" :data-tone="modelFetchTone">
             {{ modelFetchMessage }}
           </p>
@@ -130,9 +119,25 @@
     </n-modal>
 
     <template #footer>
-      <div class="dialog-actions">
-        <n-button size="small" @click="visible = false">关闭</n-button>
-        <n-button size="small" type="primary" @click="save">保存 API 源</n-button>
+      <div class="api-dialog-footer">
+        <div class="api-dialog-footer-actions">
+          <n-button size="small" type="primary" @click="addProvider">
+            <template #icon><Plus :size="15" /></template>
+            新增
+          </n-button>
+          <n-button size="small" secondary @click="showImport = true">
+            <template #icon><Upload :size="15" /></template>
+            导入
+          </n-button>
+          <n-button size="small" secondary @click="copyProvider">
+            <template #icon><Copy :size="15" /></template>
+            克隆
+          </n-button>
+        </div>
+        <div class="dialog-actions">
+          <n-button size="small" @click="visible = false">关闭</n-button>
+          <n-button size="small" type="primary" @click="save">保存 API 源</n-button>
+        </div>
       </div>
     </template>
   </n-modal>
