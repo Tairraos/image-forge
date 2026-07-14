@@ -982,7 +982,7 @@ button:disabled {
 
 .template-table th:first-child,
 .template-table td:first-child {
-  width: 70px;
+  width: 100px;
 }
 
 .template-table th:last-child,
@@ -1008,15 +1008,8 @@ button:disabled {
 
 .template-reference-layout {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: auto auto auto;
   gap: 12px;
-  min-height: 500px;
-}
-
-.template-reference-column {
-  display: grid;
-  grid-template-rows: 34px minmax(0, 1fr);
-  gap: 9px;
   min-width: 0;
   min-height: 0;
 }
@@ -1027,12 +1020,11 @@ button:disabled {
   gap: 8px;
 }
 
-.template-reference-column-title {
-  display: flex;
-  align-items: center;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 750;
+.template-reference-editors {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  min-width: 0;
 }
 
 .template-reference-footer {
@@ -1095,8 +1087,8 @@ button:disabled {
 .template-fill-editor textarea {
   position: relative;
   z-index: 1;
-  height: 100%;
-  min-height: 400px;
+  height: 354px;
+  min-height: 354px;
   resize: none;
   border: 0;
   outline: none;
@@ -1117,11 +1109,19 @@ button:disabled {
 }
 
 .template-edit-body {
+  display: grid;
+  gap: 10px;
   min-height: 0;
 }
 
 .template-content-input textarea {
-  min-height: 260px;
+  line-height: 1.6;
+}
+
+.template-editor-reference-strip,
+.template-call-reference-strip {
+  justify-content: flex-start;
+  min-height: 64px;
 }
 
 .template-highlight-box {
@@ -1536,7 +1536,7 @@ button:disabled {
     justify-content: flex-end;
   }
 
-  .template-reference-layout {
+  .template-reference-editors {
     grid-template-columns: 1fr;
   }
 

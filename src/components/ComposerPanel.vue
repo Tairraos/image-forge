@@ -59,9 +59,9 @@
       />
       <div class="prompt-submit-row">
         <n-button size="small" secondary @click="$emit('clear-prompt')">清空</n-button>
+        <n-button size="small" secondary @click="$emit('save-template')">存为模板</n-button>
         <n-button size="small" secondary @click="$emit('show-template')">
-          <template #icon><BookOpen :size="15" /></template>
-          模板
+          调用模板
         </n-button>
         <n-button size="small" type="primary" :loading="submitting" @click="$emit('submit')">
           <template #icon><WandSparkles :size="17" /></template>
@@ -73,7 +73,7 @@
 </template>
 
 <script setup>
-import { BookOpen, Plus, WandSparkles, X } from "@lucide/vue";
+import { Plus, WandSparkles, X } from "@lucide/vue";
 import {
   promptModeOptions,
   qualityOptions,
@@ -91,6 +91,7 @@ defineProps({
 defineEmits([
   "submit",
   "show-template",
+  "save-template",
   "clear-prompt",
   "prompt-focus",
   "prompt-cursor",

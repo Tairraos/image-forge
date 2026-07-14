@@ -15,14 +15,14 @@
         <table class="template-table">
           <thead>
             <tr>
-              <th>id</th>
+              <th>参考图</th>
               <th>模板</th>
               <th>操作</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="template in templates" :key="template.id">
-              <td :title="template.id">{{ template.id }}</td>
+              <td>{{ referenceCount(template) }}</td>
               <td class="template-content-cell" :title="template.content">{{ singleLine(template.content) }}</td>
               <td>
                 <div class="template-table-actions">
@@ -58,5 +58,10 @@ defineEmits(["create", "view", "edit", "delete"]);
 
 function singleLine(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function referenceCount(template) {
+  const count = template.referencePaths?.length || 0;
+  return count ? `${count} 个参考图` : "";
 }
 </script>

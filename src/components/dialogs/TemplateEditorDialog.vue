@@ -7,9 +7,28 @@
         v-model:value="template.content"
         type="textarea"
         class="template-content-input"
-        :autosize="{ minRows: 10, maxRows: 18 }"
+        :autosize="{ minRows: 16, maxRows: 16 }"
+        :resizable="false"
         placeholder="输入模板内容，可使用 {这里写需要 AI 填充的描述}"
+        @paste="$emit('paste-reference', $event)"
       />
+      <div class="reference-strip template-editor-reference-strip">
+        <div v-for="(item, index) in references" :key="item.path" class="reference-tile">
+          <img :src="item.previewUrl" :alt="item.fileName" />
+          <button
+            v-if="!readonly"
+            type="button"
+            title="移除参考图"
+            @click="$emit('remove-reference', index)"
+          >
+            <X :size="14" />
+          </button>
+        </div>
+        <button v-if="!readonly" class="reference-add" type="button" @click="$emit('add-reference')">
+          <Plus :size="18" />
+          <span>参考图</span>
+        </button>
+      </div>
     </div>
     <template #footer>
       <div class="dialog-actions">
@@ -21,6 +40,7 @@
 </template>
 
 <script setup>
+import { Plus, X } from "@lucide/vue";
 import { computed } from "vue";
 
 const show = defineModel("show", { type: Boolean, default: false });
@@ -28,9 +48,10 @@ const show = defineModel("show", { type: Boolean, default: false });
 const props = defineProps({
   template: { type: Object, required: true },
   mode: { type: String, default: "edit" },
+  references: { type: Array, default: () => [] },
 });
 
-defineEmits(["save"]);
+defineEmits(["save", "add-reference", "remove-reference", "paste-reference"]);
 
 const readonly = computed(() => props.mode === "view");
 const dialogTitle = computed(() => {

@@ -1,19 +1,20 @@
 <template>
   <n-modal v-model:show="show" preset="card" title="引用模板" class="template-reference-modal">
     <div class="template-reference-layout">
-      <section class="template-reference-column">
-        <div class="template-reference-toolbar">
-          <n-input v-model:value="query" clearable placeholder="搜索模板或 ID">
-            <template #prefix><Search :size="15" /></template>
-          </n-input>
-          <n-select
-            :value="selectedTemplateId"
-            :options="templateOptions"
-            placeholder="选择模板"
-            :disabled="!templateOptions.length"
-            @update:value="selectTemplate"
-          />
-        </div>
+      <div class="template-reference-toolbar">
+        <n-input v-model:value="query" clearable placeholder="搜索模板或 ID">
+          <template #prefix><Search :size="15" /></template>
+        </n-input>
+        <n-select
+          :value="selectedTemplateId"
+          :options="templateOptions"
+          placeholder="选择模板"
+          :disabled="!templateOptions.length"
+          @update:value="selectTemplate"
+        />
+      </div>
+
+      <div class="template-reference-editors">
         <div class="template-fill-editor">
           <div
             ref="sourceHighlightRef"
@@ -30,10 +31,6 @@
             @scroll="syncEditorScroll(sourceHighlightRef, sourceTextareaRef)"
           ></textarea>
         </div>
-      </section>
-
-      <section class="template-reference-column">
-        <div class="template-reference-column-title">AI 生成内容</div>
         <div class="template-fill-editor">
           <div
             ref="generatedHighlightRef"
@@ -50,7 +47,20 @@
             @scroll="syncEditorScroll(generatedHighlightRef, generatedTextareaRef)"
           ></textarea>
         </div>
-      </section>
+      </div>
+
+      <div class="reference-strip template-call-reference-strip">
+        <div v-for="(item, index) in references" :key="item.path" class="reference-tile">
+          <img :src="item.previewUrl" :alt="item.fileName" />
+          <button type="button" title="移除参考图" @click="$emit('remove-reference', index)">
+            <X :size="14" />
+          </button>
+        </div>
+        <button class="reference-add" type="button" @click="$emit('add-reference')">
+          <Plus :size="18" />
+          <span>参考图</span>
+        </button>
+      </div>
     </div>
 
     <template #footer>
@@ -77,7 +87,7 @@
 
 <script setup>
 import { computed, ref } from "vue";
-import { Search } from "@lucide/vue";
+import { Plus, Search, X } from "@lucide/vue";
 
 const show = defineModel("show", { type: Boolean, default: false });
 const query = defineModel("query", { type: String, default: "" });
@@ -91,6 +101,7 @@ const props = defineProps({
   chatProviderOptions: { type: Array, default: () => [] },
   filledRanges: { type: Array, default: () => [] },
   filling: { type: Boolean, default: false },
+  references: { type: Array, default: () => [] },
 });
 
 const emit = defineEmits([
@@ -100,6 +111,8 @@ const emit = defineEmits([
   "update:generated-content",
   "ai-fill",
   "insert",
+  "add-reference",
+  "remove-reference",
 ]);
 
 const sourceHighlightRef = ref(null);

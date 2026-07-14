@@ -53,6 +53,7 @@
           :submitting="submitting"
           @submit="submitTask"
           @show-template="showTemplateReferenceDialog = true"
+          @save-template="saveWorkbenchAsTemplate"
           @clear-prompt="clearPrompt"
           @prompt-focus="capturePromptCursor"
           @prompt-cursor="capturePromptCursor"
@@ -99,19 +100,26 @@
         :chat-provider-options="chatProviderOptions"
         :filled-ranges="templateFilledRanges"
         :filling="templateFilling"
+        :references="templateReferenceReferences"
         @update:chat-provider-id="form.chatProviderId = $event"
         @update:source-content="updateTemplateReferenceSource"
         @update:generated-content="updateTemplateReferenceGenerated"
         @select-template="selectReferenceTemplate"
         @ai-fill="fillReferenceTemplate"
         @insert="insertReferenceTemplate"
+        @add-reference="addTemplateCallReferenceImages"
+        @remove-reference="templateReferenceReferences.splice($event, 1)"
       />
 
       <TemplateEditorDialog
         v-model:show="showTemplateEditor"
         :template="templateDraft"
         :mode="templateEditorMode"
+        :references="templateDraftReferences"
         @save="savePromptTemplate"
+        @add-reference="addTemplateDraftReferenceImages"
+        @remove-reference="templateDraftReferences.splice($event, 1)"
+        @paste-reference="handleTemplateDraftPaste"
       />
 
       <TaskDetailDialog
@@ -158,6 +166,8 @@ const history = ref([]);
 const queue = reactive({ waiting: [], running: [], recent: [], workerActive: false, updatedAt: "" });
 const templates = ref([]);
 const references = ref([]);
+const templateDraftReferences = ref([]);
+const templateReferenceReferences = ref([]);
 const selectedTaskId = ref("");
 const submitting = ref(false);
 const historyQuery = ref("");
@@ -407,6 +417,15 @@ async function submitTask() {
 
 // 从文件选择器导入参考图，并转换为可预览的数据 URL。
 async function addReferenceImages() {
+  await chooseReferenceImages(references, "已添加参考图");
+}
+
+// 在提示词框粘贴图片时，把剪贴板图片保存为参考图。
+async function handlePromptPaste(event) {
+  await pasteReferenceImage(event, references, "已从剪贴板添加参考图");
+}
+
+async function chooseReferenceImages(target, successMessage) {
   try {
     const selected = await openDialog({
       multiple: true,
@@ -415,18 +434,15 @@ async function addReferenceImages() {
     const paths = Array.isArray(selected) ? selected : selected ? [selected] : [];
     for (const path of paths) {
       const preview = await invoke("reference_from_path", { path });
-      if (!references.value.some((item) => item.path === preview.path)) {
-        references.value.push({ ...preview, previewUrl: preview.dataUrl });
-      }
+      appendReferencePreview(target, preview);
     }
-    if (paths.length) setStatus(`已添加 ${paths.length} 张参考图`, "ok");
+    if (paths.length) setStatus(successMessage, "ok");
   } catch (error) {
     setStatus(String(error), "error");
   }
 }
 
-// 在提示词框粘贴图片时，把剪贴板图片保存为参考图。
-async function handlePromptPaste(event) {
+async function pasteReferenceImage(event, target, successMessage) {
   const items = Array.from(event?.clipboardData?.items || []);
   const files = Array.from(event?.clipboardData?.files || []);
   const hasImage = [...items, ...files].some((item) => item.type?.startsWith("image/"));
@@ -434,13 +450,32 @@ async function handlePromptPaste(event) {
   event.preventDefault();
   try {
     const preview = await invoke("reference_from_clipboard");
-    if (!references.value.some((item) => item.path === preview.path)) {
-      references.value.push({ ...preview, previewUrl: preview.dataUrl });
-      setStatus("已从剪贴板添加参考图", "ok");
+    if (appendReferencePreview(target, preview)) {
+      setStatus(successMessage, "ok");
     }
   } catch (error) {
     setStatus(String(error), "error");
   }
+}
+
+function appendReferencePreview(target, preview) {
+  if (target.value.some((item) => item.path === preview.path)) return false;
+  target.value.push({ ...preview, previewUrl: preview.dataUrl });
+  return true;
+}
+
+async function restoreReferencePreviews(paths) {
+  const restored = [];
+  let missing = 0;
+  for (const path of paths || []) {
+    try {
+      const preview = await invoke("reference_from_path", { path });
+      restored.push({ ...preview, previewUrl: preview.dataUrl });
+    } catch {
+      missing += 1;
+    }
+  }
+  return { restored, missing };
 }
 
 // 将历史任务的提示词、参数、模型和参考图恢复到工作台。
@@ -558,20 +593,25 @@ async function copyOutput(output) {
 // 打开空白模板编辑器。
 function newTemplate() {
   Object.assign(templateDraft, emptyTemplate());
+  templateDraftReferences.value = [];
   templateEditorMode.value = "new";
   showTemplateEditor.value = true;
 }
 
 // 以只读模式查看模板，并在弹窗中高亮占位符。
-function viewTemplate(template) {
+async function viewTemplate(template) {
   Object.assign(templateDraft, deepClone(template));
+  const { restored } = await restoreReferencePreviews(template.referencePaths);
+  templateDraftReferences.value = restored;
   templateEditorMode.value = "view";
   showTemplateEditor.value = true;
 }
 
 // 以编辑模式打开模板。
-function editTemplate(template) {
+async function editTemplate(template) {
   Object.assign(templateDraft, deepClone(template));
+  const { restored } = await restoreReferencePreviews(template.referencePaths);
+  templateDraftReferences.value = restored;
   templateEditorMode.value = "edit";
   showTemplateEditor.value = true;
 }
@@ -579,10 +619,39 @@ function editTemplate(template) {
 // 保存新增或编辑后的模板，并刷新模板列表。
 async function savePromptTemplate() {
   try {
+    templateDraft.referencePaths = templateDraftReferences.value.map((item) => item.path);
     templates.value = await invoke("save_template", { template: deepClone(templateDraft) });
     showTemplateEditor.value = false;
     setStatus("模板已保存", "ok");
   } catch (error) {
+    setStatus(String(error), "error");
+  }
+}
+
+async function addTemplateDraftReferenceImages() {
+  await chooseReferenceImages(templateDraftReferences, "已添加模板参考图");
+}
+
+async function handleTemplateDraftPaste(event) {
+  await pasteReferenceImage(event, templateDraftReferences, "已从剪贴板添加模板参考图");
+}
+
+async function saveWorkbenchAsTemplate() {
+  if (!form.prompt.trim()) {
+    window.alert("提示词为空，无法保存模板");
+    return;
+  }
+  const template = {
+    ...emptyTemplate(),
+    content: form.prompt,
+    referencePaths: references.value.map((item) => item.path),
+  };
+  try {
+    templates.value = await invoke("save_template", { template });
+    window.alert("模板保存成功");
+    setStatus("模板保存成功", "ok");
+  } catch (error) {
+    window.alert(String(error));
     setStatus(String(error), "error");
   }
 }
@@ -598,11 +667,20 @@ async function deletePromptTemplate(id) {
 }
 
 // 在引用模板弹窗中选择模板，并保留搜索条件。
-function selectReferenceTemplate(template) {
+async function selectReferenceTemplate(template) {
   selectedReferenceTemplateId.value = template.id;
   templateReferenceSourceContent.value = template.content || "";
   templateReferenceGeneratedContent.value = "";
   templateFilledRanges.value = [];
+  const selectedId = template.id;
+  const { restored, missing } = await restoreReferencePreviews(template.referencePaths);
+  if (selectedReferenceTemplateId.value !== selectedId) return;
+  templateReferenceReferences.value = restored;
+  if (missing) setStatus(`${missing} 张模板参考图已不存在`, "busy");
+}
+
+async function addTemplateCallReferenceImages() {
+  await chooseReferenceImages(templateReferenceReferences, "已添加本次调用参考图");
 }
 
 function updateTemplateReferenceSource(content) {
@@ -668,6 +746,9 @@ async function insertReferenceTemplate() {
     return;
   }
   insertTextAtCursor(content);
+  for (const preview of templateReferenceReferences.value) {
+    appendReferencePreview(references, preview);
+  }
   if (selectedReferenceTemplateId.value) {
     try {
       templates.value = await invoke("mark_template_used", { templateId: selectedReferenceTemplateId.value });
@@ -676,7 +757,7 @@ async function insertReferenceTemplate() {
     }
   }
   showTemplateReferenceDialog.value = false;
-  setStatus("模板已引用到提示词", "ok");
+  setStatus("模板及参考图已引用到工作台", "ok");
 }
 
 // 清空提示词并重置插入光标。
