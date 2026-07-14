@@ -40,7 +40,7 @@ button:disabled {
 
 .app {
   display: grid;
-  grid-template-rows: auto auto 1fr;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   width: 100vw;
   height: 100vh;
   padding: 14px;
@@ -50,14 +50,10 @@ button:disabled {
 
 .topbar {
   display: grid;
-  grid-template-columns: minmax(300px, 0.9fr) minmax(280px, 0.7fr) auto;
+  grid-template-columns: minmax(300px, 1fr) auto;
   align-items: center;
   gap: 14px;
-  padding: 10px 12px;
-  border: 1px solid rgba(184, 165, 240, 0.62);
-  border-radius: 8px;
-  background: rgba(255, 252, 246, 0.9);
-  box-shadow: 0 12px 34px rgba(121, 96, 180, 0.1);
+  padding: 2px 4px;
 }
 
 .brand {
@@ -94,7 +90,6 @@ button:disabled {
   white-space: nowrap;
 }
 
-.topbar-center,
 .topbar-actions {
   display: flex;
   align-items: center;
@@ -107,27 +102,22 @@ button:disabled {
   flex-wrap: wrap;
 }
 
-.provider-select {
-  min-width: 220px;
-}
-
-.model-select-field {
-  display: grid;
-  gap: 3px;
-  min-width: 0;
-  color: #756987;
-  font-size: 11px;
-  font-weight: 800;
-}
-
-.status-row {
+.status-bar {
   display: flex;
   align-items: center;
   gap: 12px;
-  min-height: 34px;
-  padding: 0 4px;
+  min-height: 32px;
+  overflow: hidden;
+  border-top: 1px solid rgba(184, 165, 240, 0.5);
+  padding: 4px 6px 0;
   color: #675a7f;
   font-size: 12px;
+}
+
+.status-bar span:not(.status-pill) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .status-pill {
@@ -200,7 +190,7 @@ button:disabled {
 
 .composer-column {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto minmax(92px, auto);
+  grid-template-rows: auto minmax(0, 1fr) minmax(92px, auto);
   gap: 10px;
   padding: 12px;
 }

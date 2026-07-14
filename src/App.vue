@@ -3,19 +3,10 @@
     <n-global-style />
     <main class="app">
       <AppTopbar
-        :form="form"
-        :chat-provider-options="chatProviderOptions"
-        :queue="queue"
         @show-api="showApiDialog = true"
         @show-template-manager="showTemplateManagerDialog = true"
         @show-settings="showSettingsDialog = true"
       />
-
-      <section class="status-row">
-        <span class="status-pill" :data-tone="statusTone">{{ statusText }}</span>
-        <span>当前 API：{{ activeProvider?.name || "未配置" }} · Images API</span>
-        <span v-if="activeProvider && !activeProvider.apiKey" class="warn-text">API Key 未设置</span>
-      </section>
 
       <section class="workspace" :style="workspaceStyle">
         <QueuePanel
@@ -67,6 +58,13 @@
           @remove-reference="references.splice($event, 1)"
         />
       </section>
+
+      <footer class="status-bar">
+        <span class="status-pill" :data-tone="statusTone">{{ statusText }}</span>
+        <span>当前 API：{{ activeProvider?.name || "未配置" }} · Images API</span>
+        <span>{{ queue.running.length }} 运行 · {{ queue.waiting.length }} 排队</span>
+        <span v-if="activeProvider && !activeProvider.apiKey" class="warn-text">API Key 未设置</span>
+      </footer>
 
       <ApiSourceDialog
         v-model:show="showApiDialog"
