@@ -521,6 +521,7 @@ async function downloadOutput(output) {
   try {
     const savedPath = await invoke("download_output", { path: output.path });
     setStatus(`已保存到下载目录：${fileName(savedPath)}`, "ok");
+    await reveal(savedPath);
   } catch (error) {
     setStatus(String(error), "error");
   }
