@@ -14,6 +14,7 @@ use crate::{
     utils::{http_client, utc_now, REQUEST_TIMEOUT_SECONDS},
 };
 
+/// 确保全局只有一个后台队列 worker 在运行。
 pub(crate) fn ensure_queue_worker(app: &AppHandle) {
     let state = app.state::<RuntimeState>();
     let Ok(mut active) = state.worker_active.lock() else {
@@ -40,6 +41,7 @@ pub(crate) fn ensure_queue_worker(app: &AppHandle) {
     });
 }
 
+/// 根据队列 JSON 和历史记录组装前端展示所需的队列快照。
 pub(crate) fn build_queue_snapshot(
     app: &AppHandle,
     data_dir: &Path,
@@ -76,6 +78,7 @@ pub(crate) fn build_queue_snapshot(
     })
 }
 
+/// 应用重启后把遗留的 running 任务恢复到 waiting，避免队列卡死。
 pub(crate) fn recover_stale_running(app: &AppHandle, data_dir: &Path) -> Result<(), String> {
     let worker_active = app
         .state::<RuntimeState>()
@@ -111,6 +114,7 @@ pub(crate) fn recover_stale_running(app: &AppHandle, data_dir: &Path) -> Result<
     write_queue(data_dir, &queue)
 }
 
+/// 循环启动可运行任务，直到等待和运行队列都清空。
 async fn worker_loop(app: AppHandle) {
     loop {
         let mut started = false;
@@ -131,6 +135,7 @@ async fn worker_loop(app: AppHandle) {
     }
 }
 
+/// 从队列中取出一条可运行任务，并在独立异步任务中执行。
 fn start_next_runnable_task(app: &AppHandle) -> Result<bool, String> {
     let data_dir = ensure_data_dir(app)?;
     recover_stale_running(app, &data_dir)?;
@@ -162,6 +167,7 @@ fn start_next_runnable_task(app: &AppHandle) -> Result<bool, String> {
     Ok(true)
 }
 
+/// 执行单个生图任务：标记运行、调用 API、保存输出并更新历史。
 async fn run_task(app: AppHandle, task_id: String, provider: ApiProvider) -> Result<(), String> {
     let data_dir = ensure_data_dir(&app)?;
     if is_deleted(&app, &task_id) {
@@ -274,6 +280,7 @@ fn is_deleted(app: &AppHandle, task_id: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// 写历史前检查删除标记，避免用户删除后后台任务又把记录写回来。
 fn upsert_task_history(
     app: &AppHandle,
     data_dir: &Path,
@@ -288,6 +295,7 @@ fn upsert_task_history(
     Ok(true)
 }
 
+/// 完成运行中删除任务的收尾：清队列、清请求文件、清运行态标记。
 fn finish_deleted_task(app: &AppHandle, data_dir: &Path, task_id: &str) -> Result<(), String> {
     if let Ok(mut requests) = app.state::<RuntimeState>().cancel_requests.lock() {
         requests.remove(task_id);
@@ -306,6 +314,7 @@ fn finish_deleted_task(app: &AppHandle, data_dir: &Path, task_id: &str) -> Resul
     Ok(())
 }
 
+/// 将取消请求落盘为历史失败态，并释放取消标记。
 fn mark_cancelled(app: &AppHandle, data_dir: &Path, task_id: &str) -> Result<(), String> {
     if let Ok(mut requests) = app.state::<RuntimeState>().cancel_requests.lock() {
         requests.remove(task_id);

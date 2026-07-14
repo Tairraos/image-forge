@@ -141,7 +141,6 @@ import { invoke, openDialog } from "./tauri";
 
 const statusText = ref("启动中");
 const statusTone = ref("busy");
-const dataDir = ref("");
 const settings = ref(defaultSettings());
 const history = ref([]);
 const queue = reactive({ waiting: [], running: [], recent: [], workerActive: false, updatedAt: "" });
@@ -272,6 +271,7 @@ onUnmounted(() => {
   window.clearInterval(pollTimer);
 });
 
+// 首次加载或重大变更后，重新拉取设置、历史、队列和模板。
 async function refreshAll() {
   try {
     const state = await invoke("load_app_state");
@@ -282,15 +282,17 @@ async function refreshAll() {
   }
 }
 
+// 定时轻量刷新队列快照，让历史列表同步运行状态。
 async function refreshQueueOnly() {
   try {
     const snapshot = await invoke("queue_snapshot");
     applyQueue(snapshot);
   } catch {
-    // Polling should stay quiet; explicit actions still surface errors.
+    // 轮询失败保持静默，用户主动操作时再展示错误。
   }
 }
 
+// 拖拽左右分隔条时，只调整相邻 panel 宽度并保留中间预览区最小空间。
 function startPanelResize(target, event) {
   event.preventDefault();
   const startX = event.clientX;
@@ -321,16 +323,17 @@ function startPanelResize(target, event) {
   window.addEventListener("pointercancel", stop);
 }
 
+// 把 Rust 返回的完整状态归一化为前端响应式状态。
 function applyState(state) {
   settings.value = normalizeSettingsForUi(state.settings || defaultSettings());
   history.value = state.history || [];
   applyQueue(state.queue || {});
   templates.value = state.templates || [];
-  dataDir.value = state.dataDir || "";
   ensureSelectedModels();
   ensureSelectedTask();
 }
 
+// 合并队列快照，并用后端 recent 字段刷新左侧历史时间线。
 function applyQueue(snapshot) {
   queue.waiting = snapshot.waiting || [];
   queue.running = snapshot.running || [];
@@ -343,12 +346,14 @@ function applyQueue(snapshot) {
   ensureSelectedTask();
 }
 
+// 没有选中任务时，默认定位到最新一条历史记录。
 function ensureSelectedTask() {
   if (selectedTask.value) return;
   const next = historyTimeline.value.at(-1);
   selectedTaskId.value = next?.id || "";
 }
 
+// 将当前工作台参数组装成 Images API 请求并加入后台队列。
 async function submitTask() {
   if (!form.prompt.trim()) {
     setStatus("提示词不能为空", "error");
@@ -385,6 +390,7 @@ async function submitTask() {
   }
 }
 
+// 从文件选择器导入参考图，并转换为可预览的数据 URL。
 async function addReferenceImages() {
   try {
     const selected = await openDialog({
@@ -404,6 +410,7 @@ async function addReferenceImages() {
   }
 }
 
+// 在提示词框粘贴图片时，把剪贴板图片保存为参考图。
 async function handlePromptPaste(event) {
   const items = Array.from(event?.clipboardData?.items || []);
   const files = Array.from(event?.clipboardData?.files || []);
@@ -421,6 +428,7 @@ async function handlePromptPaste(event) {
   }
 }
 
+// 将历史任务的提示词、参数、模型和参考图恢复到工作台。
 async function reuseTask(task) {
   if (!task) return;
 
@@ -459,6 +467,7 @@ async function reuseTask(task) {
   setStatus(`已将任务参数填入工作台${warningMessage}`, warnings.length ? "busy" : "ok");
 }
 
+// 手动刷新单个任务的状态，主要用于正在运行的历史项。
 async function refreshTask(task) {
   try {
     const snapshot = await invoke("queue_snapshot");
@@ -473,16 +482,7 @@ async function refreshTask(task) {
   }
 }
 
-async function cancelTask(task) {
-  try {
-    await invoke("cancel_task", { taskId: task.id });
-    setStatus("任务已取消", "ok");
-    await refreshQueueOnly();
-  } catch (error) {
-    setStatus(String(error), "error");
-  }
-}
-
+// 把失败任务重新放回队列，沿用原始请求文件。
 async function retryTask(task) {
   try {
     await invoke("retry_task", { taskId: task.id });
@@ -494,6 +494,7 @@ async function retryTask(task) {
   }
 }
 
+// 删除历史记录，同时由后端负责把对应输出图移入回收站。
 async function deleteTask(task) {
   if (!window.confirm("删除这条生成记录？")) return;
   try {
@@ -506,6 +507,7 @@ async function deleteTask(task) {
   }
 }
 
+// 保存 API 源配置后，重新选择可用的生图和对话模型。
 async function saveApiSettings(nextSettings) {
   try {
     const saved = await invoke("save_settings", { settings: nextSettings });
@@ -517,6 +519,7 @@ async function saveApiSettings(nextSettings) {
   }
 }
 
+// 下载输出图到系统 Downloads，并立即在 Finder 中定位。
 async function downloadOutput(output) {
   try {
     const savedPath = await invoke("download_output", { path: output.path });
@@ -527,6 +530,7 @@ async function downloadOutput(output) {
   }
 }
 
+// 把生成图写入系统剪贴板，方便粘贴到其它应用。
 async function copyOutput(output) {
   try {
     await invoke("copy_image_to_clipboard", { path: output.path });
@@ -536,24 +540,28 @@ async function copyOutput(output) {
   }
 }
 
+// 打开空白模板编辑器。
 function newTemplate() {
   Object.assign(templateDraft, emptyTemplate());
   templateEditorMode.value = "new";
   showTemplateEditor.value = true;
 }
 
+// 以只读模式查看模板，并在弹窗中高亮占位符。
 function viewTemplate(template) {
   Object.assign(templateDraft, deepClone(template));
   templateEditorMode.value = "view";
   showTemplateEditor.value = true;
 }
 
+// 以编辑模式打开模板。
 function editTemplate(template) {
   Object.assign(templateDraft, deepClone(template));
   templateEditorMode.value = "edit";
   showTemplateEditor.value = true;
 }
 
+// 保存新增或编辑后的模板，并刷新模板列表。
 async function savePromptTemplate() {
   try {
     templates.value = await invoke("save_template", { template: deepClone(templateDraft) });
@@ -564,6 +572,7 @@ async function savePromptTemplate() {
   }
 }
 
+// 删除模板维护列表中的指定模板。
 async function deletePromptTemplate(id) {
   if (!window.confirm("删除这个模板？")) return;
   try {
@@ -573,12 +582,14 @@ async function deletePromptTemplate(id) {
   }
 }
 
+// 在引用模板弹窗中选择模板，并保留搜索条件。
 function selectReferenceTemplate(template) {
   selectedReferenceTemplateId.value = template.id;
   templateReferenceContent.value = template.content || "";
   templateFilledRanges.value = [];
 }
 
+// 调用对话模型填充模板中的 `{}` 占位区域。
 async function fillReferenceTemplate() {
   if (!templateReferenceContent.value.trim()) {
     setStatus("请先选择或输入模板内容", "error");
@@ -605,6 +616,7 @@ async function fillReferenceTemplate() {
   }
 }
 
+// 将引用模板内容插入到提示词当前光标位置。
 async function insertReferenceTemplate() {
   const content = templateReferenceContent.value;
   if (!content.trim()) {
@@ -623,11 +635,13 @@ async function insertReferenceTemplate() {
   setStatus("模板已引用到提示词", "ok");
 }
 
+// 清空提示词并重置插入光标。
 function clearPrompt() {
   form.prompt = "";
   promptCursor.value = 0;
 }
 
+// 记录提示词光标位置，供模板插入使用。
 function capturePromptCursor(event) {
   const target = event?.target;
   if (typeof target?.selectionStart === "number") {
@@ -635,12 +649,14 @@ function capturePromptCursor(event) {
   }
 }
 
+// 在记录的光标位置插入文本，不覆盖原有提示词。
 function insertTextAtCursor(text) {
   const start = clamp(promptCursor.value, 0, form.prompt.length);
   form.prompt = `${form.prompt.slice(0, start)}${text}${form.prompt.slice(start)}`;
   promptCursor.value = start + text.length;
 }
 
+// 根据原模板占位符位置，推算 AI 填充后应高亮的文本范围。
 function mapFilledRanges(original, filled) {
   const placeholders = templatePlaceholders(original);
   if (!placeholders.length) return [];
@@ -669,6 +685,7 @@ function mapFilledRanges(original, filled) {
   return ranges;
 }
 
+// 识别模板里由 `{}` 包裹的占位描述。
 function templatePlaceholders(value) {
   const matches = [];
   const pattern = /\{[^{}]+\}/g;
@@ -679,6 +696,7 @@ function templatePlaceholders(value) {
   return matches;
 }
 
+// 调用系统文件管理器定位文件或目录。
 async function reveal(path) {
   try {
     await invoke("reveal_path", { path });
@@ -700,6 +718,7 @@ function taskTime(task) {
   return task.createdAt || task.updatedAt || task.completedAt || "";
 }
 
+// 根据设置、历史成功任务和当前列表，保证模型选择始终可用。
 function ensureSelectedModels(preferSaved = false) {
   if (preferSaved || !imageProviders.value.some((provider) => provider.id === form.providerId)) {
     form.providerId = preferSaved
@@ -711,6 +730,7 @@ function ensureSelectedModels(preferSaved = false) {
   }
 }
 
+// 从最近成功任务中找回生图模型，作为工作台默认选择。
 function lastSuccessfulImageProviderId() {
   for (const task of [...history.value].reverse()) {
     if (task.status !== "completed") continue;

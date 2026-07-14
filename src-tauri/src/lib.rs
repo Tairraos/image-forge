@@ -21,10 +21,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            commands::add_gallery_item,
-            commands::cancel_task,
             commands::copy_image_to_clipboard,
-            commands::delete_gallery_item,
             commands::delete_task,
             commands::delete_template,
             commands::download_output,
@@ -33,7 +30,6 @@ pub fn run() {
             commands::load_app_state,
             commands::list_provider_models,
             commands::mark_template_used,
-            commands::promote_task,
             commands::queue_snapshot,
             commands::reference_from_clipboard,
             commands::reference_from_path,
@@ -41,7 +37,6 @@ pub fn run() {
             commands::reveal_path,
             commands::save_settings,
             commands::save_template,
-            commands::update_gallery_item
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

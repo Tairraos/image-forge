@@ -269,7 +269,6 @@ pub struct AppState {
     pub settings: Settings,
     pub history: Vec<TaskRecord>,
     pub queue: QueueSnapshot,
-    pub gallery: GalleryState,
     pub templates: Vec<PromptTemplate>,
     pub data_dir: String,
 }
@@ -282,52 +281,6 @@ pub struct ReferencePreview {
     pub mime_type: String,
     pub file_size: u64,
     pub data_url: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GalleryItem {
-    pub id: String,
-    pub name: String,
-    pub category: String,
-    pub note: String,
-    pub path: String,
-    pub mime_type: String,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct GalleryState {
-    #[serde(default)]
-    pub items: Vec<GalleryItem>,
-    #[serde(default)]
-    pub categories: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GalleryPayload {
-    pub path: String,
-    #[serde(default)]
-    pub name: String,
-    #[serde(default)]
-    pub category: String,
-    #[serde(default)]
-    pub note: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GalleryUpdate {
-    pub id: String,
-    #[serde(default)]
-    pub name: String,
-    #[serde(default)]
-    pub category: String,
-    #[serde(default)]
-    pub note: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

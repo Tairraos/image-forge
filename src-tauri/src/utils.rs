@@ -190,15 +190,6 @@ pub(crate) fn extension_for_format(format: &str, bytes: &[u8]) -> &'static str {
     }
 }
 
-pub(crate) fn extension_for_mime(mime_type: &str) -> &'static str {
-    match mime_type {
-        "image/jpeg" => "jpg",
-        "image/webp" => "webp",
-        "image/gif" => "gif",
-        _ => "png",
-    }
-}
-
 pub(crate) fn mime_for_format(format: &str) -> &'static str {
     match format {
         "jpeg" => "image/jpeg",
@@ -278,12 +269,6 @@ pub(crate) fn sanitize_id(value: &str) -> String {
     } else {
         out
     }
-}
-
-pub(crate) fn file_stem(path: &Path) -> String {
-    path.file_stem()
-        .map(|stem| stem.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "image".into())
 }
 
 pub(crate) fn utc_now() -> String {

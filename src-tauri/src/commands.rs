@@ -9,8 +9,8 @@ use uuid::Uuid;
 
 use crate::{
     models::{
-        ApiProvider, AppState, GalleryItem, GalleryPayload, GalleryState, GalleryUpdate,
-        GenerateRequest, PromptTemplate, QueueSnapshot, ReferencePreview, TaskRecord,
+        ApiProvider, AppState, GenerateRequest, PromptTemplate, QueueSnapshot, ReferencePreview,
+        TaskRecord,
     },
     services::{
         chat::fill_template,
@@ -19,16 +19,16 @@ use crate::{
     },
     state::RuntimeState,
     store::{
-        enqueue_task, ensure_data_dir, gallery_image_dir, next_template_id, normalize_request,
-        normalize_settings, normalize_template, params_from_request, provider_for_request,
-        read_gallery, read_history, read_json, read_queue, read_settings, read_templates,
-        request_path, sync_gallery_categories, templates_path, upsert_history, write_gallery,
+        enqueue_task, ensure_data_dir, next_template_id, normalize_request, normalize_settings,
+        normalize_template, params_from_request, provider_for_request, read_history, read_json,
+        read_queue, read_settings, read_templates, request_path, templates_path, upsert_history,
         write_history, write_json, write_queue, write_settings,
     },
-    utils::{clean_text, extension_for_mime, file_stem, image_mime_type, utc_now},
+    utils::utc_now,
 };
 
 #[tauri::command]
+/// 加载前端启动所需的完整应用状态，并恢复异常退出遗留的运行中任务。
 pub(crate) fn load_app_state(app: AppHandle) -> Result<AppState, String> {
     let data_dir = ensure_data_dir(&app)?;
     recover_stale_running(&app, &data_dir)?;
@@ -38,13 +38,13 @@ pub(crate) fn load_app_state(app: AppHandle) -> Result<AppState, String> {
         settings,
         history: history.clone(),
         queue: build_queue_snapshot(&app, &data_dir, history)?,
-        gallery: read_gallery(&data_dir)?,
         templates: read_templates(&data_dir)?,
         data_dir: data_dir.to_string_lossy().into_owned(),
     })
 }
 
 #[tauri::command]
+/// 保存 API 源与基础设置，随后唤醒队列 worker 处理可能恢复的任务。
 pub(crate) fn save_settings(
     app: AppHandle,
     settings: crate::models::Settings,
@@ -57,12 +57,14 @@ pub(crate) fn save_settings(
 }
 
 #[tauri::command]
+/// 返回队列快照，供前端轮询刷新运行中和等待中的任务。
 pub(crate) fn queue_snapshot(app: AppHandle) -> Result<QueueSnapshot, String> {
     let data_dir = ensure_data_dir(&app)?;
     build_queue_snapshot(&app, &data_dir, read_history(&data_dir)?)
 }
 
 #[tauri::command]
+/// 创建新的生图任务：保存原始请求、写入历史、放入等待队列。
 pub(crate) fn enqueue_generation(
     app: AppHandle,
     request: GenerateRequest,
@@ -106,36 +108,7 @@ pub(crate) fn enqueue_generation(
 }
 
 #[tauri::command]
-pub(crate) fn cancel_task(app: AppHandle, task_id: String) -> Result<TaskRecord, String> {
-    let data_dir = ensure_data_dir(&app)?;
-    let mut queue = read_queue(&data_dir)?;
-    let mut history = read_history(&data_dir)?;
-    let record = history
-        .iter_mut()
-        .find(|item| item.id == task_id)
-        .ok_or("找不到任务")?;
-
-    if record.status == "queued" {
-        queue.waiting.retain(|id| id != &task_id);
-        record.status = "cancelled".into();
-        record.completed_at = Some(utc_now());
-    } else if record.status == "running" {
-        app.state::<RuntimeState>()
-            .cancel_requests
-            .lock()
-            .map_err(|_| "取消状态锁定失败")?
-            .insert(task_id.clone());
-        record.status = "cancelling".into();
-    }
-
-    record.updated_at = utc_now();
-    let next = record.clone();
-    write_history(&data_dir, &history)?;
-    write_queue(&data_dir, &queue)?;
-    Ok(next)
-}
-
-#[tauri::command]
+/// 使用已保存的原始请求重新排队失败或完成的历史任务。
 pub(crate) fn retry_task(app: AppHandle, task_id: String) -> Result<TaskRecord, String> {
     let data_dir = ensure_data_dir(&app)?;
     let request: GenerateRequest = read_json(&request_path(&data_dir, &task_id))?;
@@ -167,6 +140,7 @@ pub(crate) fn retry_task(app: AppHandle, task_id: String) -> Result<TaskRecord, 
 }
 
 #[tauri::command]
+/// 删除任务记录、队列项和请求文件，并把已生成图片移入回收站。
 pub(crate) fn delete_task(app: AppHandle, task_id: String) -> Result<(), String> {
     let data_dir = ensure_data_dir(&app)?;
     let mut history = read_history(&data_dir)?;
@@ -204,6 +178,7 @@ pub(crate) fn delete_task(app: AppHandle, task_id: String) -> Result<(), String>
     Ok(())
 }
 
+/// 将任务输出图移入系统回收站，避免误删后无法找回。
 fn delete_output_files_for_task(record: &TaskRecord) -> Result<(), String> {
     for output in &record.outputs {
         let path = PathBuf::from(&output.path);
@@ -220,104 +195,19 @@ fn delete_output_files_for_task(record: &TaskRecord) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub(crate) fn promote_task(app: AppHandle, task_id: String) -> Result<QueueSnapshot, String> {
-    let data_dir = ensure_data_dir(&app)?;
-    let mut queue = read_queue(&data_dir)?;
-    if let Some(index) = queue.waiting.iter().position(|id| id == &task_id) {
-        let id = queue.waiting.remove(index);
-        queue.waiting.insert(0, id);
-        queue.updated_at = utc_now();
-        write_queue(&data_dir, &queue)?;
-    }
-    queue_snapshot(app)
-}
-
-#[tauri::command]
+/// 根据本地图片路径生成参考图预览信息。
 pub(crate) fn reference_from_path(path: String) -> Result<ReferencePreview, String> {
     reference_preview(Path::new(&path))
 }
 
 #[tauri::command]
+/// 从系统剪贴板读取图片并保存为参考图临时文件。
 pub(crate) fn reference_from_clipboard(app: AppHandle) -> Result<ReferencePreview, String> {
     crate::services::clipboard::reference_from_clipboard(&app)
 }
 
 #[tauri::command]
-pub(crate) fn add_gallery_item(
-    app: AppHandle,
-    payload: GalleryPayload,
-) -> Result<GalleryState, String> {
-    let data_dir = ensure_data_dir(&app)?;
-    let source = PathBuf::from(payload.path);
-    if !source.is_file() {
-        return Err("找不到图库图片".into());
-    }
-    let bytes = fs::read(&source).map_err(|error| format!("读取图库图片失败: {error}"))?;
-    let mime_type = image_mime_type(&source, &bytes)?;
-    let id = Uuid::new_v4().to_string();
-    let extension = extension_for_mime(&mime_type);
-    let image_dir = gallery_image_dir(&data_dir);
-    fs::create_dir_all(&image_dir).map_err(|error| format!("创建图库目录失败: {error}"))?;
-    let stored_path = image_dir.join(format!("{id}.{extension}"));
-    fs::write(&stored_path, bytes).map_err(|error| format!("保存图库图片失败: {error}"))?;
-
-    let now = utc_now();
-    let mut gallery = read_gallery(&data_dir)?;
-    let category = clean_text(payload.category, "默认");
-    gallery.items.push(GalleryItem {
-        id,
-        name: clean_text(payload.name, &file_stem(&source)),
-        category: category.clone(),
-        note: payload.note.trim().to_string(),
-        path: stored_path.to_string_lossy().into_owned(),
-        mime_type,
-        created_at: now.clone(),
-        updated_at: now,
-    });
-    sync_gallery_categories(&mut gallery);
-    write_gallery(&data_dir, &gallery)?;
-    Ok(gallery)
-}
-
-#[tauri::command]
-pub(crate) fn update_gallery_item(
-    app: AppHandle,
-    payload: GalleryUpdate,
-) -> Result<GalleryState, String> {
-    let data_dir = ensure_data_dir(&app)?;
-    let mut gallery = read_gallery(&data_dir)?;
-    let item = gallery
-        .items
-        .iter_mut()
-        .find(|item| item.id == payload.id)
-        .ok_or("找不到图库条目")?;
-    if !payload.name.trim().is_empty() {
-        item.name = payload.name.trim().to_string();
-    }
-    if !payload.category.trim().is_empty() {
-        item.category = payload.category.trim().to_string();
-    }
-    item.note = payload.note.trim().to_string();
-    item.updated_at = utc_now();
-    sync_gallery_categories(&mut gallery);
-    write_gallery(&data_dir, &gallery)?;
-    Ok(gallery)
-}
-
-#[tauri::command]
-pub(crate) fn delete_gallery_item(app: AppHandle, item_id: String) -> Result<GalleryState, String> {
-    let data_dir = ensure_data_dir(&app)?;
-    let mut gallery = read_gallery(&data_dir)?;
-    if let Some(item) = gallery.items.iter().find(|item| item.id == item_id) {
-        let _ = fs::remove_file(&item.path);
-    }
-    gallery.items.retain(|item| item.id != item_id);
-    sync_gallery_categories(&mut gallery);
-    write_gallery(&data_dir, &gallery)?;
-    Ok(gallery)
-}
-
-#[tauri::command]
+/// 新增或更新提示词模板，空 ID 会按数字序列自动分配。
 pub(crate) fn save_template(
     app: AppHandle,
     template: PromptTemplate,
@@ -342,6 +232,7 @@ pub(crate) fn save_template(
     Ok(templates)
 }
 
+/// 优先按数字 ID 排序模板，兼容旧数据中的非数字 ID。
 fn compare_template_id(left: &PromptTemplate, right: &PromptTemplate) -> std::cmp::Ordering {
     match (left.id.parse::<u64>(), right.id.parse::<u64>()) {
         (Ok(left_id), Ok(right_id)) => left_id.cmp(&right_id),
@@ -350,6 +241,7 @@ fn compare_template_id(left: &PromptTemplate, right: &PromptTemplate) -> std::cm
 }
 
 #[tauri::command]
+/// 删除指定提示词模板并返回更新后的模板列表。
 pub(crate) fn delete_template(
     app: AppHandle,
     template_id: String,
@@ -362,6 +254,7 @@ pub(crate) fn delete_template(
 }
 
 #[tauri::command]
+/// 引用模板后增加使用次数，用于后续排序或维护参考。
 pub(crate) fn mark_template_used(
     app: AppHandle,
     template_id: String,
@@ -380,6 +273,7 @@ pub(crate) fn mark_template_used(
 }
 
 #[tauri::command]
+/// 调用对话模型填充模板中的占位描述，返回完整提示词文本。
 pub(crate) async fn fill_prompt_template(
     app: AppHandle,
     provider_id: String,
@@ -404,12 +298,14 @@ pub(crate) async fn fill_prompt_template(
 }
 
 #[tauri::command]
+/// 从兼容 OpenAI 的 API 源读取可选模型列表。
 pub(crate) async fn list_provider_models(provider: ApiProvider) -> Result<Vec<String>, String> {
     let client = crate::utils::http_client()?;
     crate::services::models::list_provider_models(&client, &provider).await
 }
 
 #[tauri::command]
+/// 把生成图片复制到系统下载目录，并自动处理重名文件。
 pub(crate) fn download_output(app: AppHandle, path: String) -> Result<String, String> {
     let source = PathBuf::from(path);
     if !source.is_file() {
@@ -431,11 +327,13 @@ pub(crate) fn download_output(app: AppHandle, path: String) -> Result<String, St
 }
 
 #[tauri::command]
+/// 将图片复制到系统剪贴板。
 pub(crate) fn copy_image_to_clipboard(path: String) -> Result<(), String> {
     crate::services::clipboard::copy_image_to_clipboard(Path::new(&path))
 }
 
 #[tauri::command]
+/// 在系统文件管理器中打开目录或定位指定文件。
 pub(crate) fn reveal_path(path: String) -> Result<(), String> {
     let path = PathBuf::from(path);
     if !path.exists() {
@@ -475,6 +373,7 @@ pub(crate) fn reveal_path(path: String) -> Result<(), String> {
     Ok(())
 }
 
+/// 为下载文件生成不冲突的目标路径。
 fn unique_download_path(downloads_dir: &Path, file_name: &str) -> PathBuf {
     let candidate = downloads_dir.join(file_name);
     if !candidate.exists() {

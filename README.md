@@ -1,7 +1,7 @@
 <h1 align="center">Image Forge</h1>
 
 <p align="center">
-  <sub>一个基于 Tauri 2 + Vue 3 + Rust 的本地 AI 生图工作台 · Images API · Queue · Gallery · Templates</sub>
+  <sub>一个基于 Tauri 2 + Vue 3 + Rust 的本地 AI 生图工作台 · Images API · Queue · Templates</sub>
 </p>
 
 <p align="center">
@@ -17,17 +17,17 @@
 
 Image Forge 是一个本地桌面生图工作台。它通过 OpenAI 兼容的 Images API 做文生图和参考图编辑，把 API 源、生成历史、结果预览和提示词模板维护放在一个轻量桌面应用里。
 
-它不依赖 Python WebUI，也不把数据丢给外部数据库。设置、队列、历史、图库和模板都写入本机应用数据目录，生成图片保存到本地输出目录。
+它不依赖 Python WebUI，也不把数据丢给外部数据库。设置、队列、历史和模板都写入本机应用数据目录，生成图片保存到本地输出目录。
 
 ## 功能
 
 - OpenAI 兼容 Images API：支持 `/images/generations` 文生图和 `/images/edits` 参考图编辑；
-- 多模型管理：API 源可标记为生图模型或对话模型，工作台选择生图模型，顶部栏和引用模板弹窗选择对话模型；
+- 多模型管理：API 源可标记为生图模型或对话模型，工作台选择生图模型，引用模板弹窗选择对话模型；
 - 生图历史：任务入队、后台执行、刷新、重试、删除、运行状态轮询和失败自动重试；
 - 结果预览：选择历史任务后预览输出图片，支持下载到 Downloads 和在 Finder 中定位；
 - 提示词模板：通过模板维护弹窗增删查改，引用模板弹窗支持搜索、预览、AI 填充 `{}` 占位并插入到提示词光标位置；
-- 参考图工作流：支持多张参考图，自动生成本地预览，并可从图库继续添加；
-- 本地持久化：设置、队列、历史、图库和模板写入应用数据目录；
+- 参考图工作流：支持文件选择和剪贴板粘贴图片，自动生成本地预览；
+- 本地持久化：设置、队列、历史和模板写入应用数据目录，删除历史会把对应图片移入回收站；
 - 马卡龙偏紫界面：三栏工作台、小型按钮、可拖拽调整 panel 宽度，默认把弹性空间留给结果预览。
 
 ## 界面结构
@@ -37,7 +37,7 @@ Image Forge 当前是单页三栏布局：
 - 左侧：生成历史记录；
 - 中间：任务状态、结果预览、详情和重用；
 - 右侧：生成参数、生图模型、提示词输入、模板入口和参考图条；
-- 顶部：对话模型、API 源、模板和设置入口。
+- 顶部：品牌、API 源和模板维护入口；运行数、排队数和提示信息显示在底部状态栏。
 
 ## 数据与架构
 
@@ -51,7 +51,7 @@ app_data_dir/
   prompt-templates.json
   requests/
   outputs/
-  gallery/
+  clipboard/
 ```
 
 更多代码分层、数据流和队列运行逻辑见技术设计文档：
@@ -109,12 +109,12 @@ pnpm run release -- 0.2.6
 pnpm run release
 ```
 
-传入版本号时会先检查新版本必须高于当前版本，再同步修改项目版本、窗口 title、页面 title 和 Rust User-Agent；不传版本号时使用当前版本。发布产物会复制到 `release/` 目录，文件名带版本号。`release/` 不提交进 Git。
+传入版本号时会先检查新版本必须高于当前版本，再同步修改项目版本、窗口 title、页面 title 和 Rust User-Agent；不传版本号时使用当前版本。发布产物会复制到 `release/` 目录，文件名带版本号；新版 `.app` 和 `.dmg` 生成后，旧版本发布包会移入系统回收站。`release/` 不提交进 Git。
 
 ## 目录
 
 - `src/App.vue`：单页控制器，集中管理状态、轮询和 Tauri 命令调用；
-- `src/components/`：主界面面板、抽屉、弹窗和任务卡片；
+- `src/components/`：主界面面板、弹窗和任务卡片；
 - `src/lib/`：前端默认模型、选项、格式化函数和 Naive UI 主题；
 - `src/styles.css`：整体布局、马卡龙紫配色、panel 尺寸、拖拽条和响应式细节；
 - `src/tauri.js`：前端调用 Tauri 命令与文件协议转换的轻封装；
@@ -130,7 +130,7 @@ pnpm run release
 
 - 改三栏默认宽度：修改 `src/App.vue` 里的 `panelSizes` 和 `workspaceStyle`；
 - 改拖拽范围：修改 `src/App.vue` 的 `startPanelResize()`；
-- 改顶部对话模型选择：修改 `src/components/AppTopbar.vue`；
+- 改顶部 API 源/模板入口：修改 `src/components/AppTopbar.vue`；
 - 改 API 源/模型管理：修改 `src/components/dialogs/ApiSourceDialog.vue`；
 - 改工作台参数区和生图模型选择：修改 `src/components/ComposerPanel.vue`；
 - 改队列/结果预览：修改 `src/components/QueuePanel.vue` 和 `src/components/ResultPanel.vue`；
@@ -147,6 +147,12 @@ pnpm run release
 - 每个正式版本都需要产出 `.dmg` 和 `.app` 到 `release/`，但不要提交这些二进制产物。
 
 ## 版本记录
+
+### v0.2.22
+
+- 清理已经移除的图库、设置弹窗和队列旧命令残留，收敛当前代码结构。
+- 为前端工作台控制器、Rust 命令层、存储层、队列服务和发布脚本补充关键方法注释。
+- 更新 README 与技术设计文档，确保功能、目录和本地数据结构描述与现有实现一致。
 
 ### v0.2.6
 

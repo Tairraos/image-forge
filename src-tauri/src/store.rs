@@ -14,8 +14,8 @@ use crate::{
         default_provider_id, default_provider_name, DEFAULT_IMAGE_MODEL, MAX_HISTORY_ITEMS,
     },
     models::{
-        ApiProvider, GalleryState, GenerateRequest, GenerationParams, PromptTemplate, QueueRun,
-        QueueState, Settings, TaskRecord,
+        ApiProvider, GenerateRequest, GenerationParams, PromptTemplate, QueueRun, QueueState,
+        Settings, TaskRecord,
     },
     utils::{
         clean_text, normalize_base_url, normalize_output_format, normalize_prompt_fidelity,
@@ -24,6 +24,7 @@ use crate::{
     },
 };
 
+/// 确保应用数据目录和必要子目录存在，并返回数据根路径。
 pub(crate) fn ensure_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let data_dir = app
         .path()
@@ -32,7 +33,6 @@ pub(crate) fn ensure_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
     for dir in [
         data_dir.join("outputs"),
         data_dir.join("requests"),
-        data_dir.join("gallery").join("images"),
         data_dir.join("clipboard"),
     ] {
         fs::create_dir_all(dir).map_err(|error| format!("创建应用目录失败: {error}"))?;
@@ -40,6 +40,7 @@ pub(crate) fn ensure_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(data_dir)
 }
 
+/// 根据用户设置解析输出目录，未配置时使用应用数据目录下的 outputs。
 pub(crate) fn output_dir_for(data_dir: &Path, settings: &Settings) -> Result<PathBuf, String> {
     let dir = settings
         .output_dir
@@ -64,6 +65,7 @@ pub(crate) fn write_settings(data_dir: &Path, settings: &Settings) -> Result<(),
     write_json(&settings_path(data_dir), settings)
 }
 
+/// 兼容旧配置并归一化 API 源、默认模型和输出路径。
 pub(crate) fn normalize_settings(mut settings: Settings) -> Settings {
     if settings.providers.is_empty() {
         settings.providers = vec![ApiProvider {
@@ -161,6 +163,7 @@ pub(crate) fn normalize_settings(mut settings: Settings) -> Settings {
     settings
 }
 
+/// 按请求指定 ID、当前激活源和首个可用源的顺序选择生图 API 源。
 pub(crate) fn provider_for_request(
     settings: &Settings,
     provider_id: Option<&str>,
@@ -188,6 +191,7 @@ pub(crate) fn provider_for_request(
         .ok_or("还没有配置生图模型".into())
 }
 
+/// 将前端请求裁剪为当前支持的 Images API 参数集合。
 pub(crate) fn normalize_request(mut request: GenerateRequest) -> Result<GenerateRequest, String> {
     request.prompt = request.prompt.trim().to_string();
     if request.prompt.is_empty() {
@@ -214,6 +218,7 @@ pub(crate) fn normalize_request(mut request: GenerateRequest) -> Result<Generate
     Ok(request)
 }
 
+/// 从完整请求中提取需要写入历史记录的生成参数。
 pub(crate) fn params_from_request(request: &GenerateRequest) -> GenerationParams {
     GenerationParams {
         size: request.size.clone(),
@@ -231,12 +236,14 @@ pub(crate) fn params_from_request(request: &GenerateRequest) -> GenerationParams
     }
 }
 
+/// 读取历史记录，并按创建时间倒序保存给队列快照使用。
 pub(crate) fn read_history(data_dir: &Path) -> Result<Vec<TaskRecord>, String> {
     let mut history: Vec<TaskRecord> = read_json(&history_path(data_dir))?;
     history.sort_by(|left, right| right.created_at.cmp(&left.created_at));
     Ok(history)
 }
 
+/// 写入历史记录，同时限制最大条数防止 JSON 无限膨胀。
 pub(crate) fn write_history(data_dir: &Path, history: &[TaskRecord]) -> Result<(), String> {
     let mut history = history.to_vec();
     history.sort_by(|left, right| right.created_at.cmp(&left.created_at));
@@ -246,6 +253,7 @@ pub(crate) fn write_history(data_dir: &Path, history: &[TaskRecord]) -> Result<(
     write_json(&history_path(data_dir), &history)
 }
 
+/// 按任务 ID 更新或插入历史记录。
 pub(crate) fn upsert_history(data_dir: &Path, record: TaskRecord) -> Result<(), String> {
     let mut history = read_history(data_dir)?;
     if let Some(index) = history.iter().position(|item| item.id == record.id) {
@@ -262,6 +270,7 @@ pub(crate) fn history_record(data_dir: &Path, task_id: &str) -> Result<Option<Ta
         .find(|record| record.id == task_id))
 }
 
+/// 在历史文件缺失时构造失败记录，保证错误能回写到前端。
 pub(crate) fn fallback_failed_record(task_id: &str, error: &str) -> TaskRecord {
     let now = utc_now();
     TaskRecord {
@@ -307,6 +316,7 @@ pub(crate) fn write_queue(data_dir: &Path, queue: &QueueState) -> Result<(), Str
     write_json(&queue_path(data_dir), &queue)
 }
 
+/// 把任务放到等待队列末尾，并去重运行/等待中的旧位置。
 pub(crate) fn enqueue_task(data_dir: &Path, task_id: &str) -> Result<(), String> {
     let mut queue = read_queue(data_dir)?;
     queue.running.retain(|run| run.task_id != task_id);
@@ -315,6 +325,7 @@ pub(crate) fn enqueue_task(data_dir: &Path, task_id: &str) -> Result<(), String>
     write_queue(data_dir, &queue)
 }
 
+/// 取出下一条未超过供应商并发限制的等待任务。
 pub(crate) fn pop_next_runnable(
     data_dir: &Path,
     settings: &Settings,
@@ -351,34 +362,11 @@ pub(crate) fn clear_running_task(data_dir: &Path, task_id: &str) -> Result<(), S
     write_queue(data_dir, &queue)
 }
 
-pub(crate) fn read_gallery(data_dir: &Path) -> Result<GalleryState, String> {
-    let mut gallery: GalleryState = read_json(&gallery_path(data_dir))?;
-    sync_gallery_categories(&mut gallery);
-    Ok(gallery)
-}
-
-pub(crate) fn write_gallery(data_dir: &Path, gallery: &GalleryState) -> Result<(), String> {
-    write_json(&gallery_path(data_dir), gallery)
-}
-
-pub(crate) fn sync_gallery_categories(gallery: &mut GalleryState) {
-    let mut categories: Vec<String> = gallery
-        .items
-        .iter()
-        .map(|item| clean_text(item.category.clone(), "默认"))
-        .collect();
-    categories.sort();
-    categories.dedup();
-    if categories.is_empty() {
-        categories.push("默认".into());
-    }
-    gallery.categories = categories;
-}
-
 pub(crate) fn read_templates(data_dir: &Path) -> Result<Vec<PromptTemplate>, String> {
     read_json(&templates_path(data_dir))
 }
 
+/// 清理模板字段并为旧数据补齐标题、短标题等兼容字段。
 pub(crate) fn normalize_template(mut template: PromptTemplate) -> Result<PromptTemplate, String> {
     template.title = template.title.trim().to_string();
     template.short_title = template.short_title.trim().to_string();
@@ -405,6 +393,7 @@ pub(crate) fn normalize_template(mut template: PromptTemplate) -> Result<PromptT
     Ok(template)
 }
 
+/// 从现有数字 ID 中计算下一个自增模板 ID。
 pub(crate) fn next_template_id(templates: &[PromptTemplate]) -> String {
     let next = templates
         .iter()
@@ -415,6 +404,7 @@ pub(crate) fn next_template_id(templates: &[PromptTemplate]) -> String {
     next.to_string()
 }
 
+/// 读取 JSON 文件；文件不存在时返回类型默认值，简化首启逻辑。
 pub(crate) fn read_json<T>(path: &Path) -> Result<T, String>
 where
     T: for<'de> Deserialize<'de> + Default,
@@ -427,6 +417,7 @@ where
     serde_json::from_str(&text).map_err(|error| format!("解析 {} 失败: {error}", path.display()))
 }
 
+/// 以 pretty JSON 写入文件，并自动创建父目录。
 pub(crate) fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| format!("创建目录失败: {error}"))?;
@@ -440,14 +431,11 @@ pub(crate) fn request_path(data_dir: &Path, task_id: &str) -> PathBuf {
     data_dir.join("requests").join(format!("{task_id}.json"))
 }
 
-pub(crate) fn gallery_image_dir(data_dir: &Path) -> PathBuf {
-    data_dir.join("gallery").join("images")
-}
-
 pub(crate) fn templates_path(data_dir: &Path) -> PathBuf {
     data_dir.join("prompt-templates.json")
 }
 
+/// 归一化单个 API 源，隐藏并固定不再由界面维护的字段。
 fn normalize_provider(provider: ApiProvider, index: usize) -> ApiProvider {
     let fallback_id;
     let id_source = if provider.id.trim().is_empty() {
@@ -482,6 +470,7 @@ fn is_image_provider(provider: &ApiProvider) -> bool {
     provider.model_type != "chat"
 }
 
+/// 统计每个 API 源当前运行任务数，用于控制并发。
 fn running_counts_by_provider(queue: &QueueState) -> HashMap<String, usize> {
     let mut counts = HashMap::new();
     for run in &queue.running {
@@ -500,8 +489,4 @@ fn queue_path(data_dir: &Path) -> PathBuf {
 
 fn history_path(data_dir: &Path) -> PathBuf {
     data_dir.join("history.json")
-}
-
-fn gallery_path(data_dir: &Path) -> PathBuf {
-    data_dir.join("gallery").join("gallery.json")
 }

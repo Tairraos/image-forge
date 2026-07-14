@@ -141,6 +141,7 @@ function movePath(from, to) {
   return to;
 }
 
+// 新版本发布成功后，只保留当前产物，旧 app/dmg 移入系统回收站。
 function moveOldReleaseBundlesToTrash(currentOutputs) {
   const current = new Set(currentOutputs.map((file) => basename(file)));
   const oldBundles = readdirSync(releaseDir, { withFileTypes: true })
