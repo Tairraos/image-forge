@@ -81,19 +81,19 @@
               />
             </n-form-item>
             <n-form-item label="模型">
-              <n-select
-                v-model:value="selectedProvider.imageModel"
-                filterable
-                tag
-                :options="modelOptions"
-                placeholder="选择或输入模型 ID"
-              />
+              <div class="model-select-row">
+                <n-select
+                  v-model:value="selectedProvider.imageModel"
+                  filterable
+                  tag
+                  :options="modelOptions"
+                  placeholder="选择或输入模型 ID"
+                />
+                <n-button secondary :loading="loadingModels" @click="fetchModels">
+                  获取
+                </n-button>
+              </div>
             </n-form-item>
-            <div class="model-fetch-action">
-              <n-button secondary :loading="loadingModels" @click="fetchModels">
-                获取
-              </n-button>
-            </div>
           </div>
           <p v-if="modelFetchMessage" class="model-fetch-message" :data-tone="modelFetchTone">
             {{ modelFetchMessage }}
@@ -135,8 +135,8 @@
           </n-button>
         </div>
         <div class="dialog-actions">
-          <n-button size="small" @click="visible = false">关闭</n-button>
           <n-button size="small" type="primary" @click="save">保存 API 源</n-button>
+          <n-button size="small" @click="visible = false">关闭</n-button>
         </div>
       </div>
     </template>

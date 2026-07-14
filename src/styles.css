@@ -1289,20 +1289,9 @@ button:disabled {
 
 .provider-form-row {
   display: grid;
+  grid-template-columns: minmax(0, 9fr) minmax(0, 11fr);
   align-items: end;
   gap: 10px;
-}
-
-.provider-identity-row {
-  grid-template-columns: minmax(0, 1fr) minmax(150px, 0.42fr);
-}
-
-.provider-credentials-row {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.provider-model-row {
-  grid-template-columns: minmax(260px, 1.15fr) minmax(220px, 0.85fr) auto;
 }
 
 .provider-form .n-form-item {
@@ -1314,11 +1303,14 @@ button:disabled {
   line-height: 18px;
 }
 
-.model-fetch-action {
-  padding-bottom: 1px;
+.model-select-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  width: 100%;
 }
 
-.model-fetch-action .n-button {
+.model-select-row .n-button {
   min-width: 64px;
 }
 
@@ -1512,10 +1504,6 @@ button:disabled {
   .provider-credentials-row,
   .provider-model-row {
     grid-template-columns: 1fr;
-  }
-
-  .model-fetch-action {
-    padding-bottom: 0;
   }
 
   .api-dialog-footer {
