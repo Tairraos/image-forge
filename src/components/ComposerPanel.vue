@@ -27,6 +27,19 @@
       </n-form>
     </div>
 
+    <div class="reference-strip">
+      <div v-for="(item, index) in references" :key="item.path" class="reference-tile">
+        <img :src="item.previewUrl" :alt="item.fileName" />
+        <button type="button" title="移除参考图" @click="$emit('remove-reference', index)">
+          <X :size="14" />
+        </button>
+      </div>
+      <button class="reference-add" type="button" @click="$emit('add-reference')">
+        <Plus :size="18" />
+        <span>参考图</span>
+      </button>
+    </div>
+
     <div class="prompt-live-panel">
       <div class="prompt-live-head">
         <span>提示词</span>
@@ -55,19 +68,6 @@
           开始生成
         </n-button>
       </div>
-    </div>
-
-    <div class="reference-strip">
-      <div v-for="(item, index) in references" :key="item.path" class="reference-tile">
-        <img :src="item.previewUrl" :alt="item.fileName" />
-        <button type="button" title="移除参考图" @click="$emit('remove-reference', index)">
-          <X :size="14" />
-        </button>
-      </div>
-      <button class="reference-add" type="button" @click="$emit('add-reference')">
-        <Plus :size="18" />
-        <span>参考图</span>
-      </button>
     </div>
   </section>
 </template>

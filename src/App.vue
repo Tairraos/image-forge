@@ -35,6 +35,7 @@
           :current-outputs="currentOutputs"
           @show-detail="showTaskDetail = true"
           @reuse="reuseTask"
+          @copy-output="copyOutput"
         />
 
         <div
