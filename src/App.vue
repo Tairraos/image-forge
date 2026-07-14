@@ -5,7 +5,6 @@
       <AppTopbar
         @show-api="showApiDialog = true"
         @show-template-manager="showTemplateManagerDialog = true"
-        @show-settings="showSettingsDialog = true"
       />
 
       <section class="workspace" :style="workspaceStyle">
@@ -19,6 +18,7 @@
           @refresh-task="refreshTask"
           @retry="retryTask"
           @delete="deleteTask"
+          @copy-output="copyOutput"
           @download-output="downloadOutput"
           @reveal-output="reveal($event.path)"
         />
@@ -54,6 +54,7 @@
           @clear-prompt="clearPrompt"
           @prompt-focus="capturePromptCursor"
           @prompt-cursor="capturePromptCursor"
+          @prompt-paste="handlePromptPaste"
           @add-reference="addReferenceImages"
           @remove-reference="references.splice($event, 1)"
         />
@@ -99,13 +100,6 @@
         @insert="insertReferenceTemplate"
       />
 
-      <SettingsDialog
-        v-model:show="showSettingsDialog"
-        :settings="settingsDraft"
-        @choose-output-dir="chooseOutputDir"
-        @save="saveStorageSettings"
-      />
-
       <TemplateEditorDialog
         v-model:show="showTemplateEditor"
         :template="templateDraft"
@@ -123,13 +117,12 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import AppTopbar from "./components/AppTopbar.vue";
 import ComposerPanel from "./components/ComposerPanel.vue";
 import QueuePanel from "./components/QueuePanel.vue";
 import ResultPanel from "./components/ResultPanel.vue";
 import ApiSourceDialog from "./components/dialogs/ApiSourceDialog.vue";
-import SettingsDialog from "./components/dialogs/SettingsDialog.vue";
 import TaskDetailDialog from "./components/dialogs/TaskDetailDialog.vue";
 import TemplateEditorDialog from "./components/dialogs/TemplateEditorDialog.vue";
 import TemplateManagerDialog from "./components/dialogs/TemplateManagerDialog.vue";
@@ -149,7 +142,6 @@ const statusText = ref("启动中");
 const statusTone = ref("busy");
 const dataDir = ref("");
 const settings = ref(defaultSettings());
-const settingsDraft = reactive(defaultSettings());
 const history = ref([]);
 const queue = reactive({ waiting: [], running: [], recent: [], workerActive: false, updatedAt: "" });
 const templates = ref([]);
@@ -168,7 +160,6 @@ const promptCursor = ref(0);
 const showApiDialog = ref(false);
 const showTemplateManagerDialog = ref(false);
 const showTemplateReferenceDialog = ref(false);
-const showSettingsDialog = ref(false);
 const showTemplateEditor = ref(false);
 const showTaskDetail = ref(false);
 
@@ -269,10 +260,6 @@ const filteredReferenceTemplates = computed(() => {
   return templates.value.filter((item) =>
     [item.id, item.content].join(" ").toLowerCase().includes(query),
   );
-});
-
-watch(showSettingsDialog, (show) => {
-  if (show) Object.assign(settingsDraft, deepClone(settings.value));
 });
 
 onMounted(async () => {
@@ -416,6 +403,23 @@ async function addReferenceImages() {
   }
 }
 
+async function handlePromptPaste(event) {
+  const items = Array.from(event?.clipboardData?.items || []);
+  const files = Array.from(event?.clipboardData?.files || []);
+  const hasImage = [...items, ...files].some((item) => item.type?.startsWith("image/"));
+  if (!hasImage) return;
+  event.preventDefault();
+  try {
+    const preview = await invoke("reference_from_clipboard");
+    if (!references.value.some((item) => item.path === preview.path)) {
+      references.value.push({ ...preview, previewUrl: preview.dataUrl });
+      setStatus("已从剪贴板添加参考图", "ok");
+    }
+  } catch (error) {
+    setStatus(String(error), "error");
+  }
+}
+
 async function reuseTask(task) {
   if (!task) return;
 
@@ -513,34 +517,19 @@ async function saveApiSettings(nextSettings) {
   }
 }
 
-async function chooseOutputDir() {
-  const selected = await openDialog({
-    directory: true,
-    multiple: false,
-    defaultPath: settingsDraft.outputDir || undefined,
-    canCreateDirectories: true,
-  });
-  if (typeof selected === "string") {
-    settingsDraft.outputDir = selected;
-  }
-}
-
-async function saveStorageSettings() {
+async function downloadOutput(output) {
   try {
-    const saved = await invoke("save_settings", { settings: deepClone(settingsDraft) });
-    settings.value = normalizeSettingsForUi(saved);
-    ensureSelectedModels(true);
-    showSettingsDialog.value = false;
-    setStatus("设置已保存", "ok");
+    const savedPath = await invoke("download_output", { path: output.path });
+    setStatus(`已保存到下载目录：${fileName(savedPath)}`, "ok");
   } catch (error) {
     setStatus(String(error), "error");
   }
 }
 
-async function downloadOutput(output) {
+async function copyOutput(output) {
   try {
-    const savedPath = await invoke("download_output", { path: output.path });
-    setStatus(`已保存到下载目录：${fileName(savedPath)}`, "ok");
+    await invoke("copy_image_to_clipboard", { path: output.path });
+    setStatus("图片已复制到剪贴板", "ok");
   } catch (error) {
     setStatus(String(error), "error");
   }

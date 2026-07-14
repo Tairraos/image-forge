@@ -133,6 +133,7 @@ button:disabled {
   border-top: 1px solid rgba(188, 177, 221, 0.65);
   border-radius: 0 0 8px 8px;
   padding: 5px 8px 0;
+  background: rgba(243, 243, 245, 0.98);
   color: var(--muted);
   font-size: 12px;
 }
@@ -383,16 +384,26 @@ button:disabled {
 
 .reference-tile button {
   position: absolute;
-  top: 5px;
-  right: 5px;
-  display: grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
+  top: 2px;
+  right: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
   border: 0;
-  border-radius: 999px;
-  background: rgba(49, 37, 79, 0.75);
+  border-radius: 5px;
+  background: rgba(55, 47, 70, 0.82);
   color: #ffffff;
+  padding: 0;
+  cursor: pointer;
+}
+
+.reference-tile button svg {
+  display: block;
+  width: 14px;
+  height: 14px;
+  stroke-width: 2.7;
 }
 
 .reference-add {
@@ -565,9 +576,13 @@ button:disabled {
 .task-output-thumb img {
   display: block;
   width: auto;
-  height: 80px;
+  height: 120px;
   max-width: 100%;
   object-fit: contain;
+}
+
+.task-card footer {
+  justify-content: flex-end;
 }
 
 .task-timer-preview {

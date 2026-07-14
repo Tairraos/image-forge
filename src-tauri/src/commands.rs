@@ -222,6 +222,11 @@ pub(crate) fn reference_from_path(path: String) -> Result<ReferencePreview, Stri
 }
 
 #[tauri::command]
+pub(crate) fn reference_from_clipboard(app: AppHandle) -> Result<ReferencePreview, String> {
+    crate::services::clipboard::reference_from_clipboard(&app)
+}
+
+#[tauri::command]
 pub(crate) fn add_gallery_item(
     app: AppHandle,
     payload: GalleryPayload,
@@ -401,6 +406,11 @@ pub(crate) fn download_output(app: AppHandle, path: String) -> Result<String, St
     let target = unique_download_path(&downloads_dir, &file_name);
     fs::copy(&source, &target).map_err(|error| format!("保存到下载目录失败: {error}"))?;
     Ok(target.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+pub(crate) fn copy_image_to_clipboard(path: String) -> Result<(), String> {
+    crate::services::clipboard::copy_image_to_clipboard(Path::new(&path))
 }
 
 #[tauri::command]

@@ -42,6 +42,7 @@
         @click="$emit('prompt-cursor', $event)"
         @keyup="$emit('prompt-cursor', $event)"
         @select="$emit('prompt-cursor', $event)"
+        @paste="$emit('prompt-paste', $event)"
       />
       <div class="prompt-submit-row">
         <n-button size="small" secondary @click="$emit('clear-prompt')">清空</n-button>
@@ -60,7 +61,7 @@
       <div v-for="(item, index) in references" :key="item.path" class="reference-tile">
         <img :src="item.previewUrl" :alt="item.fileName" />
         <button type="button" title="移除参考图" @click="$emit('remove-reference', index)">
-          <XCircle :size="16" />
+          <X :size="14" />
         </button>
       </div>
       <button class="reference-add" type="button" @click="$emit('add-reference')">
@@ -72,7 +73,7 @@
 </template>
 
 <script setup>
-import { BookOpen, Plus, WandSparkles, XCircle } from "@lucide/vue";
+import { BookOpen, Plus, WandSparkles, X } from "@lucide/vue";
 import {
   promptModeOptions,
   qualityOptions,
@@ -93,6 +94,7 @@ defineEmits([
   "clear-prompt",
   "prompt-focus",
   "prompt-cursor",
+  "prompt-paste",
   "add-reference",
   "remove-reference",
 ]);

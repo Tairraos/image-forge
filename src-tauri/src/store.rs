@@ -34,6 +34,7 @@ pub(crate) fn ensure_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
         data_dir.join("outputs"),
         data_dir.join("requests"),
         data_dir.join("gallery").join("images"),
+        data_dir.join("clipboard"),
     ] {
         fs::create_dir_all(dir).map_err(|error| format!("创建应用目录失败: {error}"))?;
     }

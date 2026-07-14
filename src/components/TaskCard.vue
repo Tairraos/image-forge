@@ -2,7 +2,7 @@
   <article class="task-card" :class="[task.status, { selected }]" @click="$emit('select', task)">
     <header>
       <strong>{{ task.prompt || "空提示词" }}</strong>
-      <span>{{ shortId(task.id) }}</span>
+      <span>{{ createdTime }}</span>
     </header>
     <p>{{ task.providerName || "API" }} · {{ task.model || "" }}</p>
 
@@ -18,9 +18,15 @@
     </div>
 
     <footer>
-      <span>{{ createdTime }}</span>
       <div class="task-actions">
         <button type="button" @click.stop="$emit('reuse', task)">重用</button>
+        <button
+          v-if="downloadableOutputs.length"
+          type="button"
+          @click.stop="$emit('copy-output', downloadableOutputs[0])"
+        >
+          复制
+        </button>
         <button v-if="isActive" type="button" @click.stop="$emit('refresh', task)">刷新</button>
         <button
           v-for="output in downloadableOutputs"
@@ -47,7 +53,7 @@
 
 <script setup>
 import { computed, toRef } from "vue";
-import { fileUrl, shortId } from "../lib/formatters";
+import { fileUrl } from "../lib/formatters";
 import { useGenerationTimer } from "../lib/generationTimer";
 
 const props = defineProps({
@@ -61,6 +67,7 @@ defineEmits([
   "refresh",
   "retry",
   "delete",
+  "copy-output",
   "download-output",
   "reveal-output",
 ]);

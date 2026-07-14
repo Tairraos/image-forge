@@ -23,6 +23,7 @@
         @refresh="$emit('refresh-task', $event)"
         @retry="$emit('retry', $event)"
         @delete="$emit('delete', $event)"
+        @copy-output="$emit('copy-output', $event)"
         @download-output="$emit('download-output', $event)"
         @reveal-output="$emit('reveal-output', $event)"
       />
@@ -49,6 +50,7 @@ defineEmits([
   "refresh-task",
   "retry",
   "delete",
+  "copy-output",
   "download-output",
   "reveal-output",
 ]);

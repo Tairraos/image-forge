@@ -16,21 +16,13 @@
         <template #icon><BookOpen :size="16" /></template>
         模板
       </n-button>
-      <n-button quaternary size="small" @click="$emit('show-settings')">
-        <template #icon><SlidersHorizontal :size="16" /></template>
-        设置
-      </n-button>
     </div>
   </header>
 </template>
 
 <script setup>
-import { BookOpen, Settings, SlidersHorizontal } from "@lucide/vue";
+import { BookOpen, Settings } from "@lucide/vue";
 import logoUrl from "../assets/app-icon.png";
 
-defineEmits([
-  "show-api",
-  "show-template-manager",
-  "show-settings",
-]);
+defineEmits(["show-api", "show-template-manager"]);
 </script>

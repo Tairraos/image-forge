@@ -23,6 +23,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::add_gallery_item,
             commands::cancel_task,
+            commands::copy_image_to_clipboard,
             commands::delete_gallery_item,
             commands::delete_task,
             commands::delete_template,
@@ -33,6 +34,7 @@ pub fn run() {
             commands::mark_template_used,
             commands::promote_task,
             commands::queue_snapshot,
+            commands::reference_from_clipboard,
             commands::reference_from_path,
             commands::retry_task,
             commands::reveal_path,
