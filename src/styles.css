@@ -1004,7 +1004,7 @@ button:disabled {
   inset: 0;
   overflow: auto;
   pointer-events: none;
-  color: transparent;
+  color: #514464;
 }
 
 .template-fill-editor textarea {
@@ -1016,7 +1016,7 @@ button:disabled {
   border: 0;
   outline: none;
   background: transparent;
-  color: #514464;
+  color: transparent;
   caret-color: #31254f;
 }
 

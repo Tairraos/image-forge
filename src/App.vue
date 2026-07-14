@@ -600,6 +600,7 @@ async function fillReferenceTemplate() {
     return;
   }
   templateFilling.value = true;
+  setStatus("AI 正在填充模板…", "busy");
   try {
     const original = templateReferenceContent.value;
     const filled = await invoke("fill_prompt_template", {
