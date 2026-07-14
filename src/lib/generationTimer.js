@@ -1,6 +1,6 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 
-export const GENERATION_TIMEOUT_SECONDS = 180;
+export const GENERATION_TIMEOUT_SECONDS = 300;
 
 const ACTIVE_STATUSES = new Set(["queued", "running", "cancelling"]);
 
@@ -11,7 +11,7 @@ export function useGenerationTimer(taskRef) {
   onMounted(() => {
     intervalId = window.setInterval(() => {
       now.value = Date.now();
-    }, 1000);
+    }, 100);
   });
 
   onUnmounted(() => {
@@ -33,10 +33,14 @@ export function useGenerationTimer(taskRef) {
     return task.startedAt || task.createdAt || task.updatedAt || "";
   });
 
-  const elapsedSeconds = computed(() => {
+  const elapsedDeciseconds = computed(() => {
     const startTime = Date.parse(startedAt.value);
     if (!Number.isFinite(startTime)) return 0;
-    return Math.max(0, Math.floor((now.value - startTime) / 1000));
+    return Math.max(0, Math.floor((now.value - startTime) / 100));
+  });
+
+  const elapsedSeconds = computed(() => {
+    return Math.floor(elapsedDeciseconds.value / 10);
   });
 
   const isTimedOut = computed(() => {
@@ -57,21 +61,21 @@ export function useGenerationTimer(taskRef) {
     return "生成中";
   });
 
-  const elapsedText = computed(() => formatDuration(elapsedSeconds.value));
-  const timeoutText = computed(() => formatDuration(GENERATION_TIMEOUT_SECONDS));
+  const elapsedText = computed(() => formatDuration(elapsedDeciseconds.value));
 
   return {
     elapsedText,
     isTimedOut,
     isWaitingForOutput,
     label,
-    timeoutText,
   };
 }
 
-function formatDuration(totalSeconds) {
-  const safeSeconds = Math.max(0, totalSeconds);
-  const minutes = Math.floor(safeSeconds / 60);
-  const seconds = safeSeconds % 60;
-  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+function formatDuration(totalDeciseconds) {
+  const safeDeciseconds = Math.max(0, totalDeciseconds);
+  const totalSeconds = Math.floor(safeDeciseconds / 10);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  const deciseconds = safeDeciseconds % 10;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${deciseconds}`;
 }

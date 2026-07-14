@@ -13,7 +13,7 @@
     </div>
     <div v-else-if="isWaitingForOutput" class="task-timer-preview" :class="{ timeout: isTimedOut }">
       <span>{{ label }}</span>
-      <strong>{{ elapsedText }} / {{ timeoutText }}</strong>
+      <strong>{{ elapsedText }}</strong>
       <small v-if="isTimedOut">等待后端标记失败…</small>
     </div>
 
@@ -82,7 +82,6 @@ const {
   isTimedOut,
   isWaitingForOutput,
   label,
-  timeoutText,
 } = useGenerationTimer(toRef(props, "task"));
 const createdTime = computed(() => {
   const value = props.task.completedAt || props.task.createdAt || props.task.updatedAt;

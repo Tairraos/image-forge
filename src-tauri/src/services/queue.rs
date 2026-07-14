@@ -201,7 +201,7 @@ async fn run_task(app: AppHandle, task_id: String, provider: ApiProvider) -> Res
     .await
     {
         Ok(result) => result,
-        Err(_) => Err("生成超时：超过 3 分钟未返回结果".into()),
+        Err(_) => Err("生成超时：超过 5 分钟未返回结果".into()),
     };
 
     if is_deleted(&app, &task_id) {
