@@ -675,10 +675,6 @@ button:disabled {
   justify-content: flex-end;
 }
 
-.template-fill-actions .n-checkbox {
-  margin-right: auto;
-}
-
 .selected-task p {
   max-height: 44px;
   overflow: auto;

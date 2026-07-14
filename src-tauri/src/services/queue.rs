@@ -11,7 +11,7 @@ use crate::{
         output_dir_for, pop_next_runnable, read_history, read_json, read_queue, read_settings,
         request_path, upsert_history, write_history, write_queue,
     },
-    utils::{http_client, utc_now, REQUEST_TIMEOUT_SECONDS},
+    utils::{http_client_with_proxy, utc_now, REQUEST_TIMEOUT_SECONDS},
 };
 
 /// 确保全局只有一个后台队列 worker 在运行。
@@ -199,7 +199,7 @@ async fn run_task(app: AppHandle, task_id: String, provider: ApiProvider) -> Res
         return Ok(());
     }
 
-    let client = http_client()?;
+    let client = http_client_with_proxy(&provider.proxy_url, REQUEST_TIMEOUT_SECONDS, false)?;
     let result = match tokio::time::timeout(
         Duration::from_secs(REQUEST_TIMEOUT_SECONDS),
         execute_generation(&client, &provider, &request),

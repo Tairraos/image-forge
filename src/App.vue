@@ -90,7 +90,6 @@
         v-model:show="showTemplateReferenceDialog"
         v-model:query="templateReferenceQuery"
         v-model:content="templateReferenceContent"
-        v-model:compatibility="templateCompatibilityMode"
         :templates="filteredReferenceTemplates"
         :selected-template-id="selectedReferenceTemplateId"
         :chat-provider-id="form.chatProviderId"
@@ -160,7 +159,6 @@ const historyQuery = ref("");
 const templateQuery = ref("");
 const templateReferenceQuery = ref("");
 const templateReferenceContent = ref("");
-const templateCompatibilityMode = ref(false);
 const selectedReferenceTemplateId = ref("");
 const templateFilledRanges = ref([]);
 const templateFilling = ref(false);
@@ -617,7 +615,6 @@ async function fillReferenceTemplate() {
     const filled = await invoke("fill_prompt_template", {
       providerId: form.chatProviderId,
       template: original,
-      compatibilityMode: templateCompatibilityMode.value,
     });
     templateReferenceContent.value = filled;
     templateFilledRanges.value = mapFilledRanges(original, filled);

@@ -7,23 +7,19 @@ use reqwest::{
 use serde_json::Value;
 
 use crate::{
-    defaults::APP_USER_AGENT,
     models::ApiProvider,
-    utils::{format_api_error, normalize_base_url},
+    utils::{format_api_error, http_client_with_proxy, normalize_base_url},
 };
 
 const MODEL_LIST_TIMEOUT_SECONDS: u64 = 30;
 
-pub(crate) async fn list_provider_models(
-    client: &Client,
-    provider: &ApiProvider,
-) -> Result<Vec<String>, String> {
+pub(crate) async fn list_provider_models(provider: &ApiProvider) -> Result<Vec<String>, String> {
     if provider.api_key.trim().is_empty() {
         return Err(format!("API 源「{}」还没有填写 API Key", provider.name));
     }
 
     let base_url = normalize_base_url(&provider.base_url)?;
-    let client = model_list_client().unwrap_or_else(|_| client.clone());
+    let client = model_list_client(&provider.proxy_url)?;
     let response = client
         .get(format!("{base_url}/models"))
         .bearer_auth(provider.api_key.trim())
@@ -69,12 +65,6 @@ pub(crate) async fn list_provider_models(
     Ok(models)
 }
 
-fn model_list_client() -> Result<Client, String> {
-    Client::builder()
-        .timeout(Duration::from_secs(MODEL_LIST_TIMEOUT_SECONDS))
-        .connect_timeout(Duration::from_secs(10))
-        .user_agent(APP_USER_AGENT)
-        .http1_only()
-        .build()
-        .map_err(|error| format!("创建模型列表 HTTP 客户端失败: {error}"))
+fn model_list_client(proxy_url: &str) -> Result<Client, String> {
+    http_client_with_proxy(proxy_url, MODEL_LIST_TIMEOUT_SECONDS, true)
 }

@@ -289,7 +289,6 @@ pub(crate) async fn fill_prompt_template(
     app: AppHandle,
     provider_id: String,
     template: String,
-    compatibility_mode: bool,
 ) -> Result<String, String> {
     let content = template.trim();
     if content.is_empty() {
@@ -334,15 +333,7 @@ pub(crate) async fn fill_prompt_template(
             provider.id, provider.name, provider.base_url, provider.image_model
         ),
     );
-    let client = crate::utils::http_client()?;
-    let result = fill_template(
-        &client,
-        provider,
-        content,
-        compatibility_mode,
-        Some(&runtime_state),
-    )
-    .await;
+    let result = fill_template(provider, content, Some(&runtime_state)).await;
     match &result {
         Ok(value) => runtime_state.push_log(
             "ai_fill.command.success",
@@ -363,8 +354,7 @@ pub(crate) async fn fill_prompt_template(
 #[tauri::command]
 /// 从兼容 OpenAI 的 API 源读取可选模型列表。
 pub(crate) async fn list_provider_models(provider: ApiProvider) -> Result<Vec<String>, String> {
-    let client = crate::utils::http_client()?;
-    crate::services::models::list_provider_models(&client, &provider).await
+    crate::services::models::list_provider_models(&provider).await
 }
 
 #[tauri::command]

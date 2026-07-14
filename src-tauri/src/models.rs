@@ -30,6 +30,8 @@ pub struct ApiProvider {
     pub base_url: String,
     #[serde(default)]
     pub api_key: String,
+    #[serde(default)]
+    pub proxy_url: String,
     #[serde(default = "default_image_model")]
     pub image_model: String,
     #[serde(default = "default_provider_concurrency")]
@@ -48,6 +50,7 @@ impl Default for ApiProvider {
             model_type: default_model_type(),
             base_url: default_base_url(),
             api_key: String::new(),
+            proxy_url: String::new(),
             image_model: default_image_model(),
             images_concurrency: default_provider_concurrency(),
             enabled: true,

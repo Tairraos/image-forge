@@ -20,6 +20,7 @@ export function defaultProvider(index = 1, modelType = "image") {
     modelType,
     baseUrl: "https://api.openai.com/v1",
     apiKey: "",
+    proxyUrl: "",
     imageModel: "gpt-image-2",
     imagesConcurrency: 1,
     enabled: true,
@@ -35,6 +36,7 @@ export function normalizeSettingsForUi(value) {
     ...provider,
     id: provider.id || createProviderId(),
     modelType: normalizeModelType(provider.modelType),
+    proxyUrl: provider.proxyUrl || "",
     imagesConcurrency: 1,
     notes: "",
   }));

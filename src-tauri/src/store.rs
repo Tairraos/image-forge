@@ -78,6 +78,7 @@ pub(crate) fn normalize_settings(mut settings: Settings) -> Settings {
                 settings.base_url.clone()
             },
             api_key: settings.api_key.clone(),
+            proxy_url: String::new(),
             image_model: if settings.image_model.trim().is_empty() {
                 default_image_model()
             } else {
@@ -451,6 +452,7 @@ fn normalize_provider(provider: ApiProvider, index: usize) -> ApiProvider {
         model_type: normalize_model_type(&provider.model_type),
         base_url: normalize_base_url(&provider.base_url).unwrap_or_else(|_| default_base_url()),
         api_key: provider.api_key.trim().to_string(),
+        proxy_url: provider.proxy_url.trim().to_string(),
         image_model: clean_text(provider.image_model, DEFAULT_IMAGE_MODEL),
         images_concurrency: 1,
         enabled: provider.enabled,

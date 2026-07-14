@@ -1,7 +1,7 @@
 use std::{path::Path, time::Duration};
 
 use chrono::Utc;
-use reqwest::Client;
+use reqwest::{Client, Proxy};
 use serde_json::Value;
 use url::Url;
 
@@ -9,12 +9,36 @@ use crate::defaults::{APP_USER_AGENT, DEFAULT_BASE_URL, DEFAULT_PROVIDER_ID};
 
 pub(crate) const REQUEST_TIMEOUT_SECONDS: u64 = 300;
 
-pub(crate) fn http_client() -> Result<Client, String> {
-    Client::builder()
-        .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECONDS))
-        .user_agent(APP_USER_AGENT)
+pub(crate) fn http_client_with_proxy(
+    proxy_url: &str,
+    timeout_seconds: u64,
+    http1_only: bool,
+) -> Result<Client, String> {
+    let mut builder = Client::builder()
+        .timeout(Duration::from_secs(timeout_seconds))
+        .user_agent(APP_USER_AGENT);
+    if http1_only {
+        builder = builder.http1_only();
+    }
+    if let Some(proxy_url) = normalize_proxy_url(proxy_url) {
+        let proxy = Proxy::all(&proxy_url).map_err(|error| format!("代理地址无效: {error}"))?;
+        builder = builder.proxy(proxy);
+    }
+    builder
         .build()
         .map_err(|error| format!("创建 HTTP 客户端失败: {error}"))
+}
+
+pub(crate) fn normalize_proxy_url(proxy_url: &str) -> Option<String> {
+    let value = proxy_url.trim();
+    if value.is_empty() {
+        return None;
+    }
+    if value.contains("://") {
+        Some(value.to_string())
+    } else {
+        Some(format!("http://{value}"))
+    }
 }
 
 pub(crate) fn format_request_error(label: &str, error: reqwest::Error) -> String {

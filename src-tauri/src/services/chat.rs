@@ -1,9 +1,4 @@
-use std::{
-    fs,
-    io::Write,
-    process::{Command, Stdio},
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
 use reqwest::{
     header::{ACCEPT, ACCEPT_LANGUAGE},
@@ -12,19 +7,16 @@ use reqwest::{
 use serde_json::{json, Value};
 
 use crate::{
-    defaults::APP_USER_AGENT,
     models::ApiProvider,
     state::RuntimeState,
-    utils::{format_api_error, normalize_base_url},
+    utils::{format_api_error, http_client_with_proxy, normalize_base_url},
 };
 
 const CHAT_COMPLETION_TIMEOUT_SECONDS: u64 = 60;
 
 pub(crate) async fn fill_template(
-    client: &Client,
     provider: &ApiProvider,
     template: &str,
-    compatibility_mode: bool,
     runtime_state: Option<&RuntimeState>,
 ) -> Result<String, String> {
     let started = Instant::now();
@@ -32,13 +24,17 @@ pub(crate) async fn fill_template(
         runtime_state,
         "ai_fill.service.start",
         format!(
-            "provider_id={} provider_name={} model={} template_len={} placeholders={} compatibility_mode={}",
+            "provider_id={} provider_name={} model={} template_len={} placeholders={} proxy={}",
             provider.id,
             provider.name,
             provider.image_model,
             template.chars().count(),
             placeholder_count(template),
-            compatibility_mode
+            if provider.proxy_url.trim().is_empty() {
+                "off"
+            } else {
+                "on"
+            }
         ),
     );
 
@@ -53,24 +49,26 @@ pub(crate) async fn fill_template(
             return Err(error);
         }
     };
-    let client = match chat_completion_client() {
-        Ok(client) => {
-            record_runtime_log(
-                runtime_state,
-                "ai_fill.service.client",
-                "using http1 client",
-            );
-            client
-        }
-        Err(error) => {
-            record_runtime_log(
-                runtime_state,
-                "ai_fill.service.client_reuse",
-                format!("error={}", error),
-            );
-            client.clone()
-        }
-    };
+    let client = chat_completion_client(&provider.proxy_url).map_err(|error| {
+        record_runtime_log(
+            runtime_state,
+            "ai_fill.service.client_error",
+            format!("error={}", error),
+        );
+        error
+    })?;
+    record_runtime_log(
+        runtime_state,
+        "ai_fill.service.client",
+        if provider.proxy_url.trim().is_empty() {
+            "using http1 client without proxy".to_string()
+        } else {
+            format!(
+                "using http1 client with proxy={}",
+                provider.proxy_url.trim()
+            )
+        },
+    );
     let payload = json!({
         "model": provider.image_model,
         "messages": [
@@ -88,15 +86,6 @@ pub(crate) async fn fill_template(
     });
 
     let url = format!("{base_url}/chat/completions");
-    if compatibility_mode {
-        record_runtime_log(
-            runtime_state,
-            "ai_fill.service.curl_start",
-            format!("elapsed_ms={} url={}", started.elapsed().as_millis(), url),
-        );
-        return fill_template_with_curl(&url, provider, &payload, started, runtime_state);
-    }
-
     record_runtime_log(
         runtime_state,
         "ai_fill.service.request",
@@ -246,14 +235,8 @@ pub(crate) async fn fill_template(
     }
 }
 
-fn chat_completion_client() -> Result<Client, String> {
-    Client::builder()
-        .timeout(Duration::from_secs(CHAT_COMPLETION_TIMEOUT_SECONDS))
-        .connect_timeout(Duration::from_secs(10))
-        .user_agent(APP_USER_AGENT)
-        .http1_only()
-        .build()
-        .map_err(|error| format!("创建对话模型 HTTP 客户端失败: {error}"))
+fn chat_completion_client(proxy_url: &str) -> Result<Client, String> {
+    http_client_with_proxy(proxy_url, CHAT_COMPLETION_TIMEOUT_SECONDS, true)
 }
 
 fn record_runtime_log(runtime_state: Option<&RuntimeState>, event: &str, message: impl AsRef<str>) {
@@ -289,131 +272,4 @@ fn json_keys(value: &Value) -> String {
         .as_object()
         .map(|object| object.keys().cloned().collect::<Vec<_>>().join(","))
         .unwrap_or_else(|| "non-object".into())
-}
-
-fn fill_template_with_curl(
-    url: &str,
-    provider: &ApiProvider,
-    payload: &Value,
-    started: Instant,
-    runtime_state: Option<&RuntimeState>,
-) -> Result<String, String> {
-    let payload_path =
-        std::env::temp_dir().join(format!("image-forge-ai-fill-{}.json", uuid::Uuid::new_v4()));
-    let payload_text = serde_json::to_string(payload).map_err(|error| {
-        let message = format!("序列化 AI 填充请求失败: {error}");
-        record_runtime_log(
-            runtime_state,
-            "ai_fill.service.curl_payload_error",
-            &message,
-        );
-        message
-    })?;
-    fs::write(&payload_path, payload_text).map_err(|error| {
-        let message = format!("写入 AI 填充临时请求失败: {error}");
-        record_runtime_log(
-            runtime_state,
-            "ai_fill.service.curl_payload_error",
-            &message,
-        );
-        message
-    })?;
-
-    let config = format!(
-        "url = \"{}\"\nrequest = \"POST\"\nheader = \"authorization: Bearer {}\"\nheader = \"content-type: application/json\"\nheader = \"accept: */*\"\nheader = \"accept-language: zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7\"\ndata-binary = \"@{}\"\nmax-time = {}\nsilent\nshow-error\n",
-        escape_curl_config_value(url),
-        escape_curl_config_value(provider.api_key.trim()),
-        escape_curl_config_value(&payload_path.to_string_lossy()),
-        CHAT_COMPLETION_TIMEOUT_SECONDS
-    );
-
-    let output = run_curl_with_config(&config);
-    let _ = fs::remove_file(&payload_path);
-
-    let output = output.map_err(|error| {
-        let message = format!("启动兼容方案失败: {error}");
-        record_runtime_log(runtime_state, "ai_fill.service.curl_spawn_error", &message);
-        message
-    })?;
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    if !output.status.success() {
-        let message = if stderr.is_empty() {
-            format!("兼容方案失败: exit={}", output.status)
-        } else {
-            format!("兼容方案失败: {stderr}")
-        };
-        record_runtime_log(
-            runtime_state,
-            "ai_fill.service.curl_error",
-            format!("elapsed_ms={} {}", started.elapsed().as_millis(), message),
-        );
-        return Err(message);
-    }
-
-    let text = String::from_utf8_lossy(&output.stdout).to_string();
-    record_runtime_log(
-        runtime_state,
-        "ai_fill.service.curl_body",
-        format!(
-            "elapsed_ms={} bytes={} preview={}",
-            started.elapsed().as_millis(),
-            text.len(),
-            truncate_for_log(&text, 500)
-        ),
-    );
-    let value: Value = serde_json::from_str(&text).map_err(|error| {
-        let message = format!("兼容方案返回了无效 JSON: {error}");
-        record_runtime_log(runtime_state, "ai_fill.service.curl_json_error", &message);
-        message
-    })?;
-
-    let result = extract_chat_content(&value).ok_or_else(|| {
-        record_runtime_log(
-            runtime_state,
-            "ai_fill.service.curl_empty_content",
-            format!("top_level_keys={}", json_keys(&value)),
-        );
-        "对话模型没有返回填充内容".to_string()
-    })?;
-    record_runtime_log(
-        runtime_state,
-        "ai_fill.service.curl_success",
-        format!(
-            "elapsed_ms={} output_len={}",
-            started.elapsed().as_millis(),
-            result.chars().count()
-        ),
-    );
-    Ok(result)
-}
-
-fn run_curl_with_config(config: &str) -> std::io::Result<std::process::Output> {
-    let mut child = Command::new("curl")
-        .arg("--config")
-        .arg("-")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(config.as_bytes())?;
-    }
-    child.wait_with_output()
-}
-
-fn escape_curl_config_value(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('"', "\\\"")
-}
-
-fn extract_chat_content(value: &Value) -> Option<String> {
-    value
-        .get("choices")
-        .and_then(Value::as_array)
-        .and_then(|choices| choices.first())
-        .and_then(|choice| choice.get("message"))
-        .and_then(|message| message.get("content"))
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|content| !content.is_empty())
-        .map(ToOwned::to_owned)
 }

@@ -86,6 +86,12 @@
               placeholder="sk-..."
             />
           </n-form-item>
+          <n-form-item label="代理地址">
+            <n-input
+              v-model:value="selectedProvider.proxyUrl"
+              placeholder="可选，例如 socks5h://127.0.0.1:7890 或 http://127.0.0.1:7890"
+            />
+          </n-form-item>
           <n-form-item label="模型">
             <div class="model-select-row">
               <n-select
@@ -249,6 +255,7 @@ function importProviders() {
       modelType: item.modelType === "chat" ? "chat" : "image",
       baseUrl: item.openAiBaseUrl || item.baseUrl || "",
       apiKey: item.openAiApiKey || item.apiKey || "",
+      proxyUrl: item.proxyUrl || "",
       imageModel: item.openAiModelId || item.imageModel || "gpt-image-2",
       imagesConcurrency: 1,
       notes: "",
@@ -323,6 +330,7 @@ function normalizeProviderForSave(provider) {
   return {
     ...provider,
     modelType: provider.modelType === "chat" ? "chat" : "image",
+    proxyUrl: provider.proxyUrl?.trim() || "",
     imageModel: provider.imageModel?.trim() || "gpt-image-2",
     imagesConcurrency: 1,
     notes: "",
