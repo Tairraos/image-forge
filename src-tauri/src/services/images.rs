@@ -13,8 +13,8 @@ use crate::{
     models::{ApiImageResult, ApiProvider, GenerateRequest, OutputImage, ReferencePreview},
     utils::{
         extension_for_format, format_api_error, format_request_error, image_mime_type,
-        image_prompt_for_transport, mime_for_format, normalize_base_url, normalize_output_format,
-        should_send_input_fidelity,
+        image_prompt_for_transport, image_size_from_bytes, mime_for_format, normalize_base_url,
+        normalize_output_format, should_send_input_fidelity,
     },
 };
 
@@ -41,6 +41,7 @@ pub(crate) fn save_outputs(
             &image.output_format
         });
         let extension = extension_for_format(&output_format, &image.bytes);
+        let actual_size = image_size_from_bytes(&image.bytes).unwrap_or(image.size);
         let file_name = format!("{timestamp}-{task_id}-{:02}.{extension}", index + 1);
         let path = output_dir.join(&file_name);
         fs::write(&path, &image.bytes).map_err(|error| format!("保存生成图片失败: {error}"))?;
@@ -49,7 +50,7 @@ pub(crate) fn save_outputs(
             file_name,
             mime_type: mime_for_format(&output_format).to_string(),
             output_format,
-            size: image.size,
+            size: actual_size,
             background: image.background,
             quality: image.quality,
             revised_prompt: image.revised_prompt,

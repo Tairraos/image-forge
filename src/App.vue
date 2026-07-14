@@ -64,10 +64,12 @@
 
       <footer class="status-bar">
         <span class="status-pill" :data-tone="statusTone">{{ statusText }}</span>
-        <span class="status-meta">当前 API：{{ activeProvider?.name || "未配置" }} · Images API</span>
-        <span class="status-count">{{ queue.running.length }} 运行</span>
-        <span class="status-count">{{ queue.waiting.length }} 排队</span>
-        <span v-if="activeProvider && !activeProvider.apiKey" class="warn-text">API Key 未设置</span>
+        <div class="status-summary">
+          <span class="status-meta">当前 API：{{ activeProvider?.name || "未配置" }} · Images API</span>
+          <span class="status-count">{{ queue.running.length }} 运行</span>
+          <span class="status-count">{{ queue.waiting.length }} 排队</span>
+          <span v-if="activeProvider && !activeProvider.apiKey" class="warn-text">API Key 未设置</span>
+        </div>
       </footer>
 
       <ApiSourceDialog

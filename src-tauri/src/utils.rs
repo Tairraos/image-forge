@@ -1,6 +1,7 @@
 use std::{path::Path, time::Duration};
 
 use chrono::Utc;
+use image::ImageReader;
 use reqwest::{Client, Proxy};
 use serde_json::Value;
 use url::Url;
@@ -8,6 +9,21 @@ use url::Url;
 use crate::defaults::{APP_USER_AGENT, DEFAULT_BASE_URL, DEFAULT_PROVIDER_ID};
 
 pub(crate) const REQUEST_TIMEOUT_SECONDS: u64 = 300;
+
+pub(crate) fn image_size_from_bytes(bytes: &[u8]) -> Option<String> {
+    let image = image::load_from_memory(bytes).ok()?;
+    Some(format!("{}x{}", image.width(), image.height()))
+}
+
+pub(crate) fn image_size_from_path(path: &Path) -> Option<String> {
+    let (width, height) = ImageReader::open(path)
+        .ok()?
+        .with_guessed_format()
+        .ok()?
+        .into_dimensions()
+        .ok()?;
+    Some(format!("{width}x{height}"))
+}
 
 pub(crate) fn http_client_with_proxy(
     proxy_url: &str,

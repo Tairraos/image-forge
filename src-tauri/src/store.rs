@@ -18,9 +18,9 @@ use crate::{
         Settings, TaskRecord,
     },
     utils::{
-        clean_text, normalize_base_url, normalize_output_format, normalize_prompt_fidelity,
-        normalize_quality, normalize_ratio, normalize_resolution, orientation_for_ratio,
-        sanitize_id, size_for_preset, utc_now,
+        clean_text, image_size_from_path, normalize_base_url, normalize_output_format,
+        normalize_prompt_fidelity, normalize_quality, normalize_ratio, normalize_resolution,
+        orientation_for_ratio, sanitize_id, size_for_preset, utc_now,
     },
 };
 
@@ -252,6 +252,23 @@ pub(crate) fn write_history(data_dir: &Path, history: &[TaskRecord]) -> Result<(
         history.truncate(MAX_HISTORY_ITEMS);
     }
     write_json(&history_path(data_dir), &history)
+}
+
+pub(crate) fn refresh_history_output_sizes(history: &mut [TaskRecord]) -> bool {
+    let mut changed = false;
+    for record in history {
+        for output in &mut record.outputs {
+            let path = Path::new(&output.path);
+            let Some(actual_size) = image_size_from_path(path) else {
+                continue;
+            };
+            if output.size != actual_size {
+                output.size = actual_size;
+                changed = true;
+            }
+        }
+    }
+    changed
 }
 
 /// 按任务 ID 更新或插入历史记录。

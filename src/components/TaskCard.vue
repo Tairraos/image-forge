@@ -2,9 +2,8 @@
   <article class="task-card" :class="[task.status, { selected }]" @click="$emit('select', task)">
     <header>
       <strong>{{ task.prompt || "空提示词" }}</strong>
-      <span>{{ createdTime }}</span>
     </header>
-    <p>{{ task.providerName || "API" }} · {{ task.model || "" }}</p>
+    <p class="task-card-meta">{{ outputMeta }}</p>
 
     <div v-if="task.outputs?.length" class="task-output-list">
       <figure v-for="output in task.outputs" :key="output.path" class="task-output-thumb">
@@ -77,6 +76,7 @@ const isCompleted = computed(() => props.task.status === "completed");
 const isFailed = computed(() => props.task.status === "failed" || props.task.status === "cancelled");
 const canRetry = computed(() => isFailed.value);
 const downloadableOutputs = computed(() => (isCompleted.value ? props.task.outputs || [] : []));
+const primaryOutput = computed(() => props.task.outputs?.[0] || null);
 const {
   elapsedText,
   isTimedOut,
@@ -92,5 +92,12 @@ const createdTime = computed(() => {
     hour: "2-digit",
     minute: "2-digit",
   });
+});
+const outputMeta = computed(() => {
+  const parts = [];
+  if (primaryOutput.value?.size) parts.push(primaryOutput.value.size);
+  if (primaryOutput.value?.outputFormat) parts.push(primaryOutput.value.outputFormat.toLowerCase());
+  if (createdTime.value) parts.push(createdTime.value);
+  return parts.join(" · ");
 });
 </script>

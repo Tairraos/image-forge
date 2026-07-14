@@ -22,8 +22,8 @@ use crate::{
     store::{
         enqueue_task, ensure_data_dir, next_template_id, normalize_request, normalize_settings,
         normalize_template, params_from_request, provider_for_request, read_history, read_json,
-        read_queue, read_settings, read_templates, request_path, templates_path, upsert_history,
-        write_history, write_json, write_queue, write_settings,
+        read_queue, read_settings, read_templates, refresh_history_output_sizes, request_path,
+        templates_path, upsert_history, write_history, write_json, write_queue, write_settings,
     },
     utils::utc_now,
 };
@@ -44,7 +44,10 @@ pub(crate) fn load_app_state(app: AppHandle) -> Result<AppState, String> {
     let data_dir = ensure_data_dir(&app)?;
     recover_stale_running(&app, &data_dir)?;
     let settings = read_settings(&data_dir)?;
-    let history = read_history(&data_dir)?;
+    let mut history = read_history(&data_dir)?;
+    if refresh_history_output_sizes(&mut history) {
+        write_history(&data_dir, &history)?;
+    }
     Ok(AppState {
         settings,
         history: history.clone(),

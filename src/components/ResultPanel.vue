@@ -19,7 +19,6 @@
         </div>
       </div>
       <strong>{{ selectedTask.prompt || "空提示词" }}</strong>
-      <span>{{ selectedTask.providerName }} · {{ selectedTask.model }}</span>
       <p v-if="selectedTask.error">{{ selectedTask.error }}</p>
     </div>
 
