@@ -34,7 +34,7 @@
       <section v-if="selectedProvider" class="provider-editor">
         <div class="provider-editor-head">
           <h3>Provider</h3>
-          <div>
+          <div class="provider-editor-actions">
             <n-button size="tiny" quaternary @click="moveProvider(-1)">
               <template #icon><ArrowUp :size="14" /></template>
             </n-button>
@@ -87,14 +87,18 @@
       />
       <p v-if="importError" class="import-error">{{ importError }}</p>
       <template #footer>
-        <n-button size="small" @click="showImport = false">取消</n-button>
-        <n-button size="small" type="primary" @click="importProviders">导入</n-button>
+        <div class="dialog-actions">
+          <n-button size="small" @click="showImport = false">取消</n-button>
+          <n-button size="small" type="primary" @click="importProviders">导入</n-button>
+        </div>
       </template>
     </n-modal>
 
     <template #footer>
-      <n-button size="small" @click="visible = false">取消</n-button>
-      <n-button size="small" type="primary" @click="save">保存 API 源</n-button>
+      <div class="dialog-actions">
+        <n-button size="small" @click="visible = false">取消</n-button>
+        <n-button size="small" type="primary" @click="save">保存 API 源</n-button>
+      </div>
     </template>
   </n-modal>
 </template>

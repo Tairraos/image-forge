@@ -26,11 +26,13 @@
       </div>
     </n-form>
     <template #footer>
-      <n-button size="small" @click="show = false">取消</n-button>
-      <n-button size="small" type="primary" @click="$emit('save')">
-        <template #icon><Save :size="16" /></template>
-        保存设置
-      </n-button>
+      <div class="dialog-actions">
+        <n-button size="small" @click="show = false">取消</n-button>
+        <n-button size="small" type="primary" @click="$emit('save')">
+          <template #icon><Save :size="16" /></template>
+          保存设置
+        </n-button>
+      </div>
     </template>
   </n-modal>
 </template>
