@@ -2,7 +2,7 @@ pub(crate) const DEFAULT_BASE_URL: &str = "https://api.openai.com/v1";
 pub(crate) const DEFAULT_IMAGE_MODEL: &str = "gpt-image-2";
 pub(crate) const DEFAULT_MODEL_TYPE: &str = "image";
 pub(crate) const DEFAULT_PROVIDER_ID: &str = "default";
-pub(crate) const APP_USER_AGENT: &str = "image-forge/0.2.17";
+pub(crate) const APP_USER_AGENT: &str = "image-forge/0.2.18";
 pub(crate) const MAX_HISTORY_ITEMS: usize = 300;
 pub(crate) const MAX_PROVIDER_CONCURRENCY: u8 = 32;
 
