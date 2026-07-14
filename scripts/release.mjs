@@ -43,6 +43,7 @@ try {
 
   const outputs = collectReleaseFiles();
   assertExpectedOutputs(outputs);
+  moveOldReleaseBundlesToTrash(outputs);
   console.log("\n发布包已生成：");
   for (const output of outputs) console.log(output);
 } finally {
@@ -138,6 +139,35 @@ function movePath(from, to) {
     rmSync(from, { recursive: true, force: true });
   }
   return to;
+}
+
+function moveOldReleaseBundlesToTrash(currentOutputs) {
+  const current = new Set(currentOutputs.map((file) => basename(file)));
+  const oldBundles = readdirSync(releaseDir, { withFileTypes: true })
+    .filter((entry) => /^ImageForge-.*-.*\.(app|dmg)$/.test(entry.name))
+    .filter((entry) => !current.has(entry.name))
+    .map((entry) => join(releaseDir, entry.name));
+  if (!oldBundles.length) return;
+  const trashDir = join(process.env.HOME || root, ".Trash");
+  mkdirSync(trashDir, { recursive: true });
+  for (const bundle of oldBundles) {
+    const target = uniqueTrashPath(trashDir, basename(bundle));
+    renameSync(bundle, target);
+    console.log(`已移到回收站：${bundle}`);
+  }
+}
+
+function uniqueTrashPath(trashDir, name) {
+  const dotIndex = name.lastIndexOf(".");
+  const stem = dotIndex > 0 ? name.slice(0, dotIndex) : name;
+  const extension = dotIndex > 0 ? name.slice(dotIndex) : "";
+  let candidate = join(trashDir, name);
+  let index = 1;
+  while (existsSync(candidate)) {
+    candidate = join(trashDir, `${stem}-${Date.now()}-${index}${extension}`);
+    index += 1;
+  }
+  return candidate;
 }
 
 function findFiles(dir, extension) {

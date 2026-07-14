@@ -208,8 +208,11 @@ fn delete_output_files_for_task(record: &TaskRecord) -> Result<(), String> {
     for output in &record.outputs {
         let path = PathBuf::from(&output.path);
         if path.is_file() {
-            fs::remove_file(&path).map_err(|error| {
-                format!("删除生成图片失败（{}）: {error}", path.to_string_lossy())
+            trash::delete(&path).map_err(|error| {
+                format!(
+                    "将生成图片移到回收站失败（{}）: {error}",
+                    path.to_string_lossy()
+                )
             })?;
         }
     }
