@@ -8,9 +8,10 @@ use tauri::{AppHandle, Manager};
 use uuid::Uuid;
 
 use crate::{
+    defaults::APP_BUILD_TIME,
     models::{
-        ApiProvider, AppState, GenerateRequest, PromptTemplate, QueueSnapshot, ReferencePreview,
-        TaskRecord,
+        AboutInfo, ApiProvider, AppState, GenerateRequest, PromptTemplate, QueueSnapshot,
+        ReferencePreview, TaskRecord,
     },
     services::{
         chat::fill_template,
@@ -24,8 +25,18 @@ use crate::{
         read_queue, read_settings, read_templates, request_path, templates_path, upsert_history,
         write_history, write_json, write_queue, write_settings,
     },
-    utils::{append_debug_log, utc_now},
+    utils::utc_now,
 };
+
+#[tauri::command]
+/// 返回关于弹窗需要的版本、编译时间和本次运行日志。
+pub(crate) fn about_info(app: AppHandle) -> AboutInfo {
+    AboutInfo {
+        version: env!("CARGO_PKG_VERSION").into(),
+        build_time: APP_BUILD_TIME.into(),
+        logs: app.state::<RuntimeState>().logs_text(),
+    }
+}
 
 #[tauri::command]
 /// 加载前端启动所需的完整应用状态，并恢复异常退出遗留的运行中任务。
@@ -278,14 +289,15 @@ pub(crate) async fn fill_prompt_template(
     app: AppHandle,
     provider_id: String,
     template: String,
+    compatibility_mode: bool,
 ) -> Result<String, String> {
     let content = template.trim();
     if content.is_empty() {
         return Err("模板内容不能为空".into());
     }
     let data_dir = ensure_data_dir(&app)?;
-    append_debug_log(
-        &data_dir,
+    let runtime_state = app.state::<RuntimeState>();
+    runtime_state.push_log(
         "ai_fill.command.start",
         format!(
             "provider_id={} template_len={}",
@@ -299,16 +311,14 @@ pub(crate) async fn fill_prompt_template(
         .iter()
         .find(|provider| provider.id == provider_id && provider.model_type == "chat")
     else {
-        append_debug_log(
-            &data_dir,
+        runtime_state.push_log(
             "ai_fill.command.provider_not_found",
             format!("provider_id={}", provider_id),
         );
         return Err("请选择可用的对话模型".into());
     };
     if provider.api_key.trim().is_empty() {
-        append_debug_log(
-            &data_dir,
+        runtime_state.push_log(
             "ai_fill.command.missing_key",
             format!(
                 "provider_id={} provider_name={}",
@@ -317,23 +327,24 @@ pub(crate) async fn fill_prompt_template(
         );
         return Err(format!("对话模型「{}」还没有填写 API Key", provider.name));
     }
-    append_debug_log(
-        &data_dir,
+    runtime_state.push_log(
         "ai_fill.command.provider",
         format!(
-            "provider_id={} provider_name={} base_url={} model={} log_path={}",
-            provider.id,
-            provider.name,
-            provider.base_url,
-            provider.image_model,
-            data_dir.join("debug.log").to_string_lossy()
+            "provider_id={} provider_name={} base_url={} model={}",
+            provider.id, provider.name, provider.base_url, provider.image_model
         ),
     );
     let client = crate::utils::http_client()?;
-    let result = fill_template(&client, provider, content, Some(&data_dir)).await;
+    let result = fill_template(
+        &client,
+        provider,
+        content,
+        compatibility_mode,
+        Some(&runtime_state),
+    )
+    .await;
     match &result {
-        Ok(value) => append_debug_log(
-            &data_dir,
+        Ok(value) => runtime_state.push_log(
             "ai_fill.command.success",
             format!(
                 "provider_id={} output_len={}",
@@ -341,8 +352,7 @@ pub(crate) async fn fill_prompt_template(
                 value.chars().count()
             ),
         ),
-        Err(error) => append_debug_log(
-            &data_dir,
+        Err(error) => runtime_state.push_log(
             "ai_fill.command.error",
             format!("provider_id={} error={}", provider.id, error),
         ),

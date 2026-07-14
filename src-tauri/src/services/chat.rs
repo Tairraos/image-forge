@@ -1,7 +1,6 @@
 use std::{
     fs,
     io::Write,
-    path::Path,
     process::{Command, Stdio},
     time::{Duration, Instant},
 };
@@ -15,37 +14,39 @@ use serde_json::{json, Value};
 use crate::{
     defaults::APP_USER_AGENT,
     models::ApiProvider,
-    utils::{append_debug_log, format_api_error, normalize_base_url},
+    state::RuntimeState,
+    utils::{format_api_error, normalize_base_url},
 };
 
-const CHAT_COMPLETION_TIMEOUT_SECONDS: u64 = 12;
-const CHAT_COMPLETION_FALLBACK_TIMEOUT_SECONDS: u64 = 60;
+const CHAT_COMPLETION_TIMEOUT_SECONDS: u64 = 60;
 
 pub(crate) async fn fill_template(
     client: &Client,
     provider: &ApiProvider,
     template: &str,
-    debug_log_dir: Option<&Path>,
+    compatibility_mode: bool,
+    runtime_state: Option<&RuntimeState>,
 ) -> Result<String, String> {
     let started = Instant::now();
-    debug_log(
-        debug_log_dir,
+    record_runtime_log(
+        runtime_state,
         "ai_fill.service.start",
         format!(
-            "provider_id={} provider_name={} model={} template_len={} placeholders={}",
+            "provider_id={} provider_name={} model={} template_len={} placeholders={} compatibility_mode={}",
             provider.id,
             provider.name,
             provider.image_model,
             template.chars().count(),
-            placeholder_count(template)
+            placeholder_count(template),
+            compatibility_mode
         ),
     );
 
     let base_url = match normalize_base_url(&provider.base_url) {
         Ok(base_url) => base_url,
         Err(error) => {
-            debug_log(
-                debug_log_dir,
+            record_runtime_log(
+                runtime_state,
                 "ai_fill.service.base_url_error",
                 format!("provider_id={} error={}", provider.id, error),
             );
@@ -54,17 +55,17 @@ pub(crate) async fn fill_template(
     };
     let client = match chat_completion_client() {
         Ok(client) => {
-            debug_log(
-                debug_log_dir,
+            record_runtime_log(
+                runtime_state,
                 "ai_fill.service.client",
                 "using http1 client",
             );
             client
         }
         Err(error) => {
-            debug_log(
-                debug_log_dir,
-                "ai_fill.service.client_fallback",
+            record_runtime_log(
+                runtime_state,
+                "ai_fill.service.client_reuse",
                 format!("error={}", error),
             );
             client.clone()
@@ -87,8 +88,17 @@ pub(crate) async fn fill_template(
     });
 
     let url = format!("{base_url}/chat/completions");
-    debug_log(
-        debug_log_dir,
+    if compatibility_mode {
+        record_runtime_log(
+            runtime_state,
+            "ai_fill.service.curl_start",
+            format!("elapsed_ms={} url={}", started.elapsed().as_millis(), url),
+        );
+        return fill_template_with_curl(&url, provider, &payload, started, runtime_state);
+    }
+
+    record_runtime_log(
+        runtime_state,
         "ai_fill.service.request",
         format!("url={} model={}", url, provider.image_model),
     );
@@ -104,8 +114,8 @@ pub(crate) async fn fill_template(
     {
         Ok(response) => response,
         Err(error) => {
-            debug_log(
-                debug_log_dir,
+            record_runtime_log(
+                runtime_state,
                 "ai_fill.service.request_error",
                 format!(
                     "elapsed_ms={} timeout={} error={:?}",
@@ -114,16 +124,8 @@ pub(crate) async fn fill_template(
                     error
                 ),
             );
-            if error.is_timeout() {
-                debug_log(
-                    debug_log_dir,
-                    "ai_fill.service.curl_fallback_start",
-                    format!("elapsed_ms={} url={}", started.elapsed().as_millis(), url),
-                );
-                return fill_template_with_curl(&url, provider, &payload, started, debug_log_dir);
-            }
             let message = if error.is_timeout() {
-                format!("AI 填充超时：超过 {CHAT_COMPLETION_FALLBACK_TIMEOUT_SECONDS} 秒未返回结果")
+                format!("AI 填充超时：超过 {CHAT_COMPLETION_TIMEOUT_SECONDS} 秒未返回结果")
             } else {
                 format!("AI 填充请求失败: {error}")
             };
@@ -132,8 +134,8 @@ pub(crate) async fn fill_template(
     };
 
     let status = response.status();
-    debug_log(
-        debug_log_dir,
+    record_runtime_log(
+        runtime_state,
         "ai_fill.service.response",
         format!(
             "elapsed_ms={} status={}",
@@ -144,8 +146,8 @@ pub(crate) async fn fill_template(
     let text = match response.text().await {
         Ok(text) => text,
         Err(error) => {
-            debug_log(
-                debug_log_dir,
+            record_runtime_log(
+                runtime_state,
                 "ai_fill.service.body_error",
                 format!(
                     "elapsed_ms={} error={}",
@@ -156,8 +158,8 @@ pub(crate) async fn fill_template(
             return Err(format!("读取对话模型响应失败: {error}"));
         }
     };
-    debug_log(
-        debug_log_dir,
+    record_runtime_log(
+        runtime_state,
         "ai_fill.service.body",
         format!(
             "elapsed_ms={} bytes={} preview={}",
@@ -169,8 +171,8 @@ pub(crate) async fn fill_template(
     let value: Value = match serde_json::from_str(&text) {
         Ok(value) => value,
         Err(error) => {
-            debug_log(
-                debug_log_dir,
+            record_runtime_log(
+                runtime_state,
                 "ai_fill.service.json_error",
                 format!(
                     "elapsed_ms={} error={}",
@@ -184,8 +186,8 @@ pub(crate) async fn fill_template(
     if !status.is_success() {
         if let Some(error) = value.get("error") {
             let message = format_api_error("对话模型", error);
-            debug_log(
-                debug_log_dir,
+            record_runtime_log(
+                runtime_state,
                 "ai_fill.service.api_error",
                 format!(
                     "elapsed_ms={} error={}",
@@ -196,8 +198,8 @@ pub(crate) async fn fill_template(
             return Err(message);
         }
         let message = format!("对话模型请求失败: HTTP {}", status.as_u16());
-        debug_log(
-            debug_log_dir,
+        record_runtime_log(
+            runtime_state,
             "ai_fill.service.http_error",
             format!(
                 "elapsed_ms={} error={}",
@@ -220,8 +222,8 @@ pub(crate) async fn fill_template(
         .map(ToOwned::to_owned);
 
     if let Some(result) = result {
-        debug_log(
-            debug_log_dir,
+        record_runtime_log(
+            runtime_state,
             "ai_fill.service.success",
             format!(
                 "elapsed_ms={} output_len={}",
@@ -231,8 +233,8 @@ pub(crate) async fn fill_template(
         );
         Ok(result)
     } else {
-        debug_log(
-            debug_log_dir,
+        record_runtime_log(
+            runtime_state,
             "ai_fill.service.empty_content",
             format!(
                 "elapsed_ms={} top_level_keys={}",
@@ -254,9 +256,9 @@ fn chat_completion_client() -> Result<Client, String> {
         .map_err(|error| format!("创建对话模型 HTTP 客户端失败: {error}"))
 }
 
-fn debug_log(debug_log_dir: Option<&Path>, event: &str, message: impl AsRef<str>) {
-    if let Some(data_dir) = debug_log_dir {
-        append_debug_log(data_dir, event, message);
+fn record_runtime_log(runtime_state: Option<&RuntimeState>, event: &str, message: impl AsRef<str>) {
+    if let Some(runtime_state) = runtime_state {
+        runtime_state.push_log(event, message);
     }
 }
 
@@ -294,14 +296,14 @@ fn fill_template_with_curl(
     provider: &ApiProvider,
     payload: &Value,
     started: Instant,
-    debug_log_dir: Option<&Path>,
+    runtime_state: Option<&RuntimeState>,
 ) -> Result<String, String> {
     let payload_path =
         std::env::temp_dir().join(format!("image-forge-ai-fill-{}.json", uuid::Uuid::new_v4()));
     let payload_text = serde_json::to_string(payload).map_err(|error| {
         let message = format!("序列化 AI 填充请求失败: {error}");
-        debug_log(
-            debug_log_dir,
+        record_runtime_log(
+            runtime_state,
             "ai_fill.service.curl_payload_error",
             &message,
         );
@@ -309,8 +311,8 @@ fn fill_template_with_curl(
     })?;
     fs::write(&payload_path, payload_text).map_err(|error| {
         let message = format!("写入 AI 填充临时请求失败: {error}");
-        debug_log(
-            debug_log_dir,
+        record_runtime_log(
+            runtime_state,
             "ai_fill.service.curl_payload_error",
             &message,
         );
@@ -322,26 +324,26 @@ fn fill_template_with_curl(
         escape_curl_config_value(url),
         escape_curl_config_value(provider.api_key.trim()),
         escape_curl_config_value(&payload_path.to_string_lossy()),
-        CHAT_COMPLETION_FALLBACK_TIMEOUT_SECONDS
+        CHAT_COMPLETION_TIMEOUT_SECONDS
     );
 
     let output = run_curl_with_config(&config);
     let _ = fs::remove_file(&payload_path);
 
     let output = output.map_err(|error| {
-        let message = format!("启动 curl fallback 失败: {error}");
-        debug_log(debug_log_dir, "ai_fill.service.curl_spawn_error", &message);
+        let message = format!("启动兼容方案失败: {error}");
+        record_runtime_log(runtime_state, "ai_fill.service.curl_spawn_error", &message);
         message
     })?;
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
     if !output.status.success() {
         let message = if stderr.is_empty() {
-            format!("curl fallback 失败: exit={}", output.status)
+            format!("兼容方案失败: exit={}", output.status)
         } else {
-            format!("curl fallback 失败: {stderr}")
+            format!("兼容方案失败: {stderr}")
         };
-        debug_log(
-            debug_log_dir,
+        record_runtime_log(
+            runtime_state,
             "ai_fill.service.curl_error",
             format!("elapsed_ms={} {}", started.elapsed().as_millis(), message),
         );
@@ -349,8 +351,8 @@ fn fill_template_with_curl(
     }
 
     let text = String::from_utf8_lossy(&output.stdout).to_string();
-    debug_log(
-        debug_log_dir,
+    record_runtime_log(
+        runtime_state,
         "ai_fill.service.curl_body",
         format!(
             "elapsed_ms={} bytes={} preview={}",
@@ -360,21 +362,21 @@ fn fill_template_with_curl(
         ),
     );
     let value: Value = serde_json::from_str(&text).map_err(|error| {
-        let message = format!("curl fallback 返回了无效 JSON: {error}");
-        debug_log(debug_log_dir, "ai_fill.service.curl_json_error", &message);
+        let message = format!("兼容方案返回了无效 JSON: {error}");
+        record_runtime_log(runtime_state, "ai_fill.service.curl_json_error", &message);
         message
     })?;
 
     let result = extract_chat_content(&value).ok_or_else(|| {
-        debug_log(
-            debug_log_dir,
+        record_runtime_log(
+            runtime_state,
             "ai_fill.service.curl_empty_content",
             format!("top_level_keys={}", json_keys(&value)),
         );
         "对话模型没有返回填充内容".to_string()
     })?;
-    debug_log(
-        debug_log_dir,
+    record_runtime_log(
+        runtime_state,
         "ai_fill.service.curl_success",
         format!(
             "elapsed_ms={} output_len={}",

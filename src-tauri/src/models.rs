@@ -11,6 +11,14 @@ use crate::utils::utc_now;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AboutInfo {
+    pub version: String,
+    pub build_time: String,
+    pub logs: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ApiProvider {
     #[serde(default = "default_provider_id")]
     pub id: String,

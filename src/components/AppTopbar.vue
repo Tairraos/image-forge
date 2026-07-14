@@ -16,13 +16,17 @@
         <template #icon><BookOpen :size="16" /></template>
         模板
       </n-button>
+      <n-button quaternary size="small" @click="$emit('show-about')">
+        <template #icon><Info :size="16" /></template>
+        关于
+      </n-button>
     </div>
   </header>
 </template>
 
 <script setup>
-import { BookOpen, Settings } from "@lucide/vue";
+import { BookOpen, Info, Settings } from "@lucide/vue";
 import logoUrl from "../assets/app-icon.png";
 
-defineEmits(["show-api", "show-template-manager"]);
+defineEmits(["show-api", "show-template-manager", "show-about"]);
 </script>

@@ -671,6 +671,14 @@ button:disabled {
   padding-top: 4px;
 }
 
+.template-fill-actions {
+  justify-content: flex-end;
+}
+
+.template-fill-actions .n-checkbox {
+  margin-right: auto;
+}
+
 .selected-task p {
   max-height: 44px;
   overflow: auto;
@@ -845,17 +853,68 @@ button:disabled {
   max-height: calc(100vh - 48px);
 }
 
+.about-modal {
+  width: min(720px, calc(100vw - 48px));
+  max-height: calc(100vh - 48px);
+}
+
 .template-manager-modal .n-card,
 .template-reference-modal .n-card,
-.template-editor-modal .n-card {
+.template-editor-modal .n-card,
+.about-modal .n-card {
   max-height: calc(100vh - 48px);
 }
 
 .template-manager-modal .n-card__content,
 .template-reference-modal .n-card__content,
-.template-editor-modal .n-card__content {
+.template-editor-modal .n-card__content,
+.about-modal .n-card__content {
   min-height: 0;
   overflow: auto;
+}
+
+.about-body {
+  display: grid;
+  gap: 12px;
+}
+
+.about-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.about-meta div {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fbfaff;
+}
+
+.about-meta span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.about-meta strong {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.about-copy {
+  margin: 0;
+  color: #625574;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.about-log textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.55;
 }
 
 .template-manager {

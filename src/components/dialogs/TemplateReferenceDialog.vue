@@ -55,7 +55,8 @@
             @scroll="syncFillScroll"
           ></textarea>
         </div>
-        <div class="dialog-actions">
+        <div class="dialog-actions template-fill-actions">
+          <n-checkbox v-model:checked="compatibility">兼容方案</n-checkbox>
           <n-button size="small" secondary :loading="filling" @click="$emit('ai-fill')">AI 填充</n-button>
           <n-button size="small" type="primary" @click="$emit('insert')">引用模板</n-button>
         </div>
@@ -71,6 +72,7 @@ import { Search } from "@lucide/vue";
 const show = defineModel("show", { type: Boolean, default: false });
 const query = defineModel("query", { type: String, default: "" });
 const content = defineModel("content", { type: String, default: "" });
+const compatibility = defineModel("compatibility", { type: Boolean, default: false });
 
 const props = defineProps({
   templates: { type: Array, default: () => [] },

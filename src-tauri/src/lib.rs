@@ -21,6 +21,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::about_info,
             commands::copy_image_to_clipboard,
             commands::delete_task,
             commands::delete_template,

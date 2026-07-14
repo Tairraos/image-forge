@@ -5,6 +5,7 @@
       <AppTopbar
         @show-api="showApiDialog = true"
         @show-template-manager="showTemplateManagerDialog = true"
+        @show-about="openAbout"
       />
 
       <section class="workspace" :style="workspaceStyle">
@@ -89,6 +90,7 @@
         v-model:show="showTemplateReferenceDialog"
         v-model:query="templateReferenceQuery"
         v-model:content="templateReferenceContent"
+        v-model:compatibility="templateCompatibilityMode"
         :templates="filteredReferenceTemplates"
         :selected-template-id="selectedReferenceTemplateId"
         :chat-provider-id="form.chatProviderId"
@@ -113,6 +115,11 @@
         :task="selectedTask"
         @reuse="reuseTask"
       />
+
+      <AboutDialog
+        v-model:show="showAboutDialog"
+        :info="aboutInfo"
+      />
     </main>
   </n-config-provider>
 </template>
@@ -123,6 +130,7 @@ import AppTopbar from "./components/AppTopbar.vue";
 import ComposerPanel from "./components/ComposerPanel.vue";
 import QueuePanel from "./components/QueuePanel.vue";
 import ResultPanel from "./components/ResultPanel.vue";
+import AboutDialog from "./components/dialogs/AboutDialog.vue";
 import ApiSourceDialog from "./components/dialogs/ApiSourceDialog.vue";
 import TaskDetailDialog from "./components/dialogs/TaskDetailDialog.vue";
 import TemplateEditorDialog from "./components/dialogs/TemplateEditorDialog.vue";
@@ -152,6 +160,7 @@ const historyQuery = ref("");
 const templateQuery = ref("");
 const templateReferenceQuery = ref("");
 const templateReferenceContent = ref("");
+const templateCompatibilityMode = ref(false);
 const selectedReferenceTemplateId = ref("");
 const templateFilledRanges = ref([]);
 const templateFilling = ref(false);
@@ -162,9 +171,11 @@ const showTemplateManagerDialog = ref(false);
 const showTemplateReferenceDialog = ref(false);
 const showTemplateEditor = ref(false);
 const showTaskDetail = ref(false);
+const showAboutDialog = ref(false);
 
 const templateDraft = reactive(emptyTemplate());
 const templateEditorMode = ref("edit");
+const aboutInfo = ref({ version: "", buildTime: "", logs: "" });
 
 const form = reactive({
   providerId: "",
@@ -601,25 +612,35 @@ async function fillReferenceTemplate() {
   }
   templateFilling.value = true;
   setStatus("AI 正在填充模板…", "busy");
-  console.info("[ImageForge] AI 填充开始", {
-    chatProviderId: form.chatProviderId,
-    templateLength: templateReferenceContent.value.length,
-  });
   try {
     const original = templateReferenceContent.value;
     const filled = await invoke("fill_prompt_template", {
       providerId: form.chatProviderId,
       template: original,
+      compatibilityMode: templateCompatibilityMode.value,
     });
     templateReferenceContent.value = filled;
     templateFilledRanges.value = mapFilledRanges(original, filled);
-    console.info("[ImageForge] AI 填充完成", { outputLength: filled.length });
     setStatus("模板已填充", "ok");
   } catch (error) {
-    console.error("[ImageForge] AI 填充失败", error);
-    setStatus(String(error), "error");
+    const message = String(error);
+    window.alert(message);
+    setStatus(message, "error");
   } finally {
     templateFilling.value = false;
+  }
+}
+
+async function openAbout() {
+  showAboutDialog.value = true;
+  try {
+    aboutInfo.value = await invoke("about_info");
+  } catch (error) {
+    aboutInfo.value = {
+      version: "",
+      buildTime: "",
+      logs: `读取关于信息失败：${String(error)}`,
+    };
   }
 }
 
