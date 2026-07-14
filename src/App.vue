@@ -89,7 +89,8 @@
       <TemplateReferenceDialog
         v-model:show="showTemplateReferenceDialog"
         v-model:query="templateReferenceQuery"
-        v-model:content="templateReferenceContent"
+        :source-content="templateReferenceSourceContent"
+        :generated-content="templateReferenceGeneratedContent"
         :templates="filteredReferenceTemplates"
         :selected-template-id="selectedReferenceTemplateId"
         :chat-provider-id="form.chatProviderId"
@@ -97,6 +98,8 @@
         :filled-ranges="templateFilledRanges"
         :filling="templateFilling"
         @update:chat-provider-id="form.chatProviderId = $event"
+        @update:source-content="updateTemplateReferenceSource"
+        @update:generated-content="updateTemplateReferenceGenerated"
         @select-template="selectReferenceTemplate"
         @ai-fill="fillReferenceTemplate"
         @insert="insertReferenceTemplate"
@@ -158,7 +161,8 @@ const submitting = ref(false);
 const historyQuery = ref("");
 const templateQuery = ref("");
 const templateReferenceQuery = ref("");
-const templateReferenceContent = ref("");
+const templateReferenceSourceContent = ref("");
+const templateReferenceGeneratedContent = ref("");
 const selectedReferenceTemplateId = ref("");
 const templateFilledRanges = ref([]);
 const templateFilling = ref(false);
@@ -594,13 +598,24 @@ async function deletePromptTemplate(id) {
 // 在引用模板弹窗中选择模板，并保留搜索条件。
 function selectReferenceTemplate(template) {
   selectedReferenceTemplateId.value = template.id;
-  templateReferenceContent.value = template.content || "";
+  templateReferenceSourceContent.value = template.content || "";
+  templateReferenceGeneratedContent.value = "";
   templateFilledRanges.value = [];
+}
+
+function updateTemplateReferenceSource(content) {
+  templateReferenceSourceContent.value = content;
+  templateFilledRanges.value = mapFilledRanges(content, templateReferenceGeneratedContent.value);
+}
+
+function updateTemplateReferenceGenerated(content) {
+  templateReferenceGeneratedContent.value = content;
+  templateFilledRanges.value = mapFilledRanges(templateReferenceSourceContent.value, content);
 }
 
 // 调用对话模型填充模板中的 `{}` 占位区域。
 async function fillReferenceTemplate() {
-  if (!templateReferenceContent.value.trim()) {
+  if (!templateReferenceSourceContent.value.trim()) {
     setStatus("请先选择或输入模板内容", "error");
     return;
   }
@@ -611,12 +626,12 @@ async function fillReferenceTemplate() {
   templateFilling.value = true;
   setStatus("AI 正在填充模板…", "busy");
   try {
-    const original = templateReferenceContent.value;
+    const original = templateReferenceSourceContent.value;
     const filled = await invoke("fill_prompt_template", {
       providerId: form.chatProviderId,
       template: original,
     });
-    templateReferenceContent.value = filled;
+    templateReferenceGeneratedContent.value = filled;
     templateFilledRanges.value = mapFilledRanges(original, filled);
     setStatus("模板已填充", "ok");
   } catch (error) {
@@ -643,7 +658,9 @@ async function openAbout() {
 
 // 将引用模板内容插入到提示词当前光标位置。
 async function insertReferenceTemplate() {
-  const content = templateReferenceContent.value;
+  const content = templateReferenceGeneratedContent.value.trim()
+    ? templateReferenceGeneratedContent.value
+    : templateReferenceSourceContent.value;
   if (!content.trim()) {
     setStatus("模板内容为空", "error");
     return;

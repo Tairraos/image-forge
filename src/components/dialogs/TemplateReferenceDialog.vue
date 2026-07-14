@@ -1,66 +1,77 @@
 <template>
   <n-modal v-model:show="show" preset="card" title="引用模板" class="template-reference-modal">
-    <template #header-extra>
-      <n-select
-        :value="chatProviderId"
-        :options="chatProviderOptions"
-        size="small"
-        class="reference-chat-select"
-        placeholder="选择对话模型"
-        :disabled="!chatProviderOptions.length"
-        @update:value="$emit('update:chat-provider-id', $event)"
-      />
-    </template>
-
     <div class="template-reference-layout">
-      <section class="template-reference-list">
-        <n-input v-model:value="query" clearable placeholder="搜索模板或 ID">
-          <template #prefix><Search :size="15" /></template>
-        </n-input>
-        <div class="template-table-wrap reference-table-wrap">
-          <table class="template-table reference-template-table">
-            <thead>
-              <tr>
-                <th>id</th>
-                <th>模板</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="template in templates"
-                :key="template.id"
-                :class="{ selected: template.id === selectedTemplateId }"
-                @click="$emit('select-template', template)"
-              >
-                <td :title="template.id">{{ template.id }}</td>
-                <td class="template-content-cell" :title="template.content">{{ singleLine(template.content) }}</td>
-              </tr>
-              <tr v-if="!templates.length">
-                <td colspan="2" class="template-empty-cell">没有模板</td>
-              </tr>
-            </tbody>
-          </table>
+      <section class="template-reference-column">
+        <div class="template-reference-toolbar">
+          <n-input v-model:value="query" clearable placeholder="搜索模板或 ID">
+            <template #prefix><Search :size="15" /></template>
+          </n-input>
+          <n-select
+            :value="selectedTemplateId"
+            :options="templateOptions"
+            placeholder="选择模板"
+            :disabled="!templateOptions.length"
+            @update:value="selectTemplate"
+          />
+        </div>
+        <div class="template-fill-editor">
+          <div
+            ref="sourceHighlightRef"
+            class="template-fill-highlight"
+            v-html="sourceHighlightedContent"
+          ></div>
+          <textarea
+            ref="sourceTextareaRef"
+            :value="sourceContent"
+            spellcheck="false"
+            aria-label="原始模板"
+            placeholder="选择模板后在这里预览或编辑原始内容"
+            @input="$emit('update:source-content', $event.target.value)"
+            @scroll="syncEditorScroll(sourceHighlightRef, sourceTextareaRef)"
+          ></textarea>
         </div>
       </section>
 
-      <section class="template-reference-preview">
+      <section class="template-reference-column">
+        <div class="template-reference-column-title">AI 生成内容</div>
         <div class="template-fill-editor">
-          <div ref="fillHighlightRef" class="template-fill-highlight" v-html="highlightedContent"></div>
+          <div
+            ref="generatedHighlightRef"
+            class="template-fill-highlight"
+            v-html="generatedHighlightedContent"
+          ></div>
           <textarea
-            ref="fillTextareaRef"
-            :value="content"
+            ref="generatedTextareaRef"
+            :value="generatedContent"
             spellcheck="false"
-            placeholder="选择模板后在这里预览或调整内容"
-            @input="$emit('update:content', $event.target.value)"
-            @scroll="syncFillScroll"
+            aria-label="AI 生成内容"
+            placeholder="AI 填充后的内容会显示在这里，也可以继续编辑"
+            @input="$emit('update:generated-content', $event.target.value)"
+            @scroll="syncEditorScroll(generatedHighlightRef, generatedTextareaRef)"
           ></textarea>
-        </div>
-        <div class="dialog-actions template-fill-actions">
-          <n-button size="small" secondary :loading="filling" @click="$emit('ai-fill')">AI 填充</n-button>
-          <n-button size="small" type="primary" @click="$emit('insert')">引用模板</n-button>
         </div>
       </section>
     </div>
+
+    <template #footer>
+      <div class="template-reference-footer">
+        <div class="template-fill-controls">
+          <n-select
+            :value="chatProviderId"
+            :options="chatProviderOptions"
+            size="small"
+            class="reference-chat-select"
+            placeholder="选择对话模型"
+            :disabled="!chatProviderOptions.length"
+            @update:value="$emit('update:chat-provider-id', $event)"
+          />
+          <n-button size="small" secondary :loading="filling" @click="$emit('ai-fill')">AI 填充</n-button>
+        </div>
+        <div class="dialog-actions">
+          <n-button size="small" type="primary" @click="$emit('insert')">引用模板</n-button>
+        </div>
+      </div>
+    </template>
   </n-modal>
 </template>
 
@@ -70,7 +81,8 @@ import { Search } from "@lucide/vue";
 
 const show = defineModel("show", { type: Boolean, default: false });
 const query = defineModel("query", { type: String, default: "" });
-const content = defineModel("content", { type: String, default: "" });
+const sourceContent = defineModel("sourceContent", { type: String, default: "" });
+const generatedContent = defineModel("generatedContent", { type: String, default: "" });
 
 const props = defineProps({
   templates: { type: Array, default: () => [] },
@@ -81,17 +93,34 @@ const props = defineProps({
   filling: { type: Boolean, default: false },
 });
 
-defineEmits([
+const emit = defineEmits([
   "update:chat-provider-id",
   "select-template",
-  "update:content",
+  "update:source-content",
+  "update:generated-content",
   "ai-fill",
   "insert",
 ]);
 
-const fillHighlightRef = ref(null);
-const fillTextareaRef = ref(null);
-const highlightedContent = computed(() => highlightTemplateContent(props.content, props.filledRanges));
+const sourceHighlightRef = ref(null);
+const sourceTextareaRef = ref(null);
+const generatedHighlightRef = ref(null);
+const generatedTextareaRef = ref(null);
+const templateOptions = computed(() =>
+  props.templates.map((template) => ({
+    label: `${template.id} · ${singleLine(template.content)}`,
+    value: template.id,
+  })),
+);
+const sourceHighlightedContent = computed(() => highlightTemplateContent(sourceContent.value, []));
+const generatedHighlightedContent = computed(() =>
+  highlightTemplateContent(generatedContent.value, props.filledRanges),
+);
+
+function selectTemplate(templateId) {
+  const template = props.templates.find((item) => item.id === templateId);
+  if (template) emit("select-template", template);
+}
 
 function highlightTemplateContent(value, filledRanges) {
   if (filledRanges.length) {
@@ -131,9 +160,9 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
-function syncFillScroll() {
-  if (!fillHighlightRef.value || !fillTextareaRef.value) return;
-  fillHighlightRef.value.scrollTop = fillTextareaRef.value.scrollTop;
-  fillHighlightRef.value.scrollLeft = fillTextareaRef.value.scrollLeft;
+function syncEditorScroll(highlightRef, textareaRef) {
+  if (!highlightRef || !textareaRef) return;
+  highlightRef.scrollTop = textareaRef.scrollTop;
+  highlightRef.scrollLeft = textareaRef.scrollLeft;
 }
 </script>

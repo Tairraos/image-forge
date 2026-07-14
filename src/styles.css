@@ -671,10 +671,6 @@ button:disabled {
   padding-top: 4px;
 }
 
-.template-fill-actions {
-  justify-content: flex-end;
-}
-
 .selected-task p {
   max-height: 44px;
   overflow: auto;
@@ -999,45 +995,56 @@ button:disabled {
 
 .template-reference-layout {
   display: grid;
-  grid-template-columns: minmax(280px, 0.9fr) minmax(360px, 1.1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
-  min-height: 540px;
+  min-height: 500px;
 }
 
-.template-reference-list,
-.template-reference-preview {
+.template-reference-column {
   display: grid;
+  grid-template-rows: 34px minmax(0, 1fr);
   gap: 9px;
   min-width: 0;
   min-height: 0;
 }
 
-.template-reference-list {
-  grid-template-rows: auto minmax(0, 1fr);
+.template-reference-toolbar {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
 }
 
-.template-reference-preview {
-  grid-template-rows: minmax(0, 1fr) auto;
+.template-reference-column-title {
+  display: flex;
+  align-items: center;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.template-reference-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+}
+
+.template-fill-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.template-reference-footer > .dialog-actions {
+  width: auto;
+  padding-top: 0;
+  margin-left: auto;
 }
 
 .reference-chat-select {
   width: 260px;
-}
-
-.reference-table-wrap {
-  max-height: none;
-}
-
-.reference-template-table tr {
-  cursor: pointer;
-}
-
-.reference-template-table tr.selected {
-  background: var(--primary-soft);
-}
-
-.reference-template-table tbody tr:hover {
-  background: #faf8ff;
 }
 
 .template-fill-editor {
@@ -1076,7 +1083,7 @@ button:disabled {
   position: relative;
   z-index: 1;
   height: 100%;
-  min-height: 420px;
+  min-height: 400px;
   resize: none;
   border: 0;
   outline: none;
@@ -1514,6 +1521,24 @@ button:disabled {
   .api-dialog-footer > .dialog-actions {
     margin-left: 0;
     justify-content: flex-end;
+  }
+
+  .template-reference-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .template-reference-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .template-fill-controls,
+  .reference-chat-select {
+    width: 100%;
+  }
+
+  .template-reference-footer > .dialog-actions {
+    width: 100%;
   }
 }
 
