@@ -189,6 +189,7 @@ pub(crate) fn delete_task(app: AppHandle, task_id: String) -> Result<(), String>
             .insert(task_id.clone());
     }
 
+    delete_output_files_for_task(&history[index])?;
     history.remove(index);
     let mut queue = read_queue(&data_dir)?;
     queue.waiting.retain(|id| id != &task_id);
@@ -199,6 +200,18 @@ pub(crate) fn delete_task(app: AppHandle, task_id: String) -> Result<(), String>
     let request_file = request_path(&data_dir, &task_id);
     if request_file.exists() {
         fs::remove_file(request_file).map_err(|error| format!("删除任务请求失败: {error}"))?;
+    }
+    Ok(())
+}
+
+fn delete_output_files_for_task(record: &TaskRecord) -> Result<(), String> {
+    for output in &record.outputs {
+        let path = PathBuf::from(&output.path);
+        if path.is_file() {
+            fs::remove_file(&path).map_err(|error| {
+                format!("删除生成图片失败（{}）: {error}", path.to_string_lossy())
+            })?;
+        }
     }
     Ok(())
 }
