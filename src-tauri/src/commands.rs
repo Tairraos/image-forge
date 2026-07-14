@@ -24,7 +24,7 @@ use crate::{
         read_queue, read_settings, read_templates, request_path, templates_path, upsert_history,
         write_history, write_json, write_queue, write_settings,
     },
-    utils::utc_now,
+    utils::{append_debug_log, utc_now},
 };
 
 #[tauri::command]
@@ -284,17 +284,70 @@ pub(crate) async fn fill_prompt_template(
         return Err("模板内容不能为空".into());
     }
     let data_dir = ensure_data_dir(&app)?;
+    append_debug_log(
+        &data_dir,
+        "ai_fill.command.start",
+        format!(
+            "provider_id={} template_len={}",
+            provider_id,
+            content.chars().count()
+        ),
+    );
     let settings = read_settings(&data_dir)?;
-    let provider = settings
+    let Some(provider) = settings
         .providers
         .iter()
         .find(|provider| provider.id == provider_id && provider.model_type == "chat")
-        .ok_or("请选择可用的对话模型")?;
+    else {
+        append_debug_log(
+            &data_dir,
+            "ai_fill.command.provider_not_found",
+            format!("provider_id={}", provider_id),
+        );
+        return Err("请选择可用的对话模型".into());
+    };
     if provider.api_key.trim().is_empty() {
+        append_debug_log(
+            &data_dir,
+            "ai_fill.command.missing_key",
+            format!(
+                "provider_id={} provider_name={}",
+                provider.id, provider.name
+            ),
+        );
         return Err(format!("对话模型「{}」还没有填写 API Key", provider.name));
     }
+    append_debug_log(
+        &data_dir,
+        "ai_fill.command.provider",
+        format!(
+            "provider_id={} provider_name={} base_url={} model={} log_path={}",
+            provider.id,
+            provider.name,
+            provider.base_url,
+            provider.image_model,
+            data_dir.join("debug.log").to_string_lossy()
+        ),
+    );
     let client = crate::utils::http_client()?;
-    fill_template(&client, provider, content).await
+    let result = fill_template(&client, provider, content, Some(&data_dir)).await;
+    match &result {
+        Ok(value) => append_debug_log(
+            &data_dir,
+            "ai_fill.command.success",
+            format!(
+                "provider_id={} output_len={}",
+                provider.id,
+                value.chars().count()
+            ),
+        ),
+        Err(error) => append_debug_log(
+            &data_dir,
+            "ai_fill.command.error",
+            format!("provider_id={} error={}", provider.id, error),
+        ),
+    }
+    result
 }
 
 #[tauri::command]

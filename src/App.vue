@@ -601,6 +601,10 @@ async function fillReferenceTemplate() {
   }
   templateFilling.value = true;
   setStatus("AI 正在填充模板…", "busy");
+  console.info("[ImageForge] AI 填充开始", {
+    chatProviderId: form.chatProviderId,
+    templateLength: templateReferenceContent.value.length,
+  });
   try {
     const original = templateReferenceContent.value;
     const filled = await invoke("fill_prompt_template", {
@@ -609,8 +613,10 @@ async function fillReferenceTemplate() {
     });
     templateReferenceContent.value = filled;
     templateFilledRanges.value = mapFilledRanges(original, filled);
+    console.info("[ImageForge] AI 填充完成", { outputLength: filled.length });
     setStatus("模板已填充", "ok");
   } catch (error) {
+    console.error("[ImageForge] AI 填充失败", error);
     setStatus(String(error), "error");
   } finally {
     templateFilling.value = false;

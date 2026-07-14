@@ -1,4 +1,4 @@
-use std::{path::Path, time::Duration};
+use std::{fs::OpenOptions, io::Write, path::Path, time::Duration};
 
 use chrono::Utc;
 use reqwest::Client;
@@ -22,6 +22,19 @@ pub(crate) fn format_request_error(label: &str, error: reqwest::Error) -> String
         return format!("{label} 超时：超过 5 分钟未返回结果");
     }
     format!("{label} 失败: {error}")
+}
+
+pub(crate) fn append_debug_log(data_dir: &Path, event: &str, message: impl AsRef<str>) {
+    let path = data_dir.join("debug.log");
+    let line = format!(
+        "{} [{}] {}\n",
+        utc_now(),
+        event,
+        message.as_ref().replace(['\n', '\r'], " ")
+    );
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+        let _ = file.write_all(line.as_bytes());
+    }
 }
 
 pub(crate) fn normalize_base_url(base_url: &str) -> Result<String, String> {

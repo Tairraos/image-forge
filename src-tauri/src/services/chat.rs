@@ -1,4 +1,7 @@
-use std::time::Duration;
+use std::{
+    path::Path,
+    time::{Duration, Instant},
+};
 
 use reqwest::{
     header::{ACCEPT, ACCEPT_LANGUAGE},
@@ -9,7 +12,7 @@ use serde_json::{json, Value};
 use crate::{
     defaults::APP_USER_AGENT,
     models::ApiProvider,
-    utils::{format_api_error, normalize_base_url},
+    utils::{append_debug_log, format_api_error, normalize_base_url},
 };
 
 const CHAT_COMPLETION_TIMEOUT_SECONDS: u64 = 60;
@@ -18,9 +21,51 @@ pub(crate) async fn fill_template(
     client: &Client,
     provider: &ApiProvider,
     template: &str,
+    debug_log_dir: Option<&Path>,
 ) -> Result<String, String> {
-    let base_url = normalize_base_url(&provider.base_url)?;
-    let client = chat_completion_client().unwrap_or_else(|_| client.clone());
+    let started = Instant::now();
+    debug_log(
+        debug_log_dir,
+        "ai_fill.service.start",
+        format!(
+            "provider_id={} provider_name={} model={} template_len={} placeholders={}",
+            provider.id,
+            provider.name,
+            provider.image_model,
+            template.chars().count(),
+            placeholder_count(template)
+        ),
+    );
+
+    let base_url = match normalize_base_url(&provider.base_url) {
+        Ok(base_url) => base_url,
+        Err(error) => {
+            debug_log(
+                debug_log_dir,
+                "ai_fill.service.base_url_error",
+                format!("provider_id={} error={}", provider.id, error),
+            );
+            return Err(error);
+        }
+    };
+    let client = match chat_completion_client() {
+        Ok(client) => {
+            debug_log(
+                debug_log_dir,
+                "ai_fill.service.client",
+                "using http1 client",
+            );
+            client
+        }
+        Err(error) => {
+            debug_log(
+                debug_log_dir,
+                "ai_fill.service.client_fallback",
+                format!("error={}", error),
+            );
+            client.clone()
+        }
+    };
     let payload = json!({
         "model": provider.image_model,
         "messages": [
@@ -37,8 +82,14 @@ pub(crate) async fn fill_template(
         "stream": false
     });
 
-    let response = client
-        .post(format!("{base_url}/chat/completions"))
+    let url = format!("{base_url}/chat/completions");
+    debug_log(
+        debug_log_dir,
+        "ai_fill.service.request",
+        format!("url={} model={}", url, provider.image_model),
+    );
+    let response = match client
+        .post(&url)
         .bearer_auth(provider.api_key.trim())
         .header(ACCEPT, "*/*")
         .header(ACCEPT_LANGUAGE, "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7")
@@ -46,27 +97,106 @@ pub(crate) async fn fill_template(
         .json(&payload)
         .send()
         .await
-        .map_err(|error| {
-            if error.is_timeout() {
+    {
+        Ok(response) => response,
+        Err(error) => {
+            let message = if error.is_timeout() {
                 format!("AI 填充超时：超过 {CHAT_COMPLETION_TIMEOUT_SECONDS} 秒未返回结果")
             } else {
                 format!("AI 填充请求失败: {error}")
-            }
-        })?;
+            };
+            debug_log(
+                debug_log_dir,
+                "ai_fill.service.request_error",
+                format!(
+                    "elapsed_ms={} timeout={} error={}",
+                    started.elapsed().as_millis(),
+                    error.is_timeout(),
+                    error
+                ),
+            );
+            return Err(message);
+        }
+    };
 
     let status = response.status();
-    let value: Value = response
-        .json()
-        .await
-        .map_err(|error| format!("对话模型返回了无效 JSON: {error}"))?;
+    debug_log(
+        debug_log_dir,
+        "ai_fill.service.response",
+        format!(
+            "elapsed_ms={} status={}",
+            started.elapsed().as_millis(),
+            status
+        ),
+    );
+    let text = match response.text().await {
+        Ok(text) => text,
+        Err(error) => {
+            debug_log(
+                debug_log_dir,
+                "ai_fill.service.body_error",
+                format!(
+                    "elapsed_ms={} error={}",
+                    started.elapsed().as_millis(),
+                    error
+                ),
+            );
+            return Err(format!("读取对话模型响应失败: {error}"));
+        }
+    };
+    debug_log(
+        debug_log_dir,
+        "ai_fill.service.body",
+        format!(
+            "elapsed_ms={} bytes={} preview={}",
+            started.elapsed().as_millis(),
+            text.len(),
+            truncate_for_log(&text, 500)
+        ),
+    );
+    let value: Value = match serde_json::from_str(&text) {
+        Ok(value) => value,
+        Err(error) => {
+            debug_log(
+                debug_log_dir,
+                "ai_fill.service.json_error",
+                format!(
+                    "elapsed_ms={} error={}",
+                    started.elapsed().as_millis(),
+                    error
+                ),
+            );
+            return Err(format!("对话模型返回了无效 JSON: {error}"));
+        }
+    };
     if !status.is_success() {
         if let Some(error) = value.get("error") {
-            return Err(format_api_error("对话模型", error));
+            let message = format_api_error("对话模型", error);
+            debug_log(
+                debug_log_dir,
+                "ai_fill.service.api_error",
+                format!(
+                    "elapsed_ms={} error={}",
+                    started.elapsed().as_millis(),
+                    message
+                ),
+            );
+            return Err(message);
         }
-        return Err(format!("对话模型请求失败: HTTP {}", status.as_u16()));
+        let message = format!("对话模型请求失败: HTTP {}", status.as_u16());
+        debug_log(
+            debug_log_dir,
+            "ai_fill.service.http_error",
+            format!(
+                "elapsed_ms={} error={}",
+                started.elapsed().as_millis(),
+                message
+            ),
+        );
+        return Err(message);
     }
 
-    value
+    let result = value
         .get("choices")
         .and_then(Value::as_array)
         .and_then(|choices| choices.first())
@@ -75,8 +205,31 @@ pub(crate) async fn fill_template(
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|content| !content.is_empty())
-        .map(ToOwned::to_owned)
-        .ok_or_else(|| "对话模型没有返回填充内容".into())
+        .map(ToOwned::to_owned);
+
+    if let Some(result) = result {
+        debug_log(
+            debug_log_dir,
+            "ai_fill.service.success",
+            format!(
+                "elapsed_ms={} output_len={}",
+                started.elapsed().as_millis(),
+                result.chars().count()
+            ),
+        );
+        Ok(result)
+    } else {
+        debug_log(
+            debug_log_dir,
+            "ai_fill.service.empty_content",
+            format!(
+                "elapsed_ms={} top_level_keys={}",
+                started.elapsed().as_millis(),
+                json_keys(&value)
+            ),
+        );
+        Err("对话模型没有返回填充内容".into())
+    }
 }
 
 fn chat_completion_client() -> Result<Client, String> {
@@ -87,4 +240,39 @@ fn chat_completion_client() -> Result<Client, String> {
         .http1_only()
         .build()
         .map_err(|error| format!("创建对话模型 HTTP 客户端失败: {error}"))
+}
+
+fn debug_log(debug_log_dir: Option<&Path>, event: &str, message: impl AsRef<str>) {
+    if let Some(data_dir) = debug_log_dir {
+        append_debug_log(data_dir, event, message);
+    }
+}
+
+fn placeholder_count(value: &str) -> usize {
+    let mut count = 0;
+    let mut inside = false;
+    for ch in value.chars() {
+        if ch == '{' && !inside {
+            inside = true;
+        } else if ch == '}' && inside {
+            count += 1;
+            inside = false;
+        }
+    }
+    count
+}
+
+fn truncate_for_log(value: &str, max_chars: usize) -> String {
+    let mut text: String = value.chars().take(max_chars).collect();
+    if value.chars().count() > max_chars {
+        text.push_str("...");
+    }
+    text.replace(['\n', '\r'], "\\n")
+}
+
+fn json_keys(value: &Value) -> String {
+    value
+        .as_object()
+        .map(|object| object.keys().cloned().collect::<Vec<_>>().join(","))
+        .unwrap_or_else(|| "non-object".into())
 }
