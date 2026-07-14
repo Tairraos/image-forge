@@ -10,7 +10,7 @@ use uuid::Uuid;
 use crate::{
     models::{
         AppState, GalleryItem, GalleryPayload, GalleryState, GalleryUpdate, GenerateRequest,
-        PromptSnippet, PromptTemplate, QueueSnapshot, ReferencePreview, TaskRecord,
+        PromptTemplate, QueueSnapshot, ReferencePreview, TaskRecord,
     },
     services::{
         images::reference_preview,
@@ -19,10 +19,10 @@ use crate::{
     state::RuntimeState,
     store::{
         enqueue_task, ensure_data_dir, gallery_image_dir, normalize_request, normalize_settings,
-        normalize_snippet, normalize_template, params_from_request, provider_for_request,
-        read_gallery, read_history, read_json, read_queue, read_settings, read_snippets,
-        read_templates, request_path, snippets_path, sync_gallery_categories, templates_path,
-        upsert_history, write_gallery, write_history, write_json, write_queue, write_settings,
+        normalize_template, params_from_request, provider_for_request, read_gallery, read_history,
+        read_json, read_queue, read_settings, read_templates, request_path,
+        sync_gallery_categories, templates_path, upsert_history, write_gallery, write_history,
+        write_json, write_queue, write_settings,
     },
     utils::{clean_text, extension_for_mime, file_stem, image_mime_type, utc_now},
 };
@@ -38,7 +38,6 @@ pub(crate) fn load_app_state(app: AppHandle) -> Result<AppState, String> {
         history: history.clone(),
         queue: build_queue_snapshot(&app, &data_dir, history)?,
         gallery: read_gallery(&data_dir)?,
-        snippets: read_snippets(&data_dir)?,
         templates: read_templates(&data_dir)?,
         data_dir: data_dir.to_string_lossy().into_owned(),
     })
@@ -294,42 +293,6 @@ pub(crate) fn delete_gallery_item(app: AppHandle, item_id: String) -> Result<Gal
     sync_gallery_categories(&mut gallery);
     write_gallery(&data_dir, &gallery)?;
     Ok(gallery)
-}
-
-#[tauri::command]
-pub(crate) fn save_snippet(
-    app: AppHandle,
-    snippet: PromptSnippet,
-) -> Result<Vec<PromptSnippet>, String> {
-    let data_dir = ensure_data_dir(&app)?;
-    let mut snippets = read_snippets(&data_dir)?;
-    let mut next = normalize_snippet(snippet)?;
-    if next.id.is_empty() {
-        next.id = Uuid::new_v4().to_string();
-        next.created_at = utc_now();
-    }
-    next.updated_at = utc_now();
-    if let Some(index) = snippets.iter().position(|item| item.id == next.id) {
-        next.created_at = snippets[index].created_at.clone();
-        snippets[index] = next;
-    } else {
-        snippets.push(next);
-    }
-    snippets.sort_by(|left, right| left.tag.cmp(&right.tag));
-    write_json(&snippets_path(&data_dir), &snippets)?;
-    Ok(snippets)
-}
-
-#[tauri::command]
-pub(crate) fn delete_snippet(
-    app: AppHandle,
-    snippet_id: String,
-) -> Result<Vec<PromptSnippet>, String> {
-    let data_dir = ensure_data_dir(&app)?;
-    let mut snippets = read_snippets(&data_dir)?;
-    snippets.retain(|snippet| snippet.id != snippet_id);
-    write_json(&snippets_path(&data_dir), &snippets)?;
-    Ok(snippets)
 }
 
 #[tauri::command]

@@ -50,10 +50,6 @@ export function normalizeSettingsForUi(value) {
   return next;
 }
 
-export function emptySnippet() {
-  return { id: "", tag: "", title: "", category: "常用", content: "", createdAt: "", updatedAt: "" };
-}
-
 export function emptyTemplate() {
   return {
     id: "",

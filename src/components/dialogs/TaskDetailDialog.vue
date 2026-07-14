@@ -1,6 +1,6 @@
 <template>
-  <n-modal v-model:show="show" preset="card" title="任务详情" class="wide-modal">
-    <div v-if="task" class="detail-grid">
+  <n-modal v-model:show="show" preset="card" title="任务详情" class="task-detail-modal">
+    <div v-if="task" class="detail-grid task-detail-scroll">
       <div>
         <h3>{{ task.providerName }}</h3>
         <p>{{ task.prompt }}</p>

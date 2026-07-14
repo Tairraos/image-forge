@@ -15,31 +15,29 @@
 
 ## 简介
 
-Image Forge 是一个本地桌面生图工作台。它通过 OpenAI 兼容的 Images API 做文生图和参考图编辑，把 API 源、生成队列、历史结果、图库、提示词模板和提示词片段放在一个轻量桌面应用里。
+Image Forge 是一个本地桌面生图工作台。它通过 OpenAI 兼容的 Images API 做文生图和参考图编辑，把 API 源、生成历史、结果预览和提示词模板维护放在一个轻量桌面应用里。
 
 它不依赖 Python WebUI，也不把数据丢给外部数据库。设置、队列、历史、图库和模板都写入本机应用数据目录，生成图片保存到本地输出目录。
 
 ## 功能
 
 - OpenAI 兼容 Images API：支持 `/images/generations` 文生图和 `/images/edits` 参考图编辑；
-- 多模型管理：API 源可标记为生图模型或对话模型，顶部栏分别选择“生图模型”和“对话模型”；
-- 生图队列：任务入队、后台执行、取消、重试、移到队首、运行状态轮询和失败自动重试；
-- 结果预览：选择队列或历史任务后预览输出图片，支持在 Finder 中定位和保存到图库；
-- 图库管理：导入本地图片、保存生成结果、编辑名称/分类/备注，并作为参考图复用；
-- 提示词模板：保存常用模板，支持插入、替换、收藏字段和使用次数记录；
-- 提示词片段：维护短标签片段，快速插入到当前提示词；
+- 多模型管理：API 源可标记为生图模型或对话模型，工作台选择生图模型，顶部栏和模板维护选择对话模型；
+- 生图历史：任务入队、后台执行、刷新、重试、删除、运行状态轮询和失败自动重试；
+- 结果预览：选择历史任务后预览输出图片，支持下载到 Downloads 和在 Finder 中定位；
+- 提示词模板：通过模板维护弹窗增删查改，支持查看、编辑、删除、新增、引用和预留 AI 填充入口；
 - 参考图工作流：支持多张参考图，自动生成本地预览，并可从图库继续添加；
-- 本地持久化：设置、队列、历史、图库、模板和片段写入应用数据目录；
+- 本地持久化：设置、队列、历史、图库和模板写入应用数据目录；
 - 马卡龙偏紫界面：三栏工作台、小型按钮、可拖拽调整 panel 宽度，默认把弹性空间留给结果预览。
 
 ## 界面结构
 
 Image Forge 当前是单页三栏布局：
 
-- 左侧：生图队列和历史记录；
-- 中间：任务状态、结果预览、定位和入图库；
-- 右侧：生成参数、提示词输入、模板/片段/图库入口和参考图条；
-- 顶部：生图模型、对话模型、API 源、图库、模板、片段和设置入口。
+- 左侧：生成历史记录；
+- 中间：任务状态、结果预览、详情和重用；
+- 右侧：生成参数、生图模型、提示词输入、模板入口和参考图条；
+- 顶部：对话模型、API 源、模板和设置入口。
 
 ## 数据与架构
 
@@ -50,7 +48,6 @@ app_data_dir/
   settings.json
   queue.json
   history.json
-  prompt-snippets.json
   prompt-templates.json
   requests/
   outputs/
@@ -133,10 +130,11 @@ pnpm run release
 
 - 改三栏默认宽度：修改 `src/App.vue` 里的 `panelSizes` 和 `workspaceStyle`；
 - 改拖拽范围：修改 `src/App.vue` 的 `startPanelResize()`；
-- 改顶部模型选择：修改 `src/components/AppTopbar.vue`；
+- 改顶部对话模型选择：修改 `src/components/AppTopbar.vue`；
 - 改 API 源/模型管理：修改 `src/components/dialogs/ApiSourceDialog.vue`；
-- 改工作台参数区：修改 `src/components/ComposerPanel.vue`；
+- 改工作台参数区和生图模型选择：修改 `src/components/ComposerPanel.vue`；
 - 改队列/结果预览：修改 `src/components/QueuePanel.vue` 和 `src/components/ResultPanel.vue`；
+- 改模板维护：修改 `src/components/dialogs/TemplateManagerDialog.vue`；
 - 改配色：优先修改 `src/lib/theme.js`，再修改 `src/styles.css`；
 - 改窗口最小尺寸：修改 `src-tauri/tauri.conf.json` 的 `minWidth` 和 `minHeight`。
 

@@ -270,7 +270,6 @@ pub struct AppState {
     pub history: Vec<TaskRecord>,
     pub queue: QueueSnapshot,
     pub gallery: GalleryState,
-    pub snippets: Vec<PromptSnippet>,
     pub templates: Vec<PromptTemplate>,
     pub data_dir: String,
 }
@@ -329,25 +328,6 @@ pub struct GalleryUpdate {
     pub category: String,
     #[serde(default)]
     pub note: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PromptSnippet {
-    #[serde(default)]
-    pub id: String,
-    #[serde(default)]
-    pub tag: String,
-    #[serde(default)]
-    pub title: String,
-    #[serde(default)]
-    pub category: String,
-    #[serde(default)]
-    pub content: String,
-    #[serde(default = "utc_now")]
-    pub created_at: String,
-    #[serde(default = "utc_now")]
-    pub updated_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -378,10 +378,13 @@ button:disabled {
   min-width: 0;
 }
 
+.model-form-item {
+  grid-column: 1 / -1;
+}
+
 .task-stack,
 .history-stack,
 .template-list,
-.snippet-grid,
 .gallery-grid {
   display: grid;
   gap: 8px;
@@ -472,8 +475,7 @@ button:disabled {
 .history-copy strong,
 .selected-task strong,
 .gallery-card strong,
-.template-card strong,
-.snippet-card strong {
+.template-card strong {
   overflow: hidden;
   color: #31254f;
   font-size: 13px;
@@ -560,8 +562,7 @@ button:disabled {
 .task-card footer,
 .output-card footer,
 .gallery-card footer,
-.template-card footer,
-.snippet-card footer {
+.template-card footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -780,6 +781,25 @@ button:disabled {
   width: min(920px, calc(100vw - 48px));
 }
 
+.task-detail-modal {
+  width: min(920px, calc(100vw - 48px));
+  max-height: calc(100vh - 48px);
+}
+
+.task-detail-modal .n-card {
+  max-height: calc(100vh - 48px);
+}
+
+.task-detail-modal .n-card__content {
+  min-height: 0;
+  overflow: auto;
+}
+
+.task-detail-scroll {
+  max-height: calc(100vh - 180px);
+  overflow: auto;
+}
+
 .api-modal {
   width: min(980px, calc(100vw - 48px));
 }
@@ -787,6 +807,83 @@ button:disabled {
 .settings-modal,
 .editor-modal {
   width: min(620px, calc(100vw - 48px));
+}
+
+.template-manager-modal {
+  width: min(880px, calc(100vw - 48px));
+  max-height: calc(100vh - 48px);
+}
+
+.template-manager-modal .n-card {
+  max-height: calc(100vh - 48px);
+}
+
+.template-manager-modal .n-card__content {
+  min-height: 0;
+  overflow: auto;
+}
+
+.template-manager {
+  display: grid;
+  gap: 10px;
+}
+
+.template-table-wrap {
+  min-height: 0;
+  max-height: 330px;
+  overflow: auto;
+  border: 1px solid #e5dcff;
+  border-radius: 8px;
+  background: #fffdfa;
+}
+
+.template-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  color: #514464;
+  font-size: 12px;
+}
+
+.template-table th,
+.template-table td {
+  overflow: hidden;
+  border-bottom: 1px solid #efe8ff;
+  padding: 8px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.template-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #faf7ff;
+  color: #675a7f;
+  font-weight: 700;
+}
+
+.template-table th:first-child,
+.template-table td:first-child {
+  width: 150px;
+}
+
+.template-table th:last-child,
+.template-table td:last-child {
+  width: 150px;
+  text-align: right;
+}
+
+.template-table-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.template-empty-cell {
+  color: #8b7da4;
+  text-align: center !important;
 }
 
 .api-manager {
@@ -808,8 +905,7 @@ button:disabled {
 }
 
 .provider-list-actions,
-.provider-editor-head,
-.snippet-toolbar {
+.provider-editor-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -835,8 +931,7 @@ button:disabled {
 .provider-card span,
 .provider-card small,
 .gallery-card span,
-.template-card p,
-.snippet-card p {
+.template-card p {
   overflow: hidden;
   color: #756987;
   font-size: 12px;
@@ -872,8 +967,7 @@ button:disabled {
 }
 
 .gallery-card,
-.template-card,
-.snippet-card {
+.template-card {
   display: grid;
   gap: 8px;
   border: 1px solid #e4dbff;
@@ -891,8 +985,7 @@ button:disabled {
 }
 
 .gallery-card p,
-.template-card p,
-.snippet-card p {
+.template-card p {
   display: -webkit-box;
   margin: 0;
   -webkit-box-orient: vertical;
@@ -906,21 +999,11 @@ button:disabled {
 }
 
 .template-card header,
-.snippet-card header {
+.template-card header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-}
-
-.snippet-toolbar {
-  margin-bottom: 12px;
-}
-
-.snippet-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  max-height: 520px;
-  overflow: auto;
 }
 
 .switch-list {

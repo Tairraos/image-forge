@@ -24,7 +24,6 @@ pub fn run() {
             commands::add_gallery_item,
             commands::cancel_task,
             commands::delete_gallery_item,
-            commands::delete_snippet,
             commands::delete_task,
             commands::delete_template,
             commands::download_output,
@@ -37,7 +36,6 @@ pub fn run() {
             commands::retry_task,
             commands::reveal_path,
             commands::save_settings,
-            commands::save_snippet,
             commands::save_template,
             commands::update_gallery_item
         ])

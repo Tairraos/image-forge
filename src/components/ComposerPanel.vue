@@ -15,6 +15,14 @@
           <n-form-item label="质量">
             <n-select v-model:value="form.quality" :options="qualityOptions" size="small" />
           </n-form-item>
+          <n-form-item label="生图模型" class="model-form-item">
+            <n-select
+              v-model:value="form.providerId"
+              :options="imageProviderOptions"
+              size="small"
+              placeholder="选择生图模型"
+            />
+          </n-form-item>
         </div>
       </n-form>
     </div>
@@ -42,11 +50,7 @@
     <div class="quick-bar">
       <n-button size="small" secondary @click="$emit('show-template')">
         <template #icon><BookOpen :size="15" /></template>
-        插入模板
-      </n-button>
-      <n-button size="small" secondary @click="$emit('show-snippet')">
-        <template #icon><Layers :size="15" /></template>
-        插入片段
+        模板
       </n-button>
       <n-button size="small" secondary @click="$emit('add-reference')">
         <template #icon><Upload :size="15" /></template>
@@ -70,7 +74,7 @@
 </template>
 
 <script setup>
-import { BookOpen, Layers, Plus, Upload, WandSparkles, XCircle } from "@lucide/vue";
+import { BookOpen, Plus, Upload, WandSparkles, XCircle } from "@lucide/vue";
 import {
   promptModeOptions,
   qualityOptions,
@@ -80,6 +84,7 @@ import {
 
 defineProps({
   form: { type: Object, required: true },
+  imageProviderOptions: { type: Array, default: () => [] },
   references: { type: Array, default: () => [] },
   submitting: { type: Boolean, default: false },
 });
@@ -87,7 +92,6 @@ defineProps({
 defineEmits([
   "submit",
   "show-template",
-  "show-snippet",
   "add-reference",
   "remove-reference",
 ]);

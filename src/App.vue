@@ -4,12 +4,10 @@
     <main class="app">
       <AppTopbar
         :form="form"
-        :image-provider-options="imageProviderOptions"
         :chat-provider-options="chatProviderOptions"
         :queue="queue"
         @show-api="showApiDialog = true"
-        @show-template="showTemplateDrawer = true"
-        @show-snippet="showSnippetModal = true"
+        @show-template="showTemplateDialog = true"
         @show-settings="showSettingsDialog = true"
       />
 
@@ -57,11 +55,11 @@
 
         <ComposerPanel
           :form="form"
+          :image-provider-options="imageProviderOptions"
           :references="references"
           :submitting="submitting"
           @submit="submitTask"
-          @show-template="showTemplateDrawer = true"
-          @show-snippet="showSnippetModal = true"
+          @show-template="showTemplateDialog = true"
           @add-reference="addReferenceImages"
           @remove-reference="references.splice($event, 1)"
         />
@@ -73,24 +71,20 @@
         @save="saveApiSettings"
       />
 
-      <TemplateDrawer
-        v-model:show="showTemplateDrawer"
+      <TemplateManagerDialog
+        v-model:show="showTemplateDialog"
         v-model:query="templateQuery"
+        v-model:selected-content="templatePreview"
+        :chat-provider-id="form.chatProviderId"
+        :chat-provider-options="chatProviderOptions"
         :templates="filteredTemplates"
-        @new="newTemplateFromPrompt"
-        @insert="insertTemplate"
+        @update:chat-provider-id="form.chatProviderId = $event"
+        @view="viewTemplate"
         @edit="editTemplate"
         @delete="deletePromptTemplate"
-      />
-
-      <SnippetDialog
-        v-model:show="showSnippetModal"
-        v-model:query="snippetQuery"
-        :snippets="filteredSnippets"
-        @new="newSnippet"
-        @insert="insertText"
-        @edit="editSnippet"
-        @delete="deletePromptSnippet"
+        @create="createTemplateFromContent"
+        @insert="insertTemplate"
+        @ai-fill="aiFillTemplate"
       />
 
       <SettingsDialog
@@ -98,12 +92,6 @@
         :settings="settingsDraft"
         @choose-output-dir="chooseOutputDir"
         @save="saveStorageSettings"
-      />
-
-      <SnippetEditorDialog
-        v-model:show="showSnippetEditor"
-        :snippet="snippetDraft"
-        @save="savePromptSnippet"
       />
 
       <TemplateEditorDialog
@@ -129,13 +117,11 @@ import QueuePanel from "./components/QueuePanel.vue";
 import ResultPanel from "./components/ResultPanel.vue";
 import ApiSourceDialog from "./components/dialogs/ApiSourceDialog.vue";
 import SettingsDialog from "./components/dialogs/SettingsDialog.vue";
-import SnippetDialog from "./components/dialogs/SnippetDialog.vue";
-import SnippetEditorDialog from "./components/dialogs/SnippetEditorDialog.vue";
 import TaskDetailDialog from "./components/dialogs/TaskDetailDialog.vue";
 import TemplateEditorDialog from "./components/dialogs/TemplateEditorDialog.vue";
-import TemplateDrawer from "./components/drawers/TemplateDrawer.vue";
+import TemplateManagerDialog from "./components/dialogs/TemplateManagerDialog.vue";
 import { clamp, fileName, statusLabel } from "./lib/formatters";
-import { deepClone, defaultSettings, emptySnippet, emptyTemplate, normalizeSettingsForUi } from "./lib/models";
+import { deepClone, defaultSettings, emptyTemplate, normalizeSettingsForUi } from "./lib/models";
 import {
   DEFAULT_PROMPT_MODE,
   DEFAULT_RATIO,
@@ -152,24 +138,20 @@ const settings = ref(defaultSettings());
 const settingsDraft = reactive(defaultSettings());
 const history = ref([]);
 const queue = reactive({ waiting: [], running: [], recent: [], workerActive: false, updatedAt: "" });
-const snippets = ref([]);
 const templates = ref([]);
 const references = ref([]);
 const selectedTaskId = ref("");
 const submitting = ref(false);
 const historyQuery = ref("");
-const snippetQuery = ref("");
 const templateQuery = ref("");
+const templatePreview = ref("");
 
 const showApiDialog = ref(false);
-const showTemplateDrawer = ref(false);
-const showSnippetModal = ref(false);
+const showTemplateDialog = ref(false);
 const showSettingsDialog = ref(false);
-const showSnippetEditor = ref(false);
 const showTemplateEditor = ref(false);
 const showTaskDetail = ref(false);
 
-const snippetDraft = reactive(emptySnippet());
 const templateDraft = reactive(emptyTemplate());
 
 const form = reactive({
@@ -252,19 +234,11 @@ const selectedTask = computed(() =>
 const currentOutputs = computed(() => selectedTask.value?.outputs || []);
 
 
-const filteredSnippets = computed(() => {
-  const query = snippetQuery.value.trim().toLowerCase();
-  if (!query) return snippets.value;
-  return snippets.value.filter((item) =>
-    [item.tag, item.title, item.category, item.content].join(" ").toLowerCase().includes(query),
-  );
-});
-
 const filteredTemplates = computed(() => {
   const query = templateQuery.value.trim().toLowerCase();
   if (!query) return templates.value;
   return templates.value.filter((item) =>
-    [item.title, item.shortTitle, item.category, item.content, item.notes].join(" ").toLowerCase().includes(query),
+    [item.id, item.title, item.shortTitle, item.category, item.content, item.notes].join(" ").toLowerCase().includes(query),
   );
 });
 
@@ -332,12 +306,11 @@ function startPanelResize(target, event) {
 
 function applyState(state) {
   settings.value = normalizeSettingsForUi(state.settings || defaultSettings());
-  ensureSelectedModels();
   history.value = state.history || [];
   applyQueue(state.queue || {});
-  snippets.value = state.snippets || [];
   templates.value = state.templates || [];
   dataDir.value = state.dataDir || "";
+  ensureSelectedModels();
   ensureSelectedTask();
 }
 
@@ -544,41 +517,26 @@ async function downloadOutput(output) {
   }
 }
 
-function newSnippet() {
-  Object.assign(snippetDraft, emptySnippet());
-  showSnippetEditor.value = true;
-}
-
-function editSnippet(snippet) {
-  Object.assign(snippetDraft, deepClone(snippet));
-  showSnippetEditor.value = true;
-}
-
-async function savePromptSnippet() {
+async function createTemplateFromContent(content) {
+  const trimmed = content.trim();
+  if (!trimmed) {
+    setStatus("模板内容不能为空", "error");
+    return;
+  }
   try {
-    snippets.value = await invoke("save_snippet", { snippet: deepClone(snippetDraft) });
-    showSnippetEditor.value = false;
-    setStatus("片段已保存", "ok");
+    templates.value = await invoke("save_template", {
+      template: {
+        ...emptyTemplate(),
+        title: trimmed.slice(0, 24) || "新模板",
+        content: trimmed,
+        modelHint: form.chatProviderId,
+      },
+    });
+    templatePreview.value = "";
+    setStatus("模板已新增", "ok");
   } catch (error) {
     setStatus(String(error), "error");
   }
-}
-
-async function deletePromptSnippet(id) {
-  try {
-    snippets.value = await invoke("delete_snippet", { snippetId: id });
-  } catch (error) {
-    setStatus(String(error), "error");
-  }
-}
-
-function newTemplateFromPrompt() {
-  Object.assign(templateDraft, {
-    ...emptyTemplate(),
-    title: form.prompt.trim().slice(0, 24) || "新模板",
-    content: form.prompt,
-  });
-  showTemplateEditor.value = true;
 }
 
 function editTemplate(template) {
@@ -610,7 +568,18 @@ async function insertTemplate(template, replace) {
   } else {
     insertText(template.content);
   }
-  templates.value = await invoke("mark_template_used", { templateId: template.id });
+  if (template.id) {
+    templates.value = await invoke("mark_template_used", { templateId: template.id });
+  }
+  showTemplateDialog.value = false;
+}
+
+function viewTemplate(template) {
+  templatePreview.value = template.content || "";
+}
+
+function aiFillTemplate() {
+  setStatus("AI 填充功能稍后实现", "busy");
 }
 
 function insertText(text) {
@@ -641,10 +610,25 @@ function taskTime(task) {
 
 function ensureSelectedModels(preferSaved = false) {
   if (preferSaved || !imageProviders.value.some((provider) => provider.id === form.providerId)) {
-    form.providerId = settings.value.activeImageProviderId || settings.value.activeProviderId || imageProviders.value[0]?.id || "";
+    form.providerId = preferSaved
+      ? (settings.value.activeImageProviderId || settings.value.activeProviderId || imageProviders.value[0]?.id || "")
+      : (lastSuccessfulImageProviderId() || imageProviders.value[0]?.id || "");
   }
   if (preferSaved || !chatProviders.value.some((provider) => provider.id === form.chatProviderId)) {
     form.chatProviderId = settings.value.activeChatProviderId || chatProviders.value[0]?.id || "";
   }
+}
+
+function lastSuccessfulImageProviderId() {
+  for (const task of [...history.value].reverse()) {
+    if (task.status !== "completed") continue;
+    const provider = imageProviders.value.find((item) => item.id === task.providerId)
+      || imageProviders.value.find((item) =>
+        item.name === task.providerName && item.imageModel === task.model,
+      )
+      || imageProviders.value.find((item) => item.imageModel === task.model);
+    if (provider) return provider.id;
+  }
+  return "";
 }
 </script>

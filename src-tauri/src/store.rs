@@ -15,8 +15,8 @@ use crate::{
         MAX_PROVIDER_CONCURRENCY,
     },
     models::{
-        ApiProvider, GalleryState, GenerateRequest, GenerationParams, PromptSnippet,
-        PromptTemplate, QueueRun, QueueState, Settings, TaskRecord,
+        ApiProvider, GalleryState, GenerateRequest, GenerationParams, PromptTemplate, QueueRun,
+        QueueState, Settings, TaskRecord,
     },
     utils::{
         clean_text, normalize_base_url, normalize_output_format, normalize_prompt_fidelity,
@@ -375,35 +375,8 @@ pub(crate) fn sync_gallery_categories(gallery: &mut GalleryState) {
     gallery.categories = categories;
 }
 
-pub(crate) fn read_snippets(data_dir: &Path) -> Result<Vec<PromptSnippet>, String> {
-    read_json(&snippets_path(data_dir))
-}
-
 pub(crate) fn read_templates(data_dir: &Path) -> Result<Vec<PromptTemplate>, String> {
     read_json(&templates_path(data_dir))
-}
-
-pub(crate) fn normalize_snippet(mut snippet: PromptSnippet) -> Result<PromptSnippet, String> {
-    snippet.tag = snippet.tag.trim().trim_start_matches('~').to_string();
-    snippet.title = snippet.title.trim().to_string();
-    snippet.category = clean_text(snippet.category, "常用");
-    snippet.content = snippet.content.trim().to_string();
-    if snippet.tag.is_empty() {
-        snippet.tag = snippet
-            .title
-            .chars()
-            .take(12)
-            .collect::<String>()
-            .trim()
-            .to_string();
-    }
-    if snippet.tag.is_empty() || snippet.content.is_empty() {
-        return Err("片段需要短标签和内容".into());
-    }
-    if snippet.title.is_empty() {
-        snippet.title = snippet.tag.clone();
-    }
-    Ok(snippet)
 }
 
 pub(crate) fn normalize_template(mut template: PromptTemplate) -> Result<PromptTemplate, String> {
@@ -456,10 +429,6 @@ pub(crate) fn request_path(data_dir: &Path, task_id: &str) -> PathBuf {
 
 pub(crate) fn gallery_image_dir(data_dir: &Path) -> PathBuf {
     data_dir.join("gallery").join("images")
-}
-
-pub(crate) fn snippets_path(data_dir: &Path) -> PathBuf {
-    data_dir.join("prompt-snippets.json")
 }
 
 pub(crate) fn templates_path(data_dir: &Path) -> PathBuf {

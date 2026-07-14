@@ -23,18 +23,16 @@ flowchart LR
 | 文件 | 职责 |
 | --- | --- |
 | `src/App.vue` | 页面控制器：集中管理状态、computed、Tauri 命令调用、轮询和业务动作。 |
-| `src/components/AppTopbar.vue` | 顶部品牌、API 源选择和入口按钮。 |
-| `src/components/QueuePanel.vue` | 队列/历史标签页和任务列表。 |
-| `src/components/ResultPanel.vue` | 当前任务状态、结果图片预览、定位/入图库操作。 |
-| `src/components/ComposerPanel.vue` | 提示词输入、生成参数、参考图条。 |
-| `src/components/TaskCard.vue` | 单个任务卡片，负责展示状态和取消/重试/置顶按钮。 |
-| `src/components/drawers/GalleryDrawer.vue` | 图库列表、搜索、使用/编辑/删除入口。 |
-| `src/components/drawers/TemplateDrawer.vue` | 提示词模板列表、搜索、插入/替换/编辑/删除入口。 |
+| `src/components/AppTopbar.vue` | 顶部品牌、对话模型选择、API 源/模板/设置入口。 |
+| `src/components/QueuePanel.vue` | 生成历史搜索和任务列表。 |
+| `src/components/ResultPanel.vue` | 当前任务状态、结果图片预览、详情和重用入口。 |
+| `src/components/ComposerPanel.vue` | 生图模型选择、生成参数、提示词输入、参考图条。 |
+| `src/components/TaskCard.vue` | 单个历史任务卡片，负责展示结果、计时器和重用/刷新/下载/定位/重试/删除动作。 |
 | `src/components/dialogs/ApiSourceDialog.vue` | API 源/模型管理、类型选择、导入、复制、排序和编辑；内部 ID 自动生成且不展示。 |
-| `src/components/dialogs/SnippetDialog.vue` | 提示词片段列表和插入入口。 |
-| `src/components/dialogs/*EditorDialog.vue` | 片段、模板、图库条目的编辑弹窗。 |
+| `src/components/dialogs/TemplateManagerDialog.vue` | 模板维护弹窗：对话模型选择、搜索、模板列表、查看/编辑/删除、新增/引用/AI 填充入口。 |
+| `src/components/dialogs/TemplateEditorDialog.vue` | 模板编辑弹窗。 |
 | `src/components/dialogs/SettingsDialog.vue` | 输出目录、队列重试和通知设置。 |
-| `src/components/dialogs/TaskDetailDialog.vue` | 任务详情和输出图列表。 |
+| `src/components/dialogs/TaskDetailDialog.vue` | 任务详情、输出图列表和重用入口，弹窗不超过屏幕可视区域并允许滚动。 |
 | `src/lib/models.js` | 前端默认数据结构、空草稿对象、深拷贝和设置归一化。 |
 | `src/lib/options.js` | 生图参数选项和预设换算：提示词模式、分辨率、比例、质量、尺寸映射。 |
 | `src/lib/formatters.js` | 状态标签、短 ID、文件名、文件 URL、clamp 等展示工具。 |
@@ -43,9 +41,10 @@ flowchart LR
 
 ### 前端数据传递
 
-- `App.vue` 持有唯一业务状态源：`settings`、`queue`、`history`、`gallery`、`snippets`、`templates`、`references`、`form`。
-- 顶部栏维护两个当前选择：`form.providerId` 用于生图模型，`form.chatProviderId` 预留给后续对话模型填充模板。
-- 生成工作台只暴露四类参数：提示词模式、分辨率、比例、质量；数量固定为 `1`，输出格式固定为 `png`。
+- `App.vue` 持有唯一业务状态源：`settings`、`queue`、`history`、`templates`、`references`、`form`。
+- 顶部栏维护 `form.chatProviderId`，用于后续对话模型填充模板；工作台质量参数下方维护 `form.providerId`，用于当前生图模型。
+- 生图模型默认优先使用最近一次成功生成的模型；如果该模型不在当前列表里，默认选中第一个生图模型。
+- 生成工作台只暴露五类参数：提示词模式、分辨率、比例、质量、生图模型；数量固定为 `1`，输出格式固定为 `png`。
 - 前端提交前用 `sizeForPreset(resolution, ratio)` 把 `1K/2K/4K + 比例` 换算成 Images API 需要的像素尺寸。
 - 展示组件通过 props 接收数据，通过 events 把动作抛回 `App.vue`。
 - 表单型组件接收草稿对象并直接修改对象字段，保存动作仍由 `App.vue` 调用 Rust 命令。
@@ -76,7 +75,6 @@ app_data_dir/
   settings.json
   queue.json
   history.json
-  prompt-snippets.json
   prompt-templates.json
   requests/
     <task-id>.json
@@ -97,7 +95,6 @@ app_data_dir/
 | 输出图片 | `outputs/` 或设置中的输出目录 | 生成图片文件。 |
 | 图库元数据 | `gallery/gallery.json` | 图库条目、分类列表。 |
 | 图库图片 | `gallery/images/` | 导入或保存到图库的图片副本。 |
-| 提示词片段 | `prompt-snippets.json` | 短标签片段。 |
 | 提示词模板 | `prompt-templates.json` | 模板内容、分类、收藏、使用次数。 |
 
 ## 生图运行逻辑
