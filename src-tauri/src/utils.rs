@@ -32,7 +32,7 @@ pub(crate) fn normalize_base_url(base_url: &str) -> Result<String, String> {
     };
     let mut url = Url::parse(raw).map_err(|_| "Base URL 必须是完整 URL".to_string())?;
     let mut path = url.path().trim_end_matches('/').to_string();
-    for suffix in ["/images/generations", "/images/edits"] {
+    for suffix in ["/images/generations", "/images/edits", "/models"] {
         if path.ends_with(suffix) {
             path.truncate(path.len() - suffix.len());
         }

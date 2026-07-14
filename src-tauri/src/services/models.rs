@@ -1,10 +1,14 @@
+use std::time::Duration;
+
 use reqwest::{header::ACCEPT, Client};
 use serde_json::Value;
 
 use crate::{
     models::ApiProvider,
-    utils::{format_api_error, format_request_error, normalize_base_url},
+    utils::{format_api_error, normalize_base_url},
 };
+
+const MODEL_LIST_TIMEOUT_SECONDS: u64 = 30;
 
 pub(crate) async fn list_provider_models(
     client: &Client,
@@ -19,9 +23,16 @@ pub(crate) async fn list_provider_models(
         .get(format!("{base_url}/models"))
         .bearer_auth(provider.api_key.trim())
         .header(ACCEPT, "application/json")
+        .timeout(Duration::from_secs(MODEL_LIST_TIMEOUT_SECONDS))
         .send()
         .await
-        .map_err(|error| format_request_error("获取模型列表", error))?;
+        .map_err(|error| {
+            if error.is_timeout() {
+                format!("获取模型列表超时：超过 {MODEL_LIST_TIMEOUT_SECONDS} 秒未返回结果")
+            } else {
+                format!("获取模型列表失败: {error}")
+            }
+        })?;
 
     let status = response.status();
     let value: Value = response

@@ -55,6 +55,10 @@ mod tests {
             normalize_base_url("https://api.openai.com/v1/images/generations").unwrap(),
             "https://api.openai.com/v1"
         );
+        assert_eq!(
+            normalize_base_url("https://api.openai.com/v1/models").unwrap(),
+            "https://api.openai.com/v1"
+        );
     }
 
     #[test]
