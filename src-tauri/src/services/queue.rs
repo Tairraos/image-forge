@@ -9,7 +9,7 @@ use crate::{
     store::{
         clear_running_task, enqueue_task, ensure_data_dir, fallback_failed_record, history_record,
         output_dir_for, pop_next_runnable, read_history, read_json, read_queue, read_settings,
-        request_path, upsert_history, write_queue,
+        request_path, upsert_history, write_history, write_queue,
     },
     utils::{http_client, utc_now, REQUEST_TIMEOUT_SECONDS},
 };
@@ -104,7 +104,7 @@ pub(crate) fn recover_stale_running(app: &AppHandle, data_dir: &Path) -> Result<
             if record.status == "running" || record.status == "cancelling" {
                 record.status = "queued".into();
                 record.updated_at = utc_now();
-                upsert_history(data_dir, record)?;
+                upsert_task_history(app, data_dir, record)?;
             }
         }
     }
@@ -142,6 +142,10 @@ fn start_next_runnable_task(app: &AppHandle) -> Result<bool, String> {
     tauri::async_runtime::spawn(async move {
         if let Err(error) = run_task(app.clone(), task_id.clone(), provider).await {
             if let Ok(data_dir) = ensure_data_dir(&app) {
+                if is_deleted(&app, &task_id) {
+                    let _ = finish_deleted_task(&app, &data_dir, &task_id);
+                    return;
+                }
                 let mut record = read_history(&data_dir)
                     .ok()
                     .and_then(|history| history.into_iter().find(|item| item.id == task_id))
@@ -150,7 +154,7 @@ fn start_next_runnable_task(app: &AppHandle) -> Result<bool, String> {
                 record.error = Some(error);
                 record.updated_at = utc_now();
                 record.completed_at = Some(utc_now());
-                let _ = upsert_history(&data_dir, record);
+                let _ = upsert_task_history(&app, &data_dir, record);
                 let _ = clear_running_task(&data_dir, &task_id);
             }
         }
@@ -160,6 +164,10 @@ fn start_next_runnable_task(app: &AppHandle) -> Result<bool, String> {
 
 async fn run_task(app: AppHandle, task_id: String, provider: ApiProvider) -> Result<(), String> {
     let data_dir = ensure_data_dir(&app)?;
+    if is_deleted(&app, &task_id) {
+        finish_deleted_task(&app, &data_dir, &task_id)?;
+        return Ok(());
+    }
     let request: GenerateRequest = read_json(&request_path(&data_dir, &task_id))?;
     let settings = read_settings(&data_dir)?;
     let mut record = history_record(&data_dir, &task_id)?.ok_or("找不到任务记录")?;
@@ -169,7 +177,15 @@ async fn run_task(app: AppHandle, task_id: String, provider: ApiProvider) -> Res
     record.updated_at = now;
     record.attempts = record.attempts.saturating_add(1);
     record.error = None;
-    upsert_history(&data_dir, record.clone())?;
+    if !upsert_task_history(&app, &data_dir, record.clone())? {
+        finish_deleted_task(&app, &data_dir, &task_id)?;
+        return Ok(());
+    }
+
+    if is_deleted(&app, &task_id) {
+        finish_deleted_task(&app, &data_dir, &task_id)?;
+        return Ok(());
+    }
 
     if is_cancel_requested(&app, &task_id) {
         mark_cancelled(&app, &data_dir, &task_id)?;
@@ -188,6 +204,11 @@ async fn run_task(app: AppHandle, task_id: String, provider: ApiProvider) -> Res
         Err(_) => Err("生成超时：超过 3 分钟未返回结果".into()),
     };
 
+    if is_deleted(&app, &task_id) {
+        finish_deleted_task(&app, &data_dir, &task_id)?;
+        return Ok(());
+    }
+
     if is_cancel_requested(&app, &task_id) {
         mark_cancelled(&app, &data_dir, &task_id)?;
         clear_running_task(&data_dir, &task_id)?;
@@ -203,7 +224,10 @@ async fn run_task(app: AppHandle, task_id: String, provider: ApiProvider) -> Res
             record.error = None;
             record.completed_at = Some(utc_now());
             record.updated_at = utc_now();
-            upsert_history(&data_dir, record)?;
+            if !upsert_task_history(&app, &data_dir, record)? {
+                finish_deleted_task(&app, &data_dir, &task_id)?;
+                return Ok(());
+            }
             clear_running_task(&data_dir, &task_id)?;
             Ok(())
         }
@@ -213,7 +237,10 @@ async fn run_task(app: AppHandle, task_id: String, provider: ApiProvider) -> Res
                 record.status = "queued".into();
                 record.error = Some(error);
                 record.updated_at = utc_now();
-                upsert_history(&data_dir, record)?;
+                if !upsert_task_history(&app, &data_dir, record)? {
+                    finish_deleted_task(&app, &data_dir, &task_id)?;
+                    return Ok(());
+                }
                 enqueue_task(&data_dir, &task_id)?;
                 ensure_queue_worker(&app);
                 Ok(())
@@ -222,7 +249,9 @@ async fn run_task(app: AppHandle, task_id: String, provider: ApiProvider) -> Res
                 record.error = Some(error);
                 record.completed_at = Some(utc_now());
                 record.updated_at = utc_now();
-                upsert_history(&data_dir, record)?;
+                if !upsert_task_history(&app, &data_dir, record)? {
+                    finish_deleted_task(&app, &data_dir, &task_id)?;
+                }
                 Ok(())
             }
         }
@@ -237,6 +266,46 @@ fn is_cancel_requested(app: &AppHandle, task_id: &str) -> bool {
         .unwrap_or(false)
 }
 
+fn is_deleted(app: &AppHandle, task_id: &str) -> bool {
+    app.state::<RuntimeState>()
+        .deleted_tasks
+        .lock()
+        .map(|tasks| tasks.contains(task_id))
+        .unwrap_or(false)
+}
+
+fn upsert_task_history(
+    app: &AppHandle,
+    data_dir: &Path,
+    record: TaskRecord,
+) -> Result<bool, String> {
+    let state = app.state::<RuntimeState>();
+    let deleted_tasks = state.deleted_tasks.lock().map_err(|_| "删除状态锁定失败")?;
+    if deleted_tasks.contains(&record.id) {
+        return Ok(false);
+    }
+    upsert_history(data_dir, record)?;
+    Ok(true)
+}
+
+fn finish_deleted_task(app: &AppHandle, data_dir: &Path, task_id: &str) -> Result<(), String> {
+    if let Ok(mut requests) = app.state::<RuntimeState>().cancel_requests.lock() {
+        requests.remove(task_id);
+    }
+    clear_running_task(data_dir, task_id)?;
+    let mut history = read_history(data_dir)?;
+    history.retain(|record| record.id != task_id);
+    write_history(data_dir, &history)?;
+    let request_file = request_path(data_dir, task_id);
+    if request_file.exists() {
+        std::fs::remove_file(request_file).map_err(|error| format!("删除任务请求失败: {error}"))?;
+    }
+    if let Ok(mut tasks) = app.state::<RuntimeState>().deleted_tasks.lock() {
+        tasks.remove(task_id);
+    }
+    Ok(())
+}
+
 fn mark_cancelled(app: &AppHandle, data_dir: &Path, task_id: &str) -> Result<(), String> {
     if let Ok(mut requests) = app.state::<RuntimeState>().cancel_requests.lock() {
         requests.remove(task_id);
@@ -246,7 +315,7 @@ fn mark_cancelled(app: &AppHandle, data_dir: &Path, task_id: &str) -> Result<(),
         record.error = Some("任务已取消".into());
         record.completed_at = Some(utc_now());
         record.updated_at = utc_now();
-        upsert_history(data_dir, record)?;
+        upsert_task_history(app, data_dir, record)?;
     }
     Ok(())
 }

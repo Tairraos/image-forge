@@ -10,7 +10,6 @@
       >
         <template #prefix><Search :size="15" /></template>
       </n-input>
-      <n-button text size="small" @click="$emit('refresh')">刷新</n-button>
     </div>
 
     <div ref="historyListRef" class="task-stack history-stack">
@@ -20,6 +19,8 @@
         :task="task"
         :selected="selectedTaskId === task.id"
         @select="$emit('select-task', task.id)"
+        @reuse="$emit('reuse', $event)"
+        @refresh="$emit('refresh-task', $event)"
         @retry="$emit('retry', $event)"
         @delete="$emit('delete', $event)"
         @download-output="$emit('download-output', $event)"
@@ -42,9 +43,10 @@ const props = defineProps({
 });
 
 defineEmits([
-  "refresh",
   "select-task",
   "update:history-query",
+  "reuse",
+  "refresh-task",
   "retry",
   "delete",
   "download-output",

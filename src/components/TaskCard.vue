@@ -20,6 +20,8 @@
     <footer>
       <span>{{ createdTime }}</span>
       <div class="task-actions">
+        <button type="button" @click.stop="$emit('reuse', task)">重用</button>
+        <button v-if="isActive" type="button" @click.stop="$emit('refresh', task)">刷新</button>
         <button
           v-for="output in downloadableOutputs"
           :key="output.path"
@@ -37,7 +39,7 @@
           定位
         </button>
         <button v-if="canRetry" type="button" @click.stop="$emit('retry', task)">重试</button>
-        <button v-if="canDelete" type="button" @click.stop="$emit('delete', task)">删除</button>
+        <button type="button" @click.stop="$emit('delete', task)">删除</button>
       </div>
     </footer>
   </article>
@@ -53,12 +55,20 @@ const props = defineProps({
   selected: { type: Boolean, default: false },
 });
 
-defineEmits(["select", "retry", "delete", "download-output", "reveal-output"]);
+defineEmits([
+  "select",
+  "reuse",
+  "refresh",
+  "retry",
+  "delete",
+  "download-output",
+  "reveal-output",
+]);
 
+const isActive = computed(() => ["queued", "running", "cancelling"].includes(props.task.status));
 const isCompleted = computed(() => props.task.status === "completed");
 const isFailed = computed(() => props.task.status === "failed" || props.task.status === "cancelled");
 const canRetry = computed(() => isFailed.value);
-const canDelete = computed(() => isCompleted.value || isFailed.value);
 const downloadableOutputs = computed(() => (isCompleted.value ? props.task.outputs || [] : []));
 const {
   elapsedText,

@@ -24,9 +24,10 @@
           :filtered-history="filteredHistory"
           :selected-task-id="selectedTaskId"
           :history-query="historyQuery"
-          @refresh="refreshAll"
           @select-task="selectedTaskId = $event"
           @update:history-query="historyQuery = $event"
+          @reuse="reuseTask"
+          @refresh-task="refreshTask"
           @retry="retryTask"
           @delete="deleteTask"
           @download-output="downloadOutput"
@@ -44,6 +45,7 @@
           :selected-task="selectedTask"
           :current-outputs="currentOutputs"
           @show-detail="showTaskDetail = true"
+          @reuse="reuseTask"
         />
 
         <div
@@ -110,7 +112,11 @@
         @save="savePromptTemplate"
       />
 
-      <TaskDetailDialog v-model:show="showTaskDetail" :task="selectedTask" />
+      <TaskDetailDialog
+        v-model:show="showTaskDetail"
+        :task="selectedTask"
+        @reuse="reuseTask"
+      />
     </main>
   </n-config-provider>
 </template>
@@ -128,7 +134,7 @@ import SnippetEditorDialog from "./components/dialogs/SnippetEditorDialog.vue";
 import TaskDetailDialog from "./components/dialogs/TaskDetailDialog.vue";
 import TemplateEditorDialog from "./components/dialogs/TemplateEditorDialog.vue";
 import TemplateDrawer from "./components/drawers/TemplateDrawer.vue";
-import { clamp, fileName } from "./lib/formatters";
+import { clamp, fileName, statusLabel } from "./lib/formatters";
 import { deepClone, defaultSettings, emptySnippet, emptyTemplate, normalizeSettingsForUi } from "./lib/models";
 import {
   DEFAULT_PROMPT_MODE,
@@ -403,6 +409,58 @@ async function addReferenceImages() {
       }
     }
     if (paths.length) setStatus(`已添加 ${paths.length} 张参考图`, "ok");
+  } catch (error) {
+    setStatus(String(error), "error");
+  }
+}
+
+async function reuseTask(task) {
+  if (!task) return;
+
+  const params = task.params || {};
+  form.prompt = task.prompt || "";
+  form.promptMode = params.promptFidelity || DEFAULT_PROMPT_MODE;
+  form.resolution = params.resolution || form.resolution;
+  form.ratio = params.ratio || form.ratio;
+  form.quality = params.quality || form.quality;
+
+  const provider = imageProviders.value.find((item) => item.id === task.providerId)
+    || imageProviders.value.find((item) =>
+      item.name === task.providerName && item.imageModel === task.model,
+    )
+    || imageProviders.value.find((item) => item.imageModel === task.model);
+  if (provider) form.providerId = provider.id;
+  const missingProvider = !provider && Boolean(task.providerId || task.providerName || task.model);
+
+  const restoredReferences = [];
+  let missingReferenceCount = 0;
+  for (const path of task.referencePaths || []) {
+    try {
+      const preview = await invoke("reference_from_path", { path });
+      restoredReferences.push({ ...preview, previewUrl: preview.dataUrl });
+    } catch {
+      missingReferenceCount += 1;
+    }
+  }
+  references.value = restoredReferences;
+  showTaskDetail.value = false;
+
+  const warnings = [];
+  if (missingProvider) warnings.push("原生图模型已不存在");
+  if (missingReferenceCount) warnings.push(`${missingReferenceCount} 张参考图已不存在`);
+  const warningMessage = warnings.length ? `，${warnings.join("，")}` : "";
+  setStatus(`已将任务参数填入工作台${warningMessage}`, warnings.length ? "busy" : "ok");
+}
+
+async function refreshTask(task) {
+  try {
+    const snapshot = await invoke("queue_snapshot");
+    applyQueue(snapshot);
+    const refreshed = historyTimeline.value.find((item) => item.id === task.id);
+    setStatus(
+      refreshed ? `任务状态：${statusLabel(refreshed.status)}` : "任务已不在历史记录中",
+      refreshed ? "ok" : "busy",
+    );
   } catch (error) {
     setStatus(String(error), "error");
   }

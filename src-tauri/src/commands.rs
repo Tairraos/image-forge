@@ -173,9 +173,20 @@ pub(crate) fn delete_task(app: AppHandle, task_id: String) -> Result<(), String>
     let Some(index) = history.iter().position(|item| item.id == task_id) else {
         return Err("找不到任务".into());
     };
-    let status = history[index].status.as_str();
-    if matches!(status, "queued" | "running" | "cancelling") {
-        return Err("任务仍在执行或排队中，不能删除".into());
+    if matches!(
+        history[index].status.as_str(),
+        "queued" | "running" | "cancelling"
+    ) {
+        app.state::<RuntimeState>()
+            .cancel_requests
+            .lock()
+            .map_err(|_| "取消状态锁定失败")?
+            .insert(task_id.clone());
+        app.state::<RuntimeState>()
+            .deleted_tasks
+            .lock()
+            .map_err(|_| "删除状态锁定失败")?
+            .insert(task_id.clone());
     }
 
     history.remove(index);

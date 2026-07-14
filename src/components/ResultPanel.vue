@@ -5,7 +5,10 @@
         <n-tag :type="statusType(selectedTask.status)" size="small">
           {{ statusLabel(selectedTask.status) }}
         </n-tag>
-        <n-button text size="small" @click="$emit('show-detail')">任务详情</n-button>
+        <div class="selected-task-actions">
+          <n-button secondary size="small" @click="$emit('show-detail')">详情</n-button>
+          <n-button secondary size="small" @click="$emit('reuse', selectedTask)">重用</n-button>
+        </div>
       </div>
       <strong>{{ selectedTask.prompt || "空提示词" }}</strong>
       <span>{{ selectedTask.providerName }} · {{ selectedTask.model }}</span>
@@ -43,7 +46,7 @@ const props = defineProps({
   currentOutputs: { type: Array, default: () => [] },
 });
 
-defineEmits(["show-detail"]);
+defineEmits(["show-detail", "reuse"]);
 
 const {
   elapsedText,
