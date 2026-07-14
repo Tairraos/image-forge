@@ -4,7 +4,6 @@ pub(crate) const DEFAULT_MODEL_TYPE: &str = "image";
 pub(crate) const DEFAULT_PROVIDER_ID: &str = "default";
 pub(crate) const APP_USER_AGENT: &str = "image-forge/0.2.18";
 pub(crate) const MAX_HISTORY_ITEMS: usize = 300;
-pub(crate) const MAX_PROVIDER_CONCURRENCY: u8 = 32;
 
 pub(crate) fn default_base_url() -> String {
     DEFAULT_BASE_URL.into()
@@ -23,11 +22,11 @@ pub(crate) fn default_provider_id() -> String {
 }
 
 pub(crate) fn default_provider_name() -> String {
-    "Default".into()
+    "默认".into()
 }
 
 pub(crate) fn default_provider_concurrency() -> u8 {
-    4
+    1
 }
 
 pub(crate) fn default_size() -> String {

@@ -9,8 +9,8 @@ use uuid::Uuid;
 
 use crate::{
     models::{
-        AppState, GalleryItem, GalleryPayload, GalleryState, GalleryUpdate, GenerateRequest,
-        PromptTemplate, QueueSnapshot, ReferencePreview, TaskRecord,
+        ApiProvider, AppState, GalleryItem, GalleryPayload, GalleryState, GalleryUpdate,
+        GenerateRequest, PromptTemplate, QueueSnapshot, ReferencePreview, TaskRecord,
     },
     services::{
         chat::fill_template,
@@ -385,6 +385,12 @@ pub(crate) async fn fill_prompt_template(
     }
     let client = crate::utils::http_client()?;
     fill_template(&client, provider, content).await
+}
+
+#[tauri::command]
+pub(crate) async fn list_provider_models(provider: ApiProvider) -> Result<Vec<String>, String> {
+    let client = crate::utils::http_client()?;
+    crate::services::models::list_provider_models(&client, &provider).await
 }
 
 #[tauri::command]

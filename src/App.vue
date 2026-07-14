@@ -510,7 +510,6 @@ async function saveApiSettings(nextSettings) {
     const saved = await invoke("save_settings", { settings: nextSettings });
     settings.value = normalizeSettingsForUi(saved);
     ensureSelectedModels(true);
-    showApiDialog.value = false;
     setStatus("API 源已保存", "ok");
   } catch (error) {
     setStatus(String(error), "error");

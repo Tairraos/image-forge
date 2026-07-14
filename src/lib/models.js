@@ -16,12 +16,12 @@ export function defaultSettings() {
 export function defaultProvider(index = 1, modelType = "image") {
   return {
     id: createProviderId(),
-    name: index === 1 ? "Default" : `Provider ${index}`,
+    name: index === 1 ? "默认" : `供应商 ${index}`,
     modelType,
     baseUrl: "https://api.openai.com/v1",
     apiKey: "",
     imageModel: "gpt-image-2",
-    imagesConcurrency: 4,
+    imagesConcurrency: 1,
     enabled: true,
     notes: "",
   };
@@ -35,6 +35,8 @@ export function normalizeSettingsForUi(value) {
     ...provider,
     id: provider.id || createProviderId(),
     modelType: normalizeModelType(provider.modelType),
+    imagesConcurrency: 1,
+    notes: "",
   }));
 
   const imageProviders = next.providers.filter((provider) => provider.modelType === "image");

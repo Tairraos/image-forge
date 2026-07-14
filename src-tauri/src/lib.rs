@@ -31,6 +31,7 @@ pub fn run() {
             commands::enqueue_generation,
             commands::fill_prompt_template,
             commands::load_app_state,
+            commands::list_provider_models,
             commands::mark_template_used,
             commands::promote_task,
             commands::queue_snapshot,

@@ -12,7 +12,6 @@ use crate::{
     defaults::{
         default_base_url, default_image_model, default_model_type, default_provider_concurrency,
         default_provider_id, default_provider_name, DEFAULT_IMAGE_MODEL, MAX_HISTORY_ITEMS,
-        MAX_PROVIDER_CONCURRENCY,
     },
     models::{
         ApiProvider, GalleryState, GenerateRequest, GenerationParams, PromptTemplate, QueueRun,
@@ -460,16 +459,14 @@ fn normalize_provider(provider: ApiProvider, index: usize) -> ApiProvider {
     let id = sanitize_id(id_source);
     ApiProvider {
         id,
-        name: clean_text(provider.name, &format!("Provider {index}")),
+        name: clean_text(provider.name, &format!("供应商 {index}")),
         model_type: normalize_model_type(&provider.model_type),
         base_url: normalize_base_url(&provider.base_url).unwrap_or_else(|_| default_base_url()),
         api_key: provider.api_key.trim().to_string(),
         image_model: clean_text(provider.image_model, DEFAULT_IMAGE_MODEL),
-        images_concurrency: provider
-            .images_concurrency
-            .clamp(1, MAX_PROVIDER_CONCURRENCY),
+        images_concurrency: 1,
         enabled: provider.enabled,
-        notes: provider.notes.trim().to_string(),
+        notes: String::new(),
     }
 }
 
