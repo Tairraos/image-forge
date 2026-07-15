@@ -87,6 +87,7 @@
         @edit="editTemplate"
         @delete="deletePromptTemplate"
         @create="newTemplate"
+        @import="importPromptTemplates"
         @export="exportPromptTemplates"
       />
 
@@ -680,6 +681,27 @@ async function exportPromptTemplates() {
     setStatus(`模板已导出：${fileName(savedPath)}`, "ok");
   } catch (error) {
     setStatus(String(error), "error");
+  }
+}
+
+// 从 Image Forge 模板包导入提示词和参考图，重复模板由后端自动跳过。
+async function importPromptTemplates() {
+  try {
+    const selected = await openDialog({
+      multiple: false,
+      filters: [{ name: "Image Forge 模板包", extensions: ["zip"] }],
+    });
+    const archivePath = Array.isArray(selected) ? selected[0] : selected;
+    if (!archivePath) return;
+    const result = await invoke("import_templates", { archivePath });
+    templates.value = result.templates || [];
+    const message = `模板导入完成：新增 ${result.importedCount || 0} 个，跳过 ${result.skippedCount || 0} 个重复模板`;
+    window.alert(message);
+    setStatus(message, "ok");
+  } catch (error) {
+    const message = String(error);
+    window.alert(message);
+    setStatus(message, "error");
   }
 }
 

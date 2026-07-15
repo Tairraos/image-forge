@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     fs,
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -11,14 +12,14 @@ use crate::{
     defaults::APP_BUILD_TIME,
     models::{
         AboutInfo, ApiProvider, AppState, GenerateRequest, PromptTemplate, QueueSnapshot,
-        ReferencePreview, TaskRecord,
+        ReferencePreview, TaskRecord, TemplateImportResult,
     },
     services::{
         chat::fill_template,
         images::reference_preview,
         queue::{build_queue_snapshot, ensure_queue_worker, recover_stale_running},
         references::{persist_reference_paths, prune_unreferenced_files},
-        template_export::export_templates_archive,
+        template_bundle::{export_templates_archive, import_templates_archive},
     },
     state::RuntimeState,
     store::{
@@ -264,6 +265,62 @@ pub(crate) fn export_templates(app: AppHandle, destination: String) -> Result<St
     let templates = read_templates(&data_dir)?;
     let archive = export_templates_archive(&templates, Path::new(&destination))?;
     Ok(archive.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+/// 导入模板 ZIP，为新模板分配数字 ID，并跳过内容和参考图完全相同的模板。
+pub(crate) fn import_templates(
+    app: AppHandle,
+    archive_path: String,
+) -> Result<TemplateImportResult, String> {
+    let data_dir = ensure_data_dir(&app)?;
+    let imported = match import_templates_archive(&data_dir, Path::new(&archive_path)) {
+        Ok(templates) => templates,
+        Err(error) => {
+            let _ = prune_unreferenced_files(&data_dir);
+            return Err(error);
+        }
+    };
+    let mut templates = read_templates(&data_dir)?;
+    let mut signatures = templates
+        .iter()
+        .map(template_signature)
+        .collect::<HashSet<_>>();
+    let mut imported_count = 0;
+    let mut skipped_count = 0;
+
+    for template in imported {
+        let mut next = normalize_template(template)?;
+        let signature = template_signature(&next);
+        if !signatures.insert(signature) {
+            skipped_count += 1;
+            continue;
+        }
+        next.id = next_template_id(&templates);
+        next.created_at = utc_now();
+        next.updated_at = next.created_at.clone();
+        templates.push(next);
+        imported_count += 1;
+    }
+
+    templates.sort_by(compare_template_id);
+    if let Err(error) = write_json(&templates_path(&data_dir), &templates) {
+        let _ = prune_unreferenced_files(&data_dir);
+        return Err(error);
+    }
+    prune_unreferenced_files(&data_dir)?;
+    Ok(TemplateImportResult {
+        templates,
+        imported_count,
+        skipped_count,
+    })
+}
+
+fn template_signature(template: &PromptTemplate) -> (String, Vec<String>) {
+    let mut references = template.reference_paths.clone();
+    references.sort();
+    references.dedup();
+    (template.content.trim().to_string(), references)
 }
 
 /// 优先按数字 ID 排序模板，兼容旧数据中的非数字 ID。

@@ -10,6 +10,10 @@
             <template #icon><Plus :size="15" /></template>
             新增
           </n-button>
+          <n-button size="small" secondary @click="$emit('import')">
+            <template #icon><Upload :size="15" /></template>
+            导入
+          </n-button>
           <n-button size="small" secondary @click="$emit('export')">
             <template #icon><FileArchive :size="15" /></template>
             导出
@@ -51,7 +55,7 @@
 </template>
 
 <script setup>
-import { FileArchive, Plus, Search } from "@lucide/vue";
+import { FileArchive, Plus, Search, Upload } from "@lucide/vue";
 
 const show = defineModel("show", { type: Boolean, default: false });
 const query = defineModel("query", { type: String, default: "" });
@@ -60,7 +64,7 @@ defineProps({
   templates: { type: Array, default: () => [] },
 });
 
-defineEmits(["create", "export", "view", "edit", "delete"]);
+defineEmits(["create", "import", "export", "view", "edit", "delete"]);
 
 function singleLine(value) {
   return String(value || "").replace(/\s+/g, " ").trim();

@@ -325,6 +325,14 @@ pub struct PromptTemplate {
     pub updated_at: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TemplateImportResult {
+    pub templates: Vec<PromptTemplate>,
+    pub imported_count: usize,
+    pub skipped_count: usize,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct ApiImageResult {
     pub(crate) bytes: Vec<u8>,
