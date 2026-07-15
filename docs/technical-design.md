@@ -44,6 +44,7 @@ flowchart LR
 | `src/lib/options.js`                                 | 生图参数选项和预设换算：提示词模式、分辨率、比例、质量、尺寸映射。           |
 | `src/lib/formatters.js`                              | 状态标签、文件名、文件 URL、clamp 等展示工具。                |
 | `src/lib/generationTimer.js`                         | 运行中任务的十分之一秒计时和五分钟超时判断。                      |
+| `src/lib/referenceFiles.js`                          | 从剪贴板和 WebView 拖放数据中解析绝对路径与 `file://` URI。       |
 | `src/lib/theme.js`                                   | Naive UI 主题覆盖。                              |
 | `src/tauri.js`                                       | 对 Tauri `invoke`、文件打开/保存对话框和原生拖放事件的轻封装。                 |
 
@@ -58,7 +59,8 @@ flowchart LR
 - 表单型组件接收草稿对象并直接修改对象字段，保存动作仍由 `App.vue` 调用 Rust 命令。
 - 历史、模板、API 源和参考图的删除/移除动作都先由前端弹出确认框，确认后才调用命令或修改草稿。
 - 任务与模板都保存 `referencePaths`；重用任务或引用模板时，前端重新加载缩略图并合并到工作台参考图。
-- 原生拖放事件由 `src/tauri.js` 转发到 `App.vue`；只有当落点位于提示词区域或“参考图”按钮时，才调用 `reference_from_path` 加入工作台。
+- 原生拖放事件由 `src/tauri.js` 转发到 `App.vue`；WebView 拖放和 Finder 粘贴数据由 `referenceFiles.js` 提取本地文件路径。
+- 文件路径统一交给 `reference_from_path` 读取并检查真实 MIME；只有图像文件会加入参考图，非图像路径不会写入提示词或显示错误。
 - 模板导出通过系统保存对话框选择 ZIP 路径；模板导入通过系统打开对话框选择 ZIP，并显示新增/跳过数量。
 - `App.vue` 启动后调用 `load_app_state`，随后每 1.6 秒调用 `queue_snapshot` 刷新队列。
 
