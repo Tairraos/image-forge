@@ -843,6 +843,17 @@ button:disabled {
   overflow: auto;
 }
 
+.task-parameter-descriptions {
+  --n-font-size: 11px !important;
+  --n-line-height: 1.35 !important;
+  --n-th-padding: 5px 7px !important;
+  --n-td-padding: 5px 7px !important;
+}
+
+.task-parameter-descriptions .n-descriptions-table-content {
+  overflow-wrap: anywhere;
+}
+
 .api-modal {
   width: min(980px, calc(100vw - 48px));
   max-height: calc(100vh - 48px);
