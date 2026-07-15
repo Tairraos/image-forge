@@ -169,12 +169,19 @@
     @confirm="confirmDeleteProvider"
     @cancel="cancelDeleteProvider"
   />
+
+  <NoticeDialog
+    v-model:show="showImportResult"
+    title="API 源导入结果"
+    :message="importResultMessage"
+  />
 </template>
 
 <script setup>
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { ArrowLeft, ArrowRight, Copy, Download, Plus, Trash2, Upload } from "@lucide/vue";
 import ConfirmDialog from "./ConfirmDialog.vue";
+import NoticeDialog from "./NoticeDialog.vue";
 import { extractDroppedFilePaths } from "../../lib/referenceFiles";
 import { invoke, listenDragDrop, saveDialog } from "../../tauri";
 import {
@@ -211,6 +218,8 @@ const modelFetchMessage = ref("");
 const modelFetchTone = ref("idle");
 const showDeleteConfirmation = ref(false);
 const pendingDeleteProviderId = ref("");
+const showImportResult = ref(false);
+const importResultMessage = ref("");
 let unlistenImportDragDrop = null;
 const modelTypeOptions = [
   { label: "生图模型", value: "image" },
@@ -405,7 +414,14 @@ function importProviders() {
     return;
   }
 
+  if (!entries.length) {
+    importError.value = "没有可导入的 API 源";
+    return;
+  }
+
+  const signatures = new Set(draft.providers.map(providerImportSignature));
   const imported = [];
+  let duplicateCount = 0;
   for (const [index, [key, item]] of entries.entries()) {
     if (!item || typeof item !== "object" || Array.isArray(item)) {
       importError.value = `「${key}」不是有效配置`;
@@ -413,7 +429,7 @@ function importProviders() {
     }
     const name = String(item.name || providerNameFromImportKey(key)).trim()
       || `导入源 ${index + 1}`;
-    imported.push({
+    const provider = {
       ...defaultProvider(draft.providers.length + imported.length + 1),
       id: createProviderId(),
       name,
@@ -425,19 +441,37 @@ function importProviders() {
       imagesConcurrency: 1,
       enabled: item.enabled !== false,
       notes: "",
-    });
-  }
-  if (!imported.length) {
-    importError.value = "没有可导入的 API 源";
-    return;
+    };
+    const signature = providerImportSignature(provider);
+    if (signatures.has(signature)) {
+      duplicateCount += 1;
+      continue;
+    }
+    signatures.add(signature);
+    imported.push(provider);
   }
 
   for (const provider of imported) {
     draft.providers.push(provider);
   }
-  selectProvider(imported[imported.length - 1].id);
+  if (imported.length) selectProvider(imported[imported.length - 1].id);
   showImport.value = false;
   importText.value = "";
+  importResultMessage.value = `导入 ${imported.length} 个，重复 ${duplicateCount} 个。`;
+  showImportResult.value = true;
+}
+
+// 忽略随机 ID 和已固定的兼容字段，仅比较会实际保存的 API 配置内容。
+function providerImportSignature(provider) {
+  return JSON.stringify([
+    String(provider.name || "").trim(),
+    provider.modelType === "chat" ? "chat" : "image",
+    String(provider.baseUrl || "").trim(),
+    String(provider.apiKey || "").trim(),
+    String(provider.proxyUrl || "").trim(),
+    String(provider.imageModel || "gpt-image-2").trim() || "gpt-image-2",
+    provider.enabled !== false,
+  ]);
 }
 
 function importProviderEntries(value) {
