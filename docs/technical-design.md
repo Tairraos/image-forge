@@ -35,9 +35,9 @@ flowchart LR
 | `src/components/ComposerPanel.vue`                   | 生图模型选择、生成参数、提示词输入、参考图条、存为模板和引用模板入口。           |
 | `src/components/TaskCard.vue`                        | 单个历史任务卡片，负责展示结果、计时器和重用/刷新/下载/定位/重试/删除动作。    |
 | `src/components/dialogs/ApiSourceDialog.vue`         | API 源/模型管理、类型选择、导入、克隆、排序和编辑；内部 ID 自动生成且不展示。 |
-| `src/components/dialogs/TemplateManagerDialog.vue`   | 模板维护弹窗：搜索、模板列表、参考图数量、查看/编辑/删除、新增、导入和导出入口。    |
-| `src/components/dialogs/TemplateEditorDialog.vue`    | 模板新增/编辑/查看弹窗；支持参考图选择和粘贴，查看模式高亮 `{}` 占位区域。     |
-| `src/components/dialogs/TemplateReferenceDialog.vue` | 引用模板弹窗：搜索与模板下拉、原文/AI 结果对比编辑、临时参考图和 AI 填充。     |
+| `src/components/dialogs/TemplateManagerDialog.vue`   | 模板维护弹窗：搜索、标题/参考图数量列表、查看/编辑/删除、新增、导入和导出入口。    |
+| `src/components/dialogs/TemplateEditorDialog.vue`    | 模板新增/编辑/查看弹窗；支持标题、参考图选择和粘贴，查看模式高亮 `{}` 占位区域。     |
+| `src/components/dialogs/TemplateReferenceDialog.vue` | 引用模板弹窗：搜索与标题下拉、原文/AI 结果对比编辑、临时参考图和 AI 填充。     |
 | `src/components/dialogs/TaskDetailDialog.vue`        | 任务详情、输出图列表和重用入口，弹窗不超过屏幕可视区域并允许滚动。           |
 | `src/components/dialogs/AboutDialog.vue`             | 版本、编译时间、应用说明和本次运行内存日志。                       |
 | `src/lib/models.js`                                  | 前端默认数据结构、空草稿对象、深拷贝和设置归一化。                   |
@@ -45,7 +45,7 @@ flowchart LR
 | `src/lib/formatters.js`                              | 状态标签、文件名、文件 URL、clamp 等展示工具。                |
 | `src/lib/generationTimer.js`                         | 运行中任务的十分之一秒计时和五分钟超时判断。                      |
 | `src/lib/theme.js`                                   | Naive UI 主题覆盖。                              |
-| `src/tauri.js`                                       | 对 Tauri `invoke`、文件打开和保存对话框的轻封装。                 |
+| `src/tauri.js`                                       | 对 Tauri `invoke`、文件打开/保存对话框和原生拖放事件的轻封装。                 |
 
 ### 前端数据传递
 
@@ -58,6 +58,7 @@ flowchart LR
 - 表单型组件接收草稿对象并直接修改对象字段，保存动作仍由 `App.vue` 调用 Rust 命令。
 - 历史、模板、API 源和参考图的删除/移除动作都先由前端弹出确认框，确认后才调用命令或修改草稿。
 - 任务与模板都保存 `referencePaths`；重用任务或引用模板时，前端重新加载缩略图并合并到工作台参考图。
+- 原生拖放事件由 `src/tauri.js` 转发到 `App.vue`；只有当落点位于提示词区域或“参考图”按钮时，才调用 `reference_from_path` 加入工作台。
 - 模板导出通过系统保存对话框选择 ZIP 路径；模板导入通过系统打开对话框选择 ZIP，并显示新增/跳过数量。
 - `App.vue` 启动后调用 `load_app_state`，随后每 1.6 秒调用 `queue_snapshot` 刷新队列。
 
@@ -186,7 +187,9 @@ sequenceDiagram
 ```
 
 - 模板新增时后端使用现有最大数字 ID 自增，从 `1` 开始；旧 UUID 模板保留但不参与数字序列。
-- 模板只要求 `content` 字段，`title`、`category`、`notes`、`favorite` 仅作为旧数据兼容字段保留。
+- 模板以 `content`、`title` 和 `referencePaths` 为核心字段；`category`、`notes`、`favorite` 等旧字段继续保留以兼容已有数据。
+- 新建或导入模板没有标题时，`store::normalize_template()` 从内容第一行生成标题，并取前 24 个 Unicode 字符；读取旧模板时也会执行一次迁移。
+- 模板维护列表只展示标题和参考图数量，查看/编辑/删除等操作仍在操作列中；引用模板下拉框显示标题，搜索仍支持标题、内容和数字 ID。
 - 模板可保存多个 `referencePaths`；相同图片与历史任务共享同一份哈希资源文件。
 - 查看模板和引用模板预览会把 `{}` 包围的占位描述显示为浅紫色底色。
 - AI 填充调用对话模型的 OpenAI 兼容 `/chat/completions`，要求模型只返回填充后的完整文本。
@@ -197,7 +200,7 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-  Input["文件选择或剪贴板"] --> Hash["SHA-256 内容哈希"]
+  Input["文件选择、拖放或剪贴板"] --> Hash["SHA-256 内容哈希"]
   Hash --> Shared["references/ 共享资源"]
   Shared --> Task["任务 referencePaths"]
   Shared --> Template["模板 referencePaths"]
@@ -240,6 +243,7 @@ ImageForge-templates.zip
   "templates": [
     {
       "sourceId": "12",
+      "title": "示例模板",
       "content": "提示词内容",
       "references": ["images/<sha256>.png"]
     }

@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-0.2.35-9B7BEE?style=flat-square">
+  <img alt="version" src="https://img.shields.io/badge/version-0.2.36-9B7BEE?style=flat-square">
   <img alt="platform desktop" src="https://img.shields.io/badge/platform-desktop-111827?style=flat-square">
   <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white">
   <img alt="Vue" src="https://img.shields.io/badge/Vue-3-42B883?style=flat-square&logo=vuedotjs&logoColor=white">
@@ -122,7 +122,7 @@ pnpm run release
 - `src/components/`：主界面面板、弹窗和任务卡片；
 - `src/lib/`：前端默认模型、选项、格式化函数和 Naive UI 主题；
 - `src/styles.css`：整体布局、马卡龙紫配色、panel 尺寸、拖拽条和响应式细节；
-- `src/tauri.js`：前端调用 Tauri 命令、文件打开和保存对话框的轻封装；
+- `src/tauri.js`：前端调用 Tauri 命令、文件打开/保存对话框和原生拖放事件的轻封装；
 - `src-tauri/src/commands.rs`：前端可调用的 Tauri 命令；
 - `src-tauri/src/models.rs`：Rust 与前端通信的数据模型；
 - `src-tauri/src/store.rs`：JSON 文件数据库、路径管理和数据归一化；
@@ -139,7 +139,7 @@ pnpm run release
 - 改 API 源/模型管理：修改 `src/components/dialogs/ApiSourceDialog.vue`；
 - 改工作台参数区和生图模型选择：修改 `src/components/ComposerPanel.vue`；
 - 改队列/结果预览：修改 `src/components/QueuePanel.vue` 和 `src/components/ResultPanel.vue`；
-- 改模板维护：修改 `src/components/dialogs/TemplateManagerDialog.vue`；
+- 改模板维护：修改 `src/components/dialogs/TemplateManagerDialog.vue`；列表显示标题、参考图数量和操作，模板内容在查看/编辑弹窗中维护；
 - 改模板引用和 AI 填充：修改 `src/components/dialogs/TemplateReferenceDialog.vue` 和 `src-tauri/src/services/chat.rs`；
 - 改模板包导入导出：修改 `src/App.vue`、`src-tauri/src/services/template_bundle.rs` 和 `src/tauri.js`；
 - 改参考图持久化：修改 `src-tauri/src/services/references.rs` 和 `src-tauri/src/services/clipboard.rs`；
@@ -154,6 +154,13 @@ pnpm run release
 - 每个正式版本都需要产出 `.dmg` 和 `.app` 到 `release/`，但不要提交这些二进制产物。
 
 ## 版本记录
+
+### v0.2.36
+
+- 模板新增可编辑标题；标题为空时取内容第一行，并限制为最多 24 个 Unicode 字符。
+- 模板维护列表改为显示标题和参考图数量，模板引用下拉框改用模板标题。
+- 支持把图片拖到主工作台提示词区域或“参考图”按钮添加参考图；参考图仍按内容哈希去重。
+- 删除模板后会检查其它模板、历史任务和请求文件的引用，只有无人引用的参考图才会移入系统回收站。
 
 ### v0.2.35
 
