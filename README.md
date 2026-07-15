@@ -22,12 +22,14 @@ Image Forge 是一个本地桌面生图工作台。它通过 OpenAI 兼容的 Im
 ## 功能
 
 - OpenAI 兼容 Images API：支持 `/images/generations` 文生图和 `/images/edits` 参考图编辑；
-- 多模型管理：API 源可标记为生图模型或对话模型，工作台选择生图模型，引用模板弹窗选择对话模型；
-- 生图历史：任务入队、后台执行、刷新、重试、删除、运行状态轮询和失败自动重试；
-- 结果预览：选择历史任务后预览输出图片，支持下载到 Downloads 和在 Finder 中定位；
-- 提示词模板：通过模板维护弹窗增删查改，引用模板弹窗支持搜索、预览、AI 填充 `{}` 占位并插入到提示词光标位置；
-- 参考图工作流：支持文件选择和剪贴板粘贴图片，自动生成本地预览；
-- 本地持久化：设置、队列、历史和模板写入应用数据目录，删除历史会把对应图片移入回收站；
+- 多模型管理：API 源可标记为生图模型或对话模型，支持独立代理、调用 `/models` 获取模型列表；
+- 生图历史：任务入队、后台执行、刷新、重试、删除、运行状态轮询和失败自动重试，历史卡片显示真实图片尺寸；
+- 结果预览：选择历史任务后预览输出图片，支持复制、下载到 Downloads 和在 Finder 中定位；
+- 提示词模板：支持增删查改、参考图、工作台快捷保存、AI 填充 `{}` 占位和引用到提示词光标位置；
+- 模板导出：把全部提示词生成 Markdown，并与去重后的模板参考图一起导出为 ZIP；
+- 参考图工作流：支持文件选择和剪贴板粘贴，按 SHA-256 去重持久化，历史重用和模板引用会恢复参考图；
+- 安全删除：历史、模板、API 源和参考图移除都先确认；生成图及无人引用的参考图进入系统回收站；
+- 本地持久化：设置、队列、历史、请求、模板和参考图都保存在本机应用数据目录；
 - 马卡龙偏紫界面：三栏工作台、小型按钮、可拖拽调整 panel 宽度，默认把弹性空间留给结果预览。
 
 ## 界面结构
@@ -36,8 +38,8 @@ Image Forge 当前是单页三栏布局：
 
 - 左侧：生成历史记录；
 - 中间：任务状态、结果预览、详情和重用；
-- 右侧：生成参数、生图模型、提示词输入、模板入口和参考图条；
-- 顶部：品牌、API 源和模板维护入口；运行数、排队数和提示信息显示在底部状态栏。
+- 右侧：生成参数、生图模型、参考图、提示词输入、存为模板和引用模板入口；
+- 顶部：品牌、API 源、模板维护和关于入口；运行数、排队数和提示信息显示在底部状态栏。
 
 ## 数据与架构
 
@@ -51,8 +53,11 @@ app_data_dir/
   prompt-templates.json
   requests/
   outputs/
+  references/
   clipboard/
 ```
+
+`references/` 保存任务和模板共享的参考图资源，文件名使用内容哈希；`clipboard/` 仅作为旧版兼容目录保留。
 
 更多代码分层、数据流和队列运行逻辑见技术设计文档：
 
@@ -99,13 +104,13 @@ cargo test
 单独升级版本：
 
 ```bash
-pnpm run patch -- 0.2.6
+pnpm run patch -- <next-version>
 ```
 
 打正式包：
 
 ```bash
-pnpm run release -- 0.2.6
+pnpm run release -- <next-version>
 pnpm run release
 ```
 
@@ -117,11 +122,11 @@ pnpm run release
 - `src/components/`：主界面面板、弹窗和任务卡片；
 - `src/lib/`：前端默认模型、选项、格式化函数和 Naive UI 主题；
 - `src/styles.css`：整体布局、马卡龙紫配色、panel 尺寸、拖拽条和响应式细节；
-- `src/tauri.js`：前端调用 Tauri 命令与文件协议转换的轻封装；
+- `src/tauri.js`：前端调用 Tauri 命令、文件打开和保存对话框的轻封装；
 - `src-tauri/src/commands.rs`：前端可调用的 Tauri 命令；
 - `src-tauri/src/models.rs`：Rust 与前端通信的数据模型；
 - `src-tauri/src/store.rs`：JSON 文件数据库、路径管理和数据归一化；
-- `src-tauri/src/services/`：Images API 调用和后台队列 worker；
+- `src-tauri/src/services/`：Images/Chat/Models API、后台队列、剪贴板、参考图资源和模板 ZIP 导出；
 - `src-tauri/src/lib.rs`：Tauri 入口和命令注册；
 - `src-tauri/tauri.conf.json`：Tauri 窗口、打包、权限和应用版本配置；
 - `docs/technical-design.md`：技术架构、数据流、存储结构和运行逻辑说明。
@@ -136,6 +141,8 @@ pnpm run release
 - 改队列/结果预览：修改 `src/components/QueuePanel.vue` 和 `src/components/ResultPanel.vue`；
 - 改模板维护：修改 `src/components/dialogs/TemplateManagerDialog.vue`；
 - 改模板引用和 AI 填充：修改 `src/components/dialogs/TemplateReferenceDialog.vue` 和 `src-tauri/src/services/chat.rs`；
+- 改模板导出：修改 `src/App.vue`、`src-tauri/src/services/template_export.rs` 和 `src/tauri.js`；
+- 改参考图持久化：修改 `src-tauri/src/services/references.rs` 和 `src-tauri/src/services/clipboard.rs`；
 - 改配色：优先修改 `src/lib/theme.js`，再修改 `src/styles.css`；
 - 改窗口最小尺寸：修改 `src-tauri/tauri.conf.json` 的 `minWidth` 和 `minHeight`。
 
@@ -147,6 +154,13 @@ pnpm run release
 - 每个正式版本都需要产出 `.dmg` 和 `.app` 到 `release/`，但不要提交这些二进制产物。
 
 ## 版本记录
+
+### v0.2.34
+
+- 调整引用模板弹窗页脚，把对话模型、AI 填充和引用模板操作统一靠右排列。
+- 模板维护新增 ZIP 导出，Markdown 清单会引用压缩包内去重后的参考图。
+- 历史、模板、API 源和参考图移除统一增加删除确认。
+- 同步 README 与技术设计，补齐参考图生命周期、模板导出和当前服务层说明。
 
 ### v0.2.22
 

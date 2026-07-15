@@ -6,38 +6,46 @@ Image Forge 是一个 Tauri 2 + Vue 3 的本地生图工作台。前端负责工
 
 ```mermaid
 flowchart LR
-  UI["Vue UI\nApp.vue + components"] --> Bridge["tauri.js\ninvoke/openDialog"]
+  UI["Vue UI\nApp.vue + components"] --> Bridge["tauri.js\ninvoke/open/saveDialog"]
   Bridge --> Commands["Rust commands\n前端可调用命令"]
   Commands --> Store["store\nJSON 持久化"]
   Commands --> Queue["services/queue\n后台队列 worker"]
+  Commands --> Chat["services/chat\n模板 AI 填充"]
+  Commands --> Models["services/models\n模型列表"]
+  Commands --> Export["services/template_export\nMarkdown + ZIP"]
   Queue --> Images["services/images\nImages API + 图片落盘"]
   Images --> API["OpenAI 兼容 Images API"]
-  Store --> Files["App Data Dir\nsettings/history/queue/templates/clipboard"]
+  Chat --> ChatAPI["OpenAI 兼容 Chat Completions API"]
+  Models --> ModelsAPI["OpenAI 兼容 Models API"]
+  Store --> Files["App Data Dir\nJSON / requests / references"]
   Images --> Outputs["输出目录\n生成图片"]
+  Export --> Archive["用户选择位置\n模板 ZIP"]
 ```
 
 ## 前端架构
 
 前端仍然是单页应用，但 UI 已拆成可维护的单文件组件，所有组件都使用 Vue Template 语法。
 
-| 文件 | 职责 |
-| --- | --- |
-| `src/App.vue` | 页面控制器：集中管理状态、computed、Tauri 命令调用、轮询和业务动作。 |
-| `src/components/AppTopbar.vue` | 顶部品牌、API 源和模板维护入口。 |
-| `src/components/QueuePanel.vue` | 生成历史搜索和任务列表。 |
-| `src/components/ResultPanel.vue` | 当前任务状态、结果图片预览、详情和重用入口。 |
-| `src/components/ComposerPanel.vue` | 生图模型选择、生成参数、提示词输入、参考图条。 |
-| `src/components/TaskCard.vue` | 单个历史任务卡片，负责展示结果、计时器和重用/刷新/下载/定位/重试/删除动作。 |
-| `src/components/dialogs/ApiSourceDialog.vue` | API 源/模型管理、类型选择、导入、复制、排序和编辑；内部 ID 自动生成且不展示。 |
-| `src/components/dialogs/TemplateManagerDialog.vue` | 模板维护弹窗：搜索、模板列表、查看/编辑/删除、新增入口。 |
-| `src/components/dialogs/TemplateEditorDialog.vue` | 模板新增/编辑/查看弹窗；查看模式会高亮 `{}` 占位区域。 |
-| `src/components/dialogs/TemplateReferenceDialog.vue` | 引用模板弹窗：左侧搜索和模板列表，右侧预览、AI 填充、引用到提示词光标位置。 |
-| `src/components/dialogs/TaskDetailDialog.vue` | 任务详情、输出图列表和重用入口，弹窗不超过屏幕可视区域并允许滚动。 |
-| `src/lib/models.js` | 前端默认数据结构、空草稿对象、深拷贝和设置归一化。 |
-| `src/lib/options.js` | 生图参数选项和预设换算：提示词模式、分辨率、比例、质量、尺寸映射。 |
-| `src/lib/formatters.js` | 状态标签、文件名、文件 URL、clamp 等展示工具。 |
-| `src/lib/theme.js` | Naive UI 主题覆盖。 |
-| `src/tauri.js` | 对 `window.__TAURI_INTERNALS__` 的轻封装。 |
+| 文件                                                   | 职责                                          |
+| ---------------------------------------------------- | ------------------------------------------- |
+| `src/App.vue`                                        | 页面控制器：集中管理状态、computed、Tauri 命令调用、轮询和业务动作。   |
+| `src/components/AppTopbar.vue`                       | 顶部品牌、API 源、模板维护和关于入口。                      |
+| `src/components/QueuePanel.vue`                      | 生成历史搜索和任务列表。                                |
+| `src/components/ResultPanel.vue`                     | 当前任务状态、结果图片预览、详情和重用入口。                      |
+| `src/components/ComposerPanel.vue`                   | 生图模型选择、生成参数、提示词输入、参考图条、存为模板和引用模板入口。           |
+| `src/components/TaskCard.vue`                        | 单个历史任务卡片，负责展示结果、计时器和重用/刷新/下载/定位/重试/删除动作。    |
+| `src/components/dialogs/ApiSourceDialog.vue`         | API 源/模型管理、类型选择、导入、克隆、排序和编辑；内部 ID 自动生成且不展示。 |
+| `src/components/dialogs/TemplateManagerDialog.vue`   | 模板维护弹窗：搜索、模板列表、参考图数量、查看/编辑/删除、新增和导出入口。       |
+| `src/components/dialogs/TemplateEditorDialog.vue`    | 模板新增/编辑/查看弹窗；支持参考图选择和粘贴，查看模式高亮 `{}` 占位区域。     |
+| `src/components/dialogs/TemplateReferenceDialog.vue` | 引用模板弹窗：搜索与模板下拉、原文/AI 结果对比编辑、临时参考图和 AI 填充。     |
+| `src/components/dialogs/TaskDetailDialog.vue`        | 任务详情、输出图列表和重用入口，弹窗不超过屏幕可视区域并允许滚动。           |
+| `src/components/dialogs/AboutDialog.vue`             | 版本、编译时间、应用说明和本次运行内存日志。                       |
+| `src/lib/models.js`                                  | 前端默认数据结构、空草稿对象、深拷贝和设置归一化。                   |
+| `src/lib/options.js`                                 | 生图参数选项和预设换算：提示词模式、分辨率、比例、质量、尺寸映射。           |
+| `src/lib/formatters.js`                              | 状态标签、文件名、文件 URL、clamp 等展示工具。                |
+| `src/lib/generationTimer.js`                         | 运行中任务的十分之一秒计时和五分钟超时判断。                      |
+| `src/lib/theme.js`                                   | Naive UI 主题覆盖。                              |
+| `src/tauri.js`                                       | 对 Tauri `invoke`、文件打开和保存对话框的轻封装。                 |
 
 ### 前端数据传递
 
@@ -48,23 +56,31 @@ flowchart LR
 - 前端提交前用 `sizeForPreset(resolution, ratio)` 把 `1K/2K/4K + 比例` 换算成 Images API 需要的像素尺寸。
 - 展示组件通过 props 接收数据，通过 events 把动作抛回 `App.vue`。
 - 表单型组件接收草稿对象并直接修改对象字段，保存动作仍由 `App.vue` 调用 Rust 命令。
+- 历史、模板、API 源和参考图的删除/移除动作都先由前端弹出确认框，确认后才调用命令或修改草稿。
+- 任务与模板都保存 `referencePaths`；重用任务或引用模板时，前端重新加载缩略图并合并到工作台参考图。
+- 模板导出先通过系统保存对话框选择 ZIP 路径，再调用 `export_templates` 生成 Markdown 与参考图压缩包。
 - `App.vue` 启动后调用 `load_app_state`，随后每 1.6 秒调用 `queue_snapshot` 刷新队列。
 
 ## Rust 架构
 
 Rust 端按层拆分，`lib.rs` 只负责注册模块、插件和 Tauri 命令。
 
-| 文件 | 职责 |
-| --- | --- |
-| `src-tauri/src/lib.rs` | Tauri 入口：注册 `RuntimeState`、dialog 插件、setup 恢复队列、invoke handler。 |
-| `src-tauri/src/commands.rs` | 前端可调用命令层：组装参数、调用 store/services、返回序列化结果。 |
-| `src-tauri/src/models.rs` | Rust 与前端共享的 serde 数据模型。 |
-| `src-tauri/src/defaults.rs` | 默认值、常量、serde default 函数。 |
-| `src-tauri/src/state.rs` | 运行期内存状态：worker 是否活跃、取消请求集合。 |
-| `src-tauri/src/store.rs` | JSON 文件数据库：路径管理、读写、设置/请求/历史/队列/模板归一化。 |
-| `src-tauri/src/services/queue.rs` | 后台队列 worker、并发调度、取消、失败重试、运行中任务恢复。 |
-| `src-tauri/src/services/images.rs` | Images API 请求、编辑/生成分支、响应解析、参考图预览、生成结果落盘。 |
-| `src-tauri/src/utils.rs` | URL、MIME、扩展名、ID、时间、HTTP client、错误格式化等通用工具。 |
+| 文件                                 | 职责                                                              |
+| ---------------------------------- | --------------------------------------------------------------- |
+| `src-tauri/src/lib.rs`             | Tauri 入口：注册 `RuntimeState`、dialog 插件、setup 恢复队列、invoke handler。 |
+| `src-tauri/src/commands.rs`        | 前端可调用命令层：组装参数、调用 store/services、返回序列化结果。                        |
+| `src-tauri/src/models.rs`          | Rust 与前端共享的 serde 数据模型。                                         |
+| `src-tauri/src/defaults.rs`        | 默认值、常量、serde default 函数。                                        |
+| `src-tauri/src/state.rs`           | 运行期内存状态：worker、取消/删除任务集合和最多 500 条运行日志。                            |
+| `src-tauri/src/store.rs`           | JSON 文件数据库：路径管理、读写、设置/请求/历史/队列/模板归一化。                           |
+| `src-tauri/src/services/queue.rs`  | 后台队列 worker、并发调度、取消、失败重试、运行中任务恢复。                               |
+| `src-tauri/src/services/images.rs` | Images API 请求、编辑/生成分支、响应解析、参考图预览、生成结果落盘。                        |
+| `src-tauri/src/services/chat.rs`   | Chat Completions API 模板填充、代理、超时和运行日志。                                |
+| `src-tauri/src/services/models.rs` | 调用 `<baseUrl>/models` 获取并去重模型 ID。                                      |
+| `src-tauri/src/services/clipboard.rs` | 系统剪贴板图片读取、图片复制和参考图资源写入。                                        |
+| `src-tauri/src/services/references.rs` | 参考图按 SHA-256 去重持久化，并清理无人引用的资源。                                  |
+| `src-tauri/src/services/template_export.rs` | 生成模板 Markdown，并把去重参考图一起打包为 ZIP。                                 |
+| `src-tauri/src/utils.rs`           | URL、MIME、扩展名、ID、时间、HTTP client、错误格式化等通用工具。                      |
 
 ## 本地数据存储
 
@@ -80,19 +96,22 @@ app_data_dir/
     <task-id>.json
   outputs/
     <timestamp>-<task-id>-01.png
+  references/
+    <sha256>.<ext>
   clipboard/
-    <uuid>.png
+    # 兼容保留目录；剪贴板图片当前直接写入 references/
 ```
 
-| 数据 | 文件 | 内容 |
-| --- | --- | --- |
-| 设置/API 源 | `settings.json` | 当前生图/对话模型、多个 provider、输出目录、自动队列、自动重试等。 |
-| 队列状态 | `queue.json` | `waiting` 任务 ID 列表、`running` 任务记录、更新时间。 |
-| 历史任务 | `history.json` | 最近任务记录，最多保留 `MAX_HISTORY_ITEMS`。 |
-| 原始请求 | `requests/<task-id>.json` | 每个任务的生图参数，用于重试和恢复。 |
-| 输出图片 | `outputs/` 或设置中的输出目录 | 生成图片文件。 |
-| 剪贴板参考图 | `clipboard/` | 从系统剪贴板粘贴进来的参考图临时文件。 |
-| 提示词模板 | `prompt-templates.json` | 模板内容、数字自增 ID、使用次数和兼容旧字段。 |
+| 数据       | 文件                        | 内容                                      |
+| -------- | ------------------------- | --------------------------------------- |
+| 设置/API 源 | `settings.json`           | 当前生图/对话模型、多个 provider、输出目录、自动队列、自动重试等。  |
+| 队列状态     | `queue.json`              | `waiting` 任务 ID 列表、`running` 任务记录、更新时间。 |
+| 历史任务     | `history.json`            | 最近任务记录，最多保留 `MAX_HISTORY_ITEMS`。        |
+| 原始请求     | `requests/<task-id>.json` | 每个任务的生图参数，用于重试和恢复。                      |
+| 输出图片     | `outputs/` 或设置中的输出目录      | 生成图片文件。                                 |
+| 参考图资源     | `references/<sha256>.<ext>` | 任务和模板共享的参考图，按内容哈希去重。                    |
+| 兼容目录      | `clipboard/`              | 旧版兼容目录；当前剪贴板图片不再写入这里。                    |
+| 提示词模板    | `prompt-templates.json`   | 模板内容、参考图路径、数字自增 ID、使用次数和兼容旧字段。         |
 
 ## 生图运行逻辑
 
@@ -130,13 +149,14 @@ sequenceDiagram
 - 每个任务执行前写入 `running` 状态；完成后写输出并从 `queue.running` 移除。
 - 如果开启 `autoRetry`，任务第一次失败后会重新入队一次。
 - App 启动时 `recover_stale_running()` 会把上次异常退出留下的 running 任务恢复到 waiting。
-- 取消运行中任务时，命令层只写入 `cancel_requests`，worker 在 API 调用前后检查并标记为 cancelled。
+- 删除运行中任务时，命令层写入 `cancel_requests` 和 `deleted_tasks`，worker 在 API 调用前后检查并完成请求文件、队列和参考图清理。
 
 ## API 调用逻辑
 
 - 无参考图且无 mask：调用 `<baseUrl>/images/generations`。
 - 有参考图或 mask：调用 `<baseUrl>/images/edits`，通过 multipart 上传图片。
 - Base URL 会归一化，自动去掉 `/images/generations` 或 `/images/edits` 后缀。
+- API 源“获取模型”调用 `<baseUrl>/models`，携带 Bearer API Key、可选代理和 30 秒超时。
 - 响应支持 `b64_json` 和 `url` 两种图像返回方式。
 - 输出格式会根据 API 字段和文件头归一化为 `png`、`jpeg` 或 `webp`。
 - 生图请求参数与 `example/codex_image/webui` 保持一致：`size` 是像素尺寸，`quality` 是 `auto/low/medium/high`，`n` 固定 `1`，`output_format` 固定 `png`。
@@ -167,20 +187,66 @@ sequenceDiagram
 
 - 模板新增时后端使用现有最大数字 ID 自增，从 `1` 开始；旧 UUID 模板保留但不参与数字序列。
 - 模板只要求 `content` 字段，`title`、`category`、`notes`、`favorite` 仅作为旧数据兼容字段保留。
+- 模板可保存多个 `referencePaths`；相同图片与历史任务共享同一份哈希资源文件。
 - 查看模板和引用模板预览会把 `{}` 包围的占位描述显示为浅紫色底色。
 - AI 填充调用对话模型的 OpenAI 兼容 `/chat/completions`，要求模型只返回填充后的完整文本。
 - 填充完成后，前端根据原模板中的 `{}` 位置推导替换后的文本范围，并继续用浅紫色底色标记。
+- 引用模板弹窗临时添加的参考图不会写回模板；点击“引用模板”时，文本和当前参考图一起合并到工作台。
+
+## 参考图生命周期
+
+```mermaid
+flowchart LR
+  Input["文件选择或剪贴板"] --> Hash["SHA-256 内容哈希"]
+  Hash --> Shared["references/ 共享资源"]
+  Shared --> Task["任务 referencePaths"]
+  Shared --> Template["模板 referencePaths"]
+  Task --> Reuse["历史重用恢复参考图"]
+  Template --> Call["引用模板恢复参考图"]
+  Delete["删除历史或模板"] --> Scan["扫描历史/模板/请求引用"]
+  Scan -->|无人引用| Trash["移入系统回收站"]
+  Scan -->|仍被引用| Keep["保留共享资源"]
+```
+
+- `persist_reference_paths()` 读取图片内容并按 SHA-256 保存，因此多个任务或模板引用同一图片时不会产生副本。
+- `prune_unreferenced_files()` 同时扫描 `history.json`、`prompt-templates.json` 和 `requests/*.json`。
+- 删除历史记录会把生成结果和无人引用的参考图移入系统回收站；删除模板只清理无人引用的参考图。
+- 运行中任务被删除时会延后参考图清理，避免后台请求仍在读取文件。
+
+## 模板导出逻辑
+
+```mermaid
+sequenceDiagram
+  participant UI as 模板维护弹窗
+  participant Save as 系统保存对话框
+  participant Cmd as export_templates
+  participant Export as services/template_export.rs
+  participant Zip as ZIP 文件
+
+  UI->>Save: 选择 ImageForge-templates.zip
+  Save-->>UI: destination
+  UI->>Cmd: export_templates(destination)
+  Cmd->>Export: 全部模板
+  Export->>Export: 生成 ImageForge-templates.md
+  Export->>Export: 按路径去重参考图
+  Export->>Zip: 写入 Markdown 和 images/*
+  Cmd-->>UI: 最终保存路径
+```
+
+- 导出不受模板维护搜索条件影响，始终包含全部模板。
+- Markdown 按模板数字 ID 顺序列出完整提示词，并用相对路径引用 ZIP 内的图片。
+- 多个模板引用同一张图片时，ZIP 中只写入一份图片资源。
 
 ### 生图参数映射
 
-| UI 字段 | 前端值 | API/存储字段 | 说明 |
-| --- | --- | --- | --- |
-| 提示词模式 | `original` / `strict` / `off` | `prompt_fidelity` | 原始模式、保真模式、创意模式；`strict` 会包装出站 prompt，后续对话模型填模板也会继续使用。 |
-| 分辨率 | `standard` / `2k` / `4k` | `resolution` | UI 显示为 `1K`、`2K`、`4K`。 |
-| 比例 | `1:1` 等 11 种比例 | `ratio` / `orientation` | `orientation` 自动归类为 `square`、`portrait`、`landscape`。 |
-| 质量 | `auto` / `low` / `medium` / `high` | `quality` | UI 显示为自动、低、中、高。 |
-| 数量 | 固定 `1` | `n` / `count` | UI 不再展示，Rust 端也强制归一化为 `1`。 |
-| 输出格式 | 固定 `png` | `output_format` | UI 不再展示，Rust 端也强制归一化为 `png`。 |
+| UI 字段 | 前端值                                | API/存储字段                | 说明                                                    |
+| ----- | ---------------------------------- | ----------------------- | ----------------------------------------------------- |
+| 提示词模式 | `original` / `strict` / `off`      | `prompt_fidelity`       | 原始模式、保真模式、创意模式；`strict` 只在 Images API 出站前包装 prompt。         |
+| 分辨率   | `standard` / `2k` / `4k`           | `resolution`            | UI 显示为 `1K`、`2K`、`4K`。                                |
+| 比例    | `1:1` 等 11 种比例                     | `ratio` / `orientation` | `orientation` 自动归类为 `square`、`portrait`、`landscape`。  |
+| 质量    | `auto` / `low` / `medium` / `high` | `quality`               | UI 显示为自动、低、中、高。                                       |
+| 数量    | 固定 `1`                             | `n` / `count`           | UI 不再展示，Rust 端也强制归一化为 `1`。                            |
+| 输出格式  | 固定 `png`                           | `output_format`         | UI 不再展示，Rust 端也强制归一化为 `png`。                          |
 
 ```mermaid
 flowchart LR
@@ -200,14 +266,16 @@ flowchart LR
 
 关键字段：
 
-| 字段 | 说明 |
-| --- | --- |
-| `id` | 内部稳定 ID，前端自动随机生成，供应商维护弹窗不展示。 |
-| `modelType` | `image` 或 `chat`；新增和导入默认 `image`。 |
-| `imageModel` | 当前仍作为通用模型 ID 字段，生图和对话模型都复用它。 |
-| `activeImageProviderId` | 当前默认生图模型。 |
-| `activeChatProviderId` | 当前默认对话模型。 |
-| `activeProviderId` | 旧字段，继续保留为生图模型兼容字段。 |
+| 字段                      | 说明                                |
+| ----------------------- | --------------------------------- |
+| `id`                    | 内部稳定 ID，前端自动随机生成，供应商维护弹窗不展示。      |
+| `modelType`             | `image` 或 `chat`；新增和导入默认 `image`。 |
+| `imageModel`            | 当前仍作为通用模型 ID 字段，生图和对话模型都复用它。      |
+| `proxyUrl`              | 单个 API 源的可选 HTTP/SOCKS 代理地址。             |
+| `imagesConcurrency`     | 兼容字段；当前界面和归一化逻辑固定为 `1`。              |
+| `activeImageProviderId` | 当前默认生图模型。                         |
+| `activeChatProviderId`  | 当前默认对话模型。                         |
+| `activeProviderId`      | 旧字段，继续保留为生图模型兼容字段。                |
 
 ## 开发约定
 
@@ -215,4 +283,5 @@ flowchart LR
 - 新的前端默认数据结构放 `src/lib/models.js`，展示格式化放 `src/lib/formatters.js`。
 - 新的 Tauri 命令放 `src-tauri/src/commands.rs`，不要直接塞进 `lib.rs`。
 - 会访问本地 JSON 的逻辑放 `store.rs`；会请求外部 API 或执行后台任务的逻辑放 `services/`。
+- 模板归档等纯文件业务放入独立 service，命令层只负责读取状态和返回结果。
 - 新增持久化文件时，同步更新本文档的“本地数据存储”章节。
