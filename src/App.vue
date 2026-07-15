@@ -970,9 +970,11 @@ async function insertReferenceTemplate() {
   setStatus("模板及参考图已引用到工作台", "ok");
 }
 
-// 清空提示词并重置插入光标。
+// 清空工作台的提示词、参考图和拖放状态，并重置插入光标。
 function clearPrompt() {
   form.prompt = "";
+  references.value = [];
+  referenceDragActive.value = false;
   promptCursor.value = 0;
 }
 
