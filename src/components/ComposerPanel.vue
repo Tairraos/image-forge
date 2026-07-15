@@ -34,13 +34,29 @@
           <X :size="14" />
         </button>
       </div>
-      <button class="reference-add" type="button" @click="$emit('add-reference')">
+      <button
+        class="reference-add"
+        :class="{ 'reference-drop-active': referenceDragActive }"
+        data-reference-drop-zone
+        type="button"
+        @dragover.prevent="$emit('reference-drag-over')"
+        @dragleave="$emit('reference-drag-leave')"
+        @drop.prevent="$emit('drop-reference', $event)"
+        @click="$emit('add-reference')"
+      >
         <Plus :size="18" />
         <span>参考图</span>
       </button>
     </div>
 
-    <div class="prompt-live-panel">
+    <div
+      class="prompt-live-panel"
+      :class="{ 'reference-drop-active': referenceDragActive }"
+      data-reference-drop-zone
+      @dragover.prevent="$emit('reference-drag-over')"
+      @dragleave="$emit('reference-drag-leave')"
+      @drop.prevent="$emit('drop-reference', $event)"
+    >
       <div class="prompt-live-head">
         <span>提示词</span>
         <small>{{ form.prompt.length }} 字</small>
@@ -86,6 +102,7 @@ defineProps({
   imageProviderOptions: { type: Array, default: () => [] },
   references: { type: Array, default: () => [] },
   submitting: { type: Boolean, default: false },
+  referenceDragActive: { type: Boolean, default: false },
 });
 
 defineEmits([
@@ -98,5 +115,8 @@ defineEmits([
   "prompt-paste",
   "add-reference",
   "remove-reference",
+  "reference-drag-over",
+  "reference-drag-leave",
+  "drop-reference",
 ]);
 </script>

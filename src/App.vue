@@ -51,6 +51,7 @@
           :image-provider-options="imageProviderOptions"
           :references="references"
           :submitting="submitting"
+          :reference-drag-active="referenceDragActive"
           @submit="submitTask"
           @show-template="showTemplateReferenceDialog = true"
           @save-template="saveWorkbenchAsTemplate"
@@ -60,6 +61,9 @@
           @prompt-paste="handlePromptPaste"
           @add-reference="addReferenceImages"
           @remove-reference="confirmRemoveReference(references, $event)"
+          @reference-drag-over="referenceDragActive = true"
+          @reference-drag-leave="referenceDragActive = false"
+          @drop-reference="handleReferenceDropEvent"
         />
       </section>
 
@@ -159,7 +163,7 @@ import {
   sizeForPreset,
 } from "./lib/options";
 import { themeOverrides } from "./lib/theme";
-import { invoke, openDialog, saveDialog } from "./tauri";
+import { invoke, listenDragDrop, openDialog, saveDialog } from "./tauri";
 
 const statusText = ref("启动中");
 const statusTone = ref("busy");
@@ -168,6 +172,7 @@ const history = ref([]);
 const queue = reactive({ waiting: [], running: [], recent: [], workerActive: false, updatedAt: "" });
 const templates = ref([]);
 const references = ref([]);
+const referenceDragActive = ref(false);
 const templateDraftReferences = ref([]);
 const templateReferenceReferences = ref([]);
 const selectedTaskId = ref("");
@@ -213,6 +218,7 @@ const workspaceStyle = computed(() => ({
 }));
 
 let pollTimer = 0;
+let unlistenDragDrop = null;
 
 const imageProviders = computed(() =>
   settings.value.providers.filter((provider) => provider.modelType !== "chat"),
@@ -277,7 +283,7 @@ const filteredTemplates = computed(() => {
   const query = templateQuery.value.trim().toLowerCase();
   if (!query) return templates.value;
   return templates.value.filter((item) =>
-    [item.id, item.content].join(" ").toLowerCase().includes(query),
+    [item.id, item.title, item.content].filter(Boolean).join(" ").toLowerCase().includes(query),
   );
 });
 
@@ -285,17 +291,23 @@ const filteredReferenceTemplates = computed(() => {
   const query = templateReferenceQuery.value.trim().toLowerCase();
   if (!query) return templates.value;
   return templates.value.filter((item) =>
-    [item.id, item.content].join(" ").toLowerCase().includes(query),
+    [item.id, item.title, item.content].filter(Boolean).join(" ").toLowerCase().includes(query),
   );
 });
 
 onMounted(async () => {
+  try {
+    unlistenDragDrop = await listenDragDrop(handleReferenceDragDrop);
+  } catch {
+    // 浏览器预览没有 Tauri 拖放事件，保留 HTML5 drop 作为兼容路径。
+  }
   await refreshAll();
   pollTimer = window.setInterval(refreshQueueOnly, 1600);
 });
 
 onUnmounted(() => {
   window.clearInterval(pollTimer);
+  unlistenDragDrop?.();
 });
 
 // 首次加载或重大变更后，重新拉取设置、历史、队列和模板。
@@ -434,14 +446,58 @@ async function chooseReferenceImages(target, successMessage) {
       filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "gif"] }],
     });
     const paths = Array.isArray(selected) ? selected : selected ? [selected] : [];
-    for (const path of paths) {
-      const preview = await invoke("reference_from_path", { path });
-      appendReferencePreview(target, preview);
-    }
-    if (paths.length) setStatus(successMessage, "ok");
+    await addReferencePaths(target, paths, successMessage);
   } catch (error) {
     setStatus(String(error), "error");
   }
+}
+
+async function addReferencePaths(target, paths, successMessage) {
+  let added = 0;
+  try {
+    for (const path of paths) {
+      const preview = await invoke("reference_from_path", { path });
+      if (appendReferencePreview(target, preview)) added += 1;
+    }
+    if (added) setStatus(`${successMessage}：${added} 张`, "ok");
+  } catch (error) {
+    setStatus(String(error), "error");
+  }
+}
+
+function handleReferenceDragDrop(event) {
+  const payload = event?.payload || {};
+  const active = referenceDropTarget(payload.position);
+  if (payload.type === "over") {
+    referenceDragActive.value = active;
+    return;
+  }
+  if (payload.type === "leave") {
+    referenceDragActive.value = false;
+    return;
+  }
+  referenceDragActive.value = false;
+  if (payload.type === "drop" && active && payload.paths?.length) {
+    void addReferencePaths(references, payload.paths, "已添加拖放参考图");
+  }
+}
+
+function handleReferenceDropEvent(event) {
+  referenceDragActive.value = false;
+  const paths = Array.from(event?.dataTransfer?.files || [])
+    .map((file) => file.path)
+    .filter(Boolean);
+  if (paths.length) void addReferencePaths(references, paths, "已添加拖放参考图");
+}
+
+function referenceDropTarget(position) {
+  const x = Number(position?.x);
+  const y = Number(position?.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+  const scale = window.devicePixelRatio || 1;
+  return [[x, y], [x / scale, y / scale]].some(([left, top]) =>
+    document.elementFromPoint(left, top)?.closest("[data-reference-drop-zone]"),
+  );
 }
 
 async function pasteReferenceImage(event, target, successMessage) {
