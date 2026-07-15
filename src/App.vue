@@ -156,6 +156,7 @@ import TemplateManagerDialog from "./components/dialogs/TemplateManagerDialog.vu
 import TemplateReferenceDialog from "./components/dialogs/TemplateReferenceDialog.vue";
 import { clamp, fileName, statusLabel } from "./lib/formatters";
 import { deepClone, defaultSettings, emptyTemplate, normalizeSettingsForUi } from "./lib/models";
+import { extractClipboardFilePaths, extractDroppedFilePaths } from "./lib/referenceFiles";
 import {
   DEFAULT_PROMPT_MODE,
   DEFAULT_RATIO,
@@ -453,16 +454,27 @@ async function chooseReferenceImages(target, successMessage) {
 }
 
 async function addReferencePaths(target, paths, successMessage) {
+  return addReferencePathsWithOptions(target, paths, successMessage);
+}
+
+async function addReferencePathsWithOptions(target, paths, successMessage, options = {}) {
   let added = 0;
+  let lastError = null;
   try {
     for (const path of paths) {
-      const preview = await invoke("reference_from_path", { path });
-      if (appendReferencePreview(target, preview)) added += 1;
+      try {
+        const preview = await invoke("reference_from_path", { path });
+        if (appendReferencePreview(target, preview)) added += 1;
+      } catch (error) {
+        lastError = error;
+      }
     }
     if (added) setStatus(`${successMessage}：${added} 张`, "ok");
+    if (!added && lastError && !options.silentInvalid) setStatus(String(lastError), "error");
   } catch (error) {
     setStatus(String(error), "error");
   }
+  return added;
 }
 
 function handleReferenceDragDrop(event) {
@@ -477,17 +489,21 @@ function handleReferenceDragDrop(event) {
     return;
   }
   referenceDragActive.value = false;
-  if (payload.type === "drop" && active && payload.paths?.length) {
-    void addReferencePaths(references, payload.paths, "已添加拖放参考图");
+  if (payload.type === "drop" && payload.paths?.length) {
+    void addReferencePathsWithOptions(references, payload.paths, "已添加拖放参考图", {
+      silentInvalid: true,
+    });
   }
 }
 
 function handleReferenceDropEvent(event) {
   referenceDragActive.value = false;
-  const paths = Array.from(event?.dataTransfer?.files || [])
-    .map((file) => file.path)
-    .filter(Boolean);
-  if (paths.length) void addReferencePaths(references, paths, "已添加拖放参考图");
+  const paths = extractDroppedFilePaths(event?.dataTransfer);
+  if (paths.length) {
+    void addReferencePathsWithOptions(references, paths, "已添加拖放参考图", {
+      silentInvalid: true,
+    });
+  }
 }
 
 function referenceDropTarget(position) {
@@ -501,6 +517,14 @@ function referenceDropTarget(position) {
 }
 
 async function pasteReferenceImage(event, target, successMessage) {
+  const filePaths = extractClipboardFilePaths(event?.clipboardData);
+  if (filePaths.length) {
+    event.preventDefault();
+    await addReferencePathsWithOptions(target, filePaths, successMessage, {
+      silentInvalid: true,
+    });
+    return;
+  }
   const items = Array.from(event?.clipboardData?.items || []);
   const files = Array.from(event?.clipboardData?.files || []);
   const hasImage = [...items, ...files].some((item) => item.type?.startsWith("image/"));

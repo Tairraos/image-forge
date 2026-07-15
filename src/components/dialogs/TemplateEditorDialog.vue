@@ -29,7 +29,7 @@
             v-if="!readonly"
             type="button"
             title="移除参考图"
-            @click="$emit('remove-reference', index)"
+            @click.stop="$emit('remove-reference', index)"
           >
             <X :size="14" />
           </button>

@@ -66,6 +66,9 @@ pub(crate) fn reference_preview(path: &Path) -> Result<ReferencePreview, String>
     }
     let bytes = fs::read(path).map_err(|error| format!("读取参考图失败: {error}"))?;
     let mime_type = image_mime_type(path, &bytes)?;
+    if image_size_from_bytes(&bytes).is_none() {
+        return Err("图片文件无法解析".into());
+    }
     let file_name = path
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())

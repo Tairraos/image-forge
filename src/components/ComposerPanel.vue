@@ -30,7 +30,11 @@
     <div class="reference-strip">
       <div v-for="(item, index) in references" :key="item.path" class="reference-tile">
         <img :src="item.previewUrl" :alt="item.fileName" />
-        <button type="button" title="移除参考图" @click="$emit('remove-reference', index)">
+        <button
+          type="button"
+          title="移除参考图"
+          @click.stop="$emit('remove-reference', index)"
+        >
           <X :size="14" />
         </button>
       </div>
