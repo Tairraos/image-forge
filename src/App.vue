@@ -59,7 +59,7 @@
           @prompt-cursor="capturePromptCursor"
           @prompt-paste="handlePromptPaste"
           @add-reference="addReferenceImages"
-          @remove-reference="references.splice($event, 1)"
+          @remove-reference="confirmRemoveReference(references, $event)"
         />
       </section>
 
@@ -109,7 +109,7 @@
         @ai-fill="fillReferenceTemplate"
         @insert="insertReferenceTemplate"
         @add-reference="addTemplateCallReferenceImages"
-        @remove-reference="templateReferenceReferences.splice($event, 1)"
+        @remove-reference="confirmRemoveReference(templateReferenceReferences, $event)"
       />
 
       <TemplateEditorDialog
@@ -119,7 +119,7 @@
         :references="templateDraftReferences"
         @save="savePromptTemplate"
         @add-reference="addTemplateDraftReferenceImages"
-        @remove-reference="templateDraftReferences.splice($event, 1)"
+        @remove-reference="confirmRemoveReference(templateDraftReferences, $event)"
         @paste-reference="handleTemplateDraftPaste"
       />
 
@@ -465,6 +465,13 @@ function appendReferencePreview(target, preview) {
   return true;
 }
 
+// 所有参考图移除动作都必须先取得用户确认。
+function confirmRemoveReference(target, index) {
+  if (!target.value[index]) return;
+  if (!window.confirm("确认移除这张参考图？")) return;
+  target.value.splice(index, 1);
+}
+
 async function restoreReferencePreviews(paths) {
   const restored = [];
   let missing = 0;
@@ -547,7 +554,7 @@ async function retryTask(task) {
 
 // 删除历史记录，同时由后端负责把对应输出图移入回收站。
 async function deleteTask(task) {
-  if (!window.confirm("删除这条生成记录？")) return;
+  if (!window.confirm("确认删除这条生成记录？对应图片会移入系统回收站。")) return;
   try {
     await invoke("delete_task", { taskId: task.id });
     if (selectedTaskId.value === task.id) selectedTaskId.value = "";
@@ -678,7 +685,7 @@ async function exportPromptTemplates() {
 
 // 删除模板维护列表中的指定模板。
 async function deletePromptTemplate(id) {
-  if (!window.confirm("删除这个模板？")) return;
+  if (!window.confirm("确认删除这个模板？未被其它记录引用的参考图会移入系统回收站。")) return;
   try {
     templates.value = await invoke("delete_template", { templateId: id });
   } catch (error) {

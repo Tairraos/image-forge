@@ -283,6 +283,8 @@ function deleteProvider(id = selectedId.value) {
   if (draft.providers.length <= 1) return;
   const index = draft.providers.findIndex((provider) => provider.id === id);
   if (index < 0) return;
+  const providerName = draft.providers[index].name || "未命名 API 源";
+  if (!window.confirm(`确认删除 API 源「${providerName}」？`)) return;
   draft.providers.splice(index, 1);
   const next = draft.providers[Math.min(index, draft.providers.length - 1)] || draft.providers[0];
   selectProvider(next.id);
