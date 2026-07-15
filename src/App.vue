@@ -182,6 +182,7 @@ import TemplateReferenceDialog from "./components/dialogs/TemplateReferenceDialo
 import { clamp, fileName, statusLabel } from "./lib/formatters";
 import { deepClone, defaultSettings, emptyTemplate, normalizeSettingsForUi } from "./lib/models";
 import { extractClipboardFilePaths, extractDroppedFilePaths } from "./lib/referenceFiles";
+import { installAutoHideScrollbars } from "./lib/scrollbarVisibility";
 import {
   DEFAULT_PROMPT_MODE,
   DEFAULT_RATIO,
@@ -259,6 +260,7 @@ const workspaceStyle = computed(() => ({
 }));
 
 let pollTimer = 0;
+let removeScrollbarVisibility = null;
 let unlistenDragDrop = null;
 
 const imageProviders = computed(() =>
@@ -337,6 +339,7 @@ const filteredReferenceTemplates = computed(() => {
 });
 
 onMounted(async () => {
+  removeScrollbarVisibility = installAutoHideScrollbars();
   try {
     unlistenDragDrop = await listenDragDrop(handleReferenceDragDrop);
   } catch {
@@ -350,6 +353,7 @@ onMounted(async () => {
 onUnmounted(() => {
   window.clearInterval(pollTimer);
   unlistenDragDrop?.();
+  removeScrollbarVisibility?.();
 });
 
 // 首次加载或重大变更后，重新拉取设置、历史、队列和模板。

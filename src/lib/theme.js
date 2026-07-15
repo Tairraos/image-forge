@@ -32,4 +32,11 @@ export const themeOverrides = {
       },
     },
   },
+  Scrollbar: {
+    width: "5px",
+    height: "5px",
+    borderRadius: "999px",
+    color: "rgba(103, 88, 126, 0.32)",
+    colorHover: "rgba(89, 72, 118, 0.52)",
+  },
 };

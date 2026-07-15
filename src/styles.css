@@ -22,6 +22,45 @@
 
 * {
   box-sizing: border-box;
+  scrollbar-color: transparent transparent;
+  scrollbar-width: thin;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  background-clip: padding-box;
+}
+
+.scrollbar-active,
+.scrollbar-near {
+  scrollbar-color: rgba(103, 88, 126, 0.42) transparent;
+}
+
+.scrollbar-active::-webkit-scrollbar-thumb,
+.scrollbar-near::-webkit-scrollbar-thumb {
+  background-color: rgba(103, 88, 126, 0.42);
+}
+
+.scrollbar-active::-webkit-scrollbar-thumb:hover,
+.scrollbar-near::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(89, 72, 118, 0.58);
+}
+
+.n-scrollbar {
+  --n-scrollbar-width: 5px !important;
+  --n-scrollbar-height: 5px !important;
 }
 
 body {
