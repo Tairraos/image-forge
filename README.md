@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-0.2.37-9B7BEE?style=flat-square">
+  <img alt="version" src="https://img.shields.io/badge/version-0.2.38-9B7BEE?style=flat-square">
   <img alt="platform desktop" src="https://img.shields.io/badge/platform-desktop-111827?style=flat-square">
   <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white">
   <img alt="Vue" src="https://img.shields.io/badge/Vue-3-42B883?style=flat-square&logo=vuedotjs&logoColor=white">
@@ -28,7 +28,7 @@ Image Forge 是一个本地桌面生图工作台。它通过 OpenAI 兼容的 Im
 - 提示词模板：支持增删查改、参考图、工作台快捷保存、AI 填充 `{}` 占位和引用到提示词光标位置；
 - 模板包导入导出：ZIP 同时包含版本化清单、可读 Markdown 和哈希图片，可直接导回并跳过重复模板；
 - 参考图工作流：支持文件选择、剪贴板图片、Finder 文件路径粘贴和文件拖放，按 SHA-256 去重持久化，历史重用和模板引用会恢复参考图；
-- 安全删除：历史、模板、API 源和参考图移除都先确认；生成图及无人引用的参考图进入系统回收站；
+- 安全删除：历史、模板和 API 源删除前需要确认；参考图可直接从当前草稿移除；生成图及无人引用的参考图进入系统回收站；
 - 本地持久化：设置、队列、历史、请求、模板和参考图都保存在本机应用数据目录；
 - 马卡龙偏紫界面：三栏工作台、小型按钮、可拖拽调整 panel 宽度，默认把弹性空间留给结果预览。
 
@@ -154,6 +154,12 @@ pnpm run release
 - 每个正式版本都需要产出 `.dmg` 和 `.app` 到 `release/`，但不要提交这些二进制产物。
 
 ## 版本记录
+
+### v0.2.38
+
+- 参考图移除改为立即执行，不再弹出确认框。
+- 历史任务、模板和 API 源删除统一使用应用内确认弹窗。
+- 确认弹窗打开后自动聚焦“确认”按钮，支持回车确认和 Esc 取消。
 
 ### v0.2.37
 
