@@ -1229,8 +1229,8 @@ button:disabled {
   grid-template-rows: minmax(0, 1fr) auto;
   align-items: stretch;
   gap: 4px;
-  flex: 0 0 292px;
-  width: 292px;
+  flex: 0 0 180px;
+  width: 180px;
   min-width: 0;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -1246,8 +1246,10 @@ button:disabled {
 
 .provider-card-main {
   display: grid;
+  grid-template-rows: repeat(3, minmax(18px, auto));
   width: 100%;
   min-width: 0;
+  overflow: hidden;
   gap: 4px;
   border: 0;
   padding: 2px;
@@ -1258,7 +1260,11 @@ button:disabled {
 }
 
 .provider-card-main strong {
+  display: block;
+  width: 100%;
+  min-width: 0;
   overflow: hidden;
+  line-height: 18px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1325,6 +1331,10 @@ button:disabled {
 
 .provider-card span,
 .provider-card small {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  line-height: 18px;
   white-space: nowrap;
 }
 

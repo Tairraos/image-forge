@@ -15,9 +15,13 @@
               class="provider-card-main"
               @click.stop="selectProvider(provider.id)"
             >
-              <strong>{{ provider.name || "未命名 API 源" }}</strong>
-              <span>{{ modelTypeLabel(provider.modelType) }} · {{ provider.imageModel || "未设置模型" }}</span>
-              <small>{{ provider.apiKey ? "API Key 已保存" : "未填写 API Key" }}</small>
+              <strong :title="provider.name || '未命名 API 源'">
+                {{ provider.name || "未命名 API 源" }}
+              </strong>
+              <span :title="provider.imageModel || '未设置模型'">
+                {{ modelTypeLabel(provider.modelType) }}：{{ provider.imageModel || "未设置模型" }}
+              </span>
+              <small>Key: {{ maskedApiKey(provider.apiKey) }}</small>
             </button>
             <div class="provider-card-actions">
               <button
@@ -525,6 +529,12 @@ function normalizeProviderForSave(provider) {
 
 function modelTypeLabel(value) {
   return value === "chat" ? "对话模型" : "生图模型";
+}
+
+function maskedApiKey(value) {
+  const key = String(value || "");
+  if (!key) return "未填写";
+  return `${key.slice(0, 6)}******${key.slice(-6)}`;
 }
 
 function providerNameFromImportKey(key) {
