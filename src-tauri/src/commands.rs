@@ -17,6 +17,7 @@ use crate::{
     services::{
         chat::fill_template,
         images::reference_preview,
+        provider_bundle::{export_providers_json, read_providers_json},
         queue::{build_queue_snapshot, ensure_queue_worker, recover_stale_running},
         references::{persist_reference_paths, prune_unreferenced_files},
         template_bundle::{export_templates_archive, import_templates_archive},
@@ -72,6 +73,21 @@ pub(crate) fn save_settings(
     write_settings(&data_dir, &settings)?;
     ensure_queue_worker(&app);
     Ok(settings)
+}
+
+#[tauri::command]
+/// 将当前 API 源导出为可再次批量导入的 JSON 文件。
+pub(crate) fn export_api_providers(
+    destination: String,
+    providers: Vec<ApiProvider>,
+) -> Result<String, String> {
+    export_providers_json(Path::new(&destination), &providers)
+}
+
+#[tauri::command]
+/// 读取用户拖入导入框的 API 源 JSON 文件。
+pub(crate) fn read_api_providers_file(path: String) -> Result<String, String> {
+    read_providers_json(Path::new(&path))
 }
 
 #[tauri::command]

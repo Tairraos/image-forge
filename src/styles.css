@@ -1437,6 +1437,27 @@ button:disabled {
   font-size: 12px;
 }
 
+.api-import-drop-zone {
+  display: grid;
+  gap: 6px;
+  border: 1px dashed transparent;
+  border-radius: 9px;
+  padding: 4px;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease;
+}
+
+.api-import-drop-zone.reference-drop-active {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.api-import-drop-zone small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .switch-list label {
   display: flex;
   align-items: center;
