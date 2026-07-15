@@ -353,7 +353,8 @@ button:disabled {
 }
 
 .reference-add.reference-drop-active,
-.prompt-live-panel.reference-drop-active {
+.prompt-live-panel.reference-drop-active,
+.template-editor-drop-zone.reference-drop-active {
   border-color: var(--primary);
   background: #f4efff;
   box-shadow: 0 0 0 2px rgba(124, 92, 232, 0.14);
@@ -1133,6 +1134,14 @@ button:disabled {
 
 .template-content-input textarea {
   line-height: 1.6;
+}
+
+.template-editor-drop-zone {
+  min-height: 0;
+  border-radius: 8px;
+  transition:
+    background 160ms ease,
+    box-shadow 160ms ease;
 }
 
 .template-editor-reference-strip,

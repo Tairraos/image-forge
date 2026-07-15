@@ -41,7 +41,7 @@
       <button
         class="reference-add"
         :class="{ 'reference-drop-active': referenceDragActive }"
-        data-reference-drop-zone
+        data-reference-drop-target="workbench"
         type="button"
         @dragover.prevent="$emit('reference-drag-over')"
         @dragleave="$emit('reference-drag-leave')"
@@ -56,7 +56,7 @@
     <div
       class="prompt-live-panel"
       :class="{ 'reference-drop-active': referenceDragActive }"
-      data-reference-drop-zone
+      data-reference-drop-target="workbench"
       @dragover.prevent="$emit('reference-drag-over')"
       @dragleave="$emit('reference-drag-leave')"
       @drop.prevent="$emit('drop-reference', $event)"

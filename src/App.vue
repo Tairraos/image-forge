@@ -120,12 +120,17 @@
       <TemplateEditorDialog
         v-model:show="showTemplateEditor"
         :template="templateDraft"
-        :mode="templateEditorMode"
-        :references="templateDraftReferences"
-        @save="savePromptTemplate"
-        @add-reference="addTemplateDraftReferenceImages"
-        @remove-reference="removeReference(templateDraftReferences, $event)"
-        @paste-reference="handleTemplateDraftPaste"
+          :mode="templateEditorMode"
+          :references="templateDraftReferences"
+          :reference-drag-active="templateDraftDragActive"
+          @save="savePromptTemplate"
+          @add-reference="addTemplateDraftReferenceImages"
+          @remove-reference="removeReference(templateDraftReferences, $event)"
+          @paste-reference="handleTemplateDraftPaste"
+        @reference-drag-over="templateDraftDragActive = true"
+        @reference-drag-leave="templateDraftDragActive = false"
+        @drop-reference="handleTemplateDraftDropEvent"
+        @update:show="templateDraftDragActive = false"
       />
 
       <TaskDetailDialog
@@ -193,6 +198,7 @@ const templates = ref([]);
 const references = ref([]);
 const referenceDragActive = ref(false);
 const templateDraftReferences = ref([]);
+const templateDraftDragActive = ref(false);
 const templateReferenceReferences = ref([]);
 const selectedTaskId = ref("");
 const submitting = ref(false);
@@ -510,31 +516,37 @@ async function addReferencePathsWithOptions(target, paths, successMessage, optio
 
 function handleReferenceDragDrop(event) {
   const payload = event?.payload || {};
-  const active = referenceDropTarget(payload.position);
-  if (payload.type === "over") {
-    referenceDragActive.value = active;
+  const target = referenceDropTarget(payload.position) || defaultReferenceDropTarget();
+  if (payload.type === "enter" || payload.type === "over") {
+    setReferenceDragTarget(target);
     return;
   }
   if (payload.type === "leave") {
-    referenceDragActive.value = false;
+    clearReferenceDragTargets();
     return;
   }
-  referenceDragActive.value = false;
+  clearReferenceDragTargets();
   if (payload.type === "drop" && payload.paths?.length) {
-    void addReferencePathsWithOptions(references, payload.paths, "已添加拖放参考图", {
-      silentInvalid: true,
-    });
+    void addDraggedReferencePaths(target, payload.paths);
   }
 }
 
 function handleReferenceDropEvent(event) {
-  referenceDragActive.value = false;
+  clearReferenceDragTargets();
   const paths = extractDroppedFilePaths(event?.dataTransfer);
-  if (paths.length) {
-    void addReferencePathsWithOptions(references, paths, "已添加拖放参考图", {
-      silentInvalid: true,
-    });
-  }
+  if (paths.length) void addDraggedReferencePaths("workbench", paths);
+}
+
+function handleTemplateDraftDropEvent(event) {
+  clearReferenceDragTargets();
+  const paths = extractDroppedFilePaths(event?.dataTransfer);
+  if (paths.length) void addDraggedReferencePaths("template-draft", paths);
+}
+
+function addDraggedReferencePaths(target, paths) {
+  const destination = target === "template-draft" ? templateDraftReferences : references;
+  const message = target === "template-draft" ? "已添加模板参考图" : "已添加拖放参考图";
+  return addReferencePathsWithOptions(destination, paths, message, { silentInvalid: true });
 }
 
 function referenceDropTarget(position) {
@@ -542,9 +554,28 @@ function referenceDropTarget(position) {
   const y = Number(position?.y);
   if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
   const scale = window.devicePixelRatio || 1;
-  return [[x, y], [x / scale, y / scale]].some(([left, top]) =>
-    document.elementFromPoint(left, top)?.closest("[data-reference-drop-zone]"),
-  );
+  for (const [left, top] of [[x, y], [x / scale, y / scale]]) {
+    const zone = document
+      .elementFromPoint(left, top)
+      ?.closest("[data-reference-drop-target]");
+    if (zone?.dataset.referenceDropTarget) return zone.dataset.referenceDropTarget;
+  }
+  return "";
+}
+
+function defaultReferenceDropTarget() {
+  if (showTemplateEditor.value && templateEditorMode.value !== "view") return "template-draft";
+  return "workbench";
+}
+
+function setReferenceDragTarget(target) {
+  referenceDragActive.value = target === "workbench";
+  templateDraftDragActive.value = target === "template-draft";
+}
+
+function clearReferenceDragTargets() {
+  referenceDragActive.value = false;
+  templateDraftDragActive.value = false;
 }
 
 async function pasteReferenceImage(event, target, successMessage) {
@@ -579,8 +610,9 @@ function appendReferencePreview(target, preview) {
 
 // 参考图只从当前草稿移除，不需要删除确认。
 function removeReference(target, index) {
-  if (!target.value[index]) return;
-  target.value.splice(index, 1);
+  const items = Array.isArray(target) ? target : target?.value;
+  if (!Array.isArray(items) || !items[index]) return;
+  items.splice(index, 1);
 }
 
 async function restoreReferencePreviews(paths) {

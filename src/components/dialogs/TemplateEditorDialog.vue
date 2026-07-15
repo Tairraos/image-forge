@@ -12,16 +12,25 @@
         />
       </label>
       <div v-if="readonly" class="template-highlight-box" v-html="highlightedContent"></div>
-      <n-input
+      <div
         v-else
-        v-model:value="template.content"
-        type="textarea"
-        class="template-content-input"
-        :autosize="{ minRows: 16, maxRows: 16 }"
-        :resizable="false"
-        placeholder="输入模板内容，可使用 {这里写需要 AI 填充的描述}"
-        @paste="$emit('paste-reference', $event)"
-      />
+        class="template-editor-drop-zone"
+        :class="{ 'reference-drop-active': referenceDragActive }"
+        data-reference-drop-target="template-draft"
+        @dragover.prevent="$emit('reference-drag-over')"
+        @dragleave="$emit('reference-drag-leave')"
+        @drop.prevent="$emit('drop-reference', $event)"
+      >
+        <n-input
+          v-model:value="template.content"
+          type="textarea"
+          class="template-content-input"
+          :autosize="{ minRows: 16, maxRows: 16 }"
+          :resizable="false"
+          placeholder="输入模板内容，可使用 {这里写需要 AI 填充的描述}"
+          @paste="$emit('paste-reference', $event)"
+        />
+      </div>
       <div class="reference-strip template-editor-reference-strip">
         <div v-for="(item, index) in references" :key="item.path" class="reference-tile">
           <img :src="item.previewUrl" :alt="item.fileName" />
@@ -34,7 +43,17 @@
             <X :size="14" />
           </button>
         </div>
-        <button v-if="!readonly" class="reference-add" type="button" @click="$emit('add-reference')">
+        <button
+          v-if="!readonly"
+          class="reference-add"
+          :class="{ 'reference-drop-active': referenceDragActive }"
+          data-reference-drop-target="template-draft"
+          type="button"
+          @dragover.prevent="$emit('reference-drag-over')"
+          @dragleave="$emit('reference-drag-leave')"
+          @drop.prevent="$emit('drop-reference', $event)"
+          @click="$emit('add-reference')"
+        >
           <Plus :size="18" />
           <span>参考图</span>
         </button>
@@ -59,9 +78,18 @@ const props = defineProps({
   template: { type: Object, required: true },
   mode: { type: String, default: "edit" },
   references: { type: Array, default: () => [] },
+  referenceDragActive: { type: Boolean, default: false },
 });
 
-defineEmits(["save", "add-reference", "remove-reference", "paste-reference"]);
+defineEmits([
+  "save",
+  "add-reference",
+  "remove-reference",
+  "paste-reference",
+  "reference-drag-over",
+  "reference-drag-leave",
+  "drop-reference",
+]);
 
 const readonly = computed(() => props.mode === "view");
 const dialogTitle = computed(() => {
