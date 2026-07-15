@@ -734,11 +734,12 @@ button:disabled {
 }
 
 .selected-task p {
-  max-height: 44px;
-  overflow: auto;
   margin: 0;
   color: #a03550;
   font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .output-grid {

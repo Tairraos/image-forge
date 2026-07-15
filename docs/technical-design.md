@@ -64,7 +64,7 @@ flowchart LR
 - 模板保存、导入和 AI 填充的成功/失败提示使用 `NoticeDialog`，单按钮自动取得焦点，回车和 Esc 都会关闭。
 - 任务与模板都保存 `referencePaths`；重用任务或引用模板时，前端重新加载缩略图并合并到工作台参考图。
 - `QueuePanel` 只监听 `App.vue` 的滚动请求计数；首次状态加载和新任务入队后递增，定时队列快照不会修改用户当前浏览位置。
-- 结果预览列使用 `auto + minmax(0, 1fr)` 两行网格和固定间距，状态区随错误内容增高时，图片或空预览区在剩余空间内弹性收缩。
+- 结果预览列使用 `auto + minmax(0, 1fr)` 两行网格和固定间距；失败错误文本不限制行数并允许任意位置换行，状态区随完整错误内容增高时，图片或空预览区在剩余空间内弹性收缩。
 - 原生拖放事件由 `src/tauri.js` 转发到 `App.vue`；`data-reference-drop-target` 区分主工作台和模板草稿，坐标无法识别时按当前可见编辑器兜底路由。
 - WebView 拖放和可见的 Finder 粘贴数据由 `referenceFiles.js` 提取本地文件路径；模板内容区和“参考图”按钮都可以接收拖放。
 - macOS WebView 未暴露 Finder 文件路径时，`clipboard.rs` 读取系统粘贴板各项目的 `public.file-url`，优先预览原始图片文件，再回退到普通位图剪贴板。
