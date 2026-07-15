@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-0.2.39-9B7BEE?style=flat-square">
+  <img alt="version" src="https://img.shields.io/badge/version-0.2.40-9B7BEE?style=flat-square">
   <img alt="platform desktop" src="https://img.shields.io/badge/platform-desktop-111827?style=flat-square">
   <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white">
   <img alt="Vue" src="https://img.shields.io/badge/Vue-3-42B883?style=flat-square&logo=vuedotjs&logoColor=white">
@@ -154,6 +154,12 @@ pnpm run release
 - 每个正式版本都需要产出 `.dmg` 和 `.app` 到 `release/`，但不要提交这些二进制产物。
 
 ## 版本记录
+
+### v0.2.40
+
+- 修复主工作台、模板新增/编辑和模板引用中的参考图删除按钮无响应。
+- 模板新增和编辑弹窗支持把图片拖到模板内容区或“参考图”按钮，图片会加入当前模板草稿。
+- 原生 Tauri 拖放按主工作台和模板编辑器分别路由，避免参考图加入错误区域。
 
 ### v0.2.39
 
