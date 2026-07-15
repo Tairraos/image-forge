@@ -26,7 +26,7 @@ Image Forge 是一个本地桌面生图工作台。它通过 OpenAI 兼容的 Im
 - 生图历史：任务入队、后台执行、刷新、重试、删除、运行状态轮询和失败自动重试，历史卡片显示真实图片尺寸；
 - 结果预览：选择历史任务后预览输出图片，支持复制、下载到 Downloads 和在 Finder 中定位；
 - 提示词模板：支持增删查改、参考图、工作台快捷保存、AI 填充 `{}` 占位和引用到提示词光标位置；
-- 模板导出：把全部提示词生成 Markdown，并与去重后的模板参考图一起导出为 ZIP；
+- 模板包导入导出：ZIP 同时包含版本化清单、可读 Markdown 和哈希图片，可直接导回并跳过重复模板；
 - 参考图工作流：支持文件选择和剪贴板粘贴，按 SHA-256 去重持久化，历史重用和模板引用会恢复参考图；
 - 安全删除：历史、模板、API 源和参考图移除都先确认；生成图及无人引用的参考图进入系统回收站；
 - 本地持久化：设置、队列、历史、请求、模板和参考图都保存在本机应用数据目录；
@@ -126,7 +126,7 @@ pnpm run release
 - `src-tauri/src/commands.rs`：前端可调用的 Tauri 命令；
 - `src-tauri/src/models.rs`：Rust 与前端通信的数据模型；
 - `src-tauri/src/store.rs`：JSON 文件数据库、路径管理和数据归一化；
-- `src-tauri/src/services/`：Images/Chat/Models API、后台队列、剪贴板、参考图资源和模板 ZIP 导出；
+- `src-tauri/src/services/`：Images/Chat/Models API、后台队列、剪贴板、参考图资源和模板 ZIP 导入导出；
 - `src-tauri/src/lib.rs`：Tauri 入口和命令注册；
 - `src-tauri/tauri.conf.json`：Tauri 窗口、打包、权限和应用版本配置；
 - `docs/technical-design.md`：技术架构、数据流、存储结构和运行逻辑说明。
@@ -141,7 +141,7 @@ pnpm run release
 - 改队列/结果预览：修改 `src/components/QueuePanel.vue` 和 `src/components/ResultPanel.vue`；
 - 改模板维护：修改 `src/components/dialogs/TemplateManagerDialog.vue`；
 - 改模板引用和 AI 填充：修改 `src/components/dialogs/TemplateReferenceDialog.vue` 和 `src-tauri/src/services/chat.rs`；
-- 改模板导出：修改 `src/App.vue`、`src-tauri/src/services/template_export.rs` 和 `src/tauri.js`；
+- 改模板包导入导出：修改 `src/App.vue`、`src-tauri/src/services/template_bundle.rs` 和 `src/tauri.js`；
 - 改参考图持久化：修改 `src-tauri/src/services/references.rs` 和 `src-tauri/src/services/clipboard.rs`；
 - 改配色：优先修改 `src/lib/theme.js`，再修改 `src/styles.css`；
 - 改窗口最小尺寸：修改 `src-tauri/tauri.conf.json` 的 `minWidth` 和 `minHeight`。
@@ -154,6 +154,13 @@ pnpm run release
 - 每个正式版本都需要产出 `.dmg` 和 `.app` 到 `release/`，但不要提交这些二进制产物。
 
 ## 版本记录
+
+### v0.2.35
+
+- 模板维护新增 ZIP 导入，可直接读取 Image Forge 导出的提示词和参考图。
+- 模板包新增版本化 `manifest.json`，图片使用 SHA-256 文件名并进行完整性校验。
+- 导入模板重新分配数字 ID，内容和参考图完全相同的模板自动跳过。
+- 兼容读取 `0.2.34` 导出的 Markdown 模板包，并限制文件数量、压缩包大小和解压后体积。
 
 ### v0.2.34
 
