@@ -22,7 +22,7 @@
               <span :title="provider.imageModel || '未设置模型'">
                 {{ provider.imageModel || "未设置模型" }}
               </span>
-              <small>Key: {{ maskedApiKey(provider.apiKey) }}</small>
+              <small>{{ maskedApiKey(provider.apiKey) }}</small>
             </button>
             <div class="provider-card-actions">
               <button
