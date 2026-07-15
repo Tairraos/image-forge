@@ -647,6 +647,7 @@ button:disabled {
 
 .result-column {
   grid-template-rows: auto minmax(0, 1fr);
+  gap: 10px;
   overflow: hidden;
 }
 
@@ -709,7 +710,6 @@ button:disabled {
   gap: 9px;
   min-height: 0;
   overflow: hidden;
-  margin-top: 10px;
 }
 
 .output-card {
@@ -759,7 +759,6 @@ button:disabled {
   align-content: center;
   gap: 8px;
   min-height: 0;
-  margin-top: 10px;
   border: 1px dashed #d7caff;
   border-radius: 8px;
   background:
