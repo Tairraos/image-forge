@@ -37,7 +37,7 @@ flowchart LR
 | `src/components/dialogs/ApiSourceDialog.vue`         | API 源/模型管理、横向排序、JSON 导入导出、克隆和编辑；内部 ID 自动生成且不展示。 |
 | `src/components/dialogs/ConfirmDialog.vue`           | 删除确认弹窗：自动聚焦确认按钮，支持回车确认和 Esc 取消。                 |
 | `src/components/dialogs/NoticeDialog.vue`            | 单按钮通知弹窗：用于成功、错误和超时提示，Enter 与 Esc 都关闭弹窗。       |
-| `src/components/dialogs/TemplateManagerDialog.vue`   | 模板维护弹窗：搜索、标题/参考图数量列表、查看/编辑/删除、新增、导入和导出入口。    |
+| `src/components/dialogs/TemplateManagerDialog.vue`   | 模板维护弹窗：搜索、手动排序、标题点击查看、提示词/参考图悬浮预览、编辑删除及导入导出入口。    |
 | `src/components/dialogs/TemplateEditorDialog.vue`    | 模板新增/编辑/查看弹窗；支持标题、参考图选择、粘贴和拖放，查看模式高亮 `{}` 占位区域。 |
 | `src/components/dialogs/TemplateReferenceDialog.vue` | 引用模板弹窗：搜索与标题下拉、原文/AI 结果对比编辑、临时参考图和 AI 填充。     |
 | `src/components/dialogs/TaskDetailDialog.vue`        | API 源/模型、三列参数表、输出图和重用入口；弹窗不超过可视区域并允许滚动。      |
@@ -199,7 +199,8 @@ sequenceDiagram
 - 模板新增时后端使用现有最大数字 ID 自增，从 `1` 开始；旧 UUID 模板保留但不参与数字序列。
 - 模板以 `content`、`title` 和 `referencePaths` 为核心字段；`category`、`notes`、`favorite` 等旧字段继续保留以兼容已有数据。
 - 新建或导入模板没有标题时，`store::normalize_template()` 从内容第一行生成标题，并取前 24 个 Unicode 字符；读取旧模板时也会执行一次迁移。
-- 模板维护列表只展示标题和参考图数量，查看/编辑/删除等操作仍在操作列中；引用模板下拉框显示标题，搜索仍支持标题、内容和数字 ID。
+- 模板维护列表按持久化数组顺序展示，排序列通过 `move_template` 交换当前模板与可见相邻模板的位置；保存和导入只更新或追加模板，不再按数字 ID 自动重排。
+- 模板列表固定表头并最多显示 12 条，标题点击打开只读查看弹窗；标题悬浮显示完整提示词，参考图数量悬浮显示 `64×64` 缩略图，操作列只保留编辑和删除。引用模板下拉框显示标题，搜索仍支持标题、内容和数字 ID。
 - 引用模板页脚的对话模型选择器固定向上展开，避免弹出菜单超出窗口底部可视区域。
 - 模板可保存多个 `referencePaths`；相同图片与历史任务共享同一份哈希资源文件。
 - 查看模板和引用模板预览会把 `{}` 包围的占位描述显示为浅紫色底色。

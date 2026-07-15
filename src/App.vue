@@ -94,6 +94,7 @@
         @create="newTemplate"
         @import="importPromptTemplates"
         @export="exportPromptTemplates"
+        @move="movePromptTemplate"
       />
 
       <TemplateReferenceDialog
@@ -875,6 +876,15 @@ async function deletePromptTemplate(id) {
   if (!confirmed) return;
   try {
     templates.value = await invoke("delete_template", { templateId: id });
+  } catch (error) {
+    setStatus(String(error), "error");
+  }
+}
+
+// 交换当前模板与搜索结果中相邻模板的位置，并持久化完整模板顺序。
+async function movePromptTemplate({ templateId, targetTemplateId }) {
+  try {
+    templates.value = await invoke("move_template", { templateId, targetTemplateId });
   } catch (error) {
     setStatus(String(error), "error");
   }

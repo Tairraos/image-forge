@@ -34,6 +34,7 @@ pub fn run() {
             commands::load_app_state,
             commands::list_provider_models,
             commands::mark_template_used,
+            commands::move_template,
             commands::queue_snapshot,
             commands::read_api_providers_file,
             commands::reference_from_clipboard,

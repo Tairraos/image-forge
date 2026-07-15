@@ -268,7 +268,6 @@ pub(crate) fn save_template(
     } else {
         templates.push(next);
     }
-    templates.sort_by(compare_template_id);
     write_json(&templates_path(&data_dir), &templates)?;
     prune_unreferenced_files(&data_dir)?;
     Ok(templates)
@@ -332,7 +331,6 @@ fn merge_imported_templates(
         imported_count += 1;
     }
 
-    templates.sort_by(compare_template_id);
     Ok(TemplateImportResult {
         templates,
         imported_count,
@@ -351,14 +349,6 @@ fn template_signature(template: &PromptTemplate) -> (String, String, Vec<String>
     )
 }
 
-/// 优先按数字 ID 排序模板，兼容旧数据中的非数字 ID。
-fn compare_template_id(left: &PromptTemplate, right: &PromptTemplate) -> std::cmp::Ordering {
-    match (left.id.parse::<u64>(), right.id.parse::<u64>()) {
-        (Ok(left_id), Ok(right_id)) => left_id.cmp(&right_id),
-        _ => left.id.cmp(&right.id),
-    }
-}
-
 #[tauri::command]
 /// 删除指定提示词模板并返回更新后的模板列表。
 pub(crate) fn delete_template(
@@ -371,6 +361,37 @@ pub(crate) fn delete_template(
     write_json(&templates_path(&data_dir), &templates)?;
     prune_unreferenced_files(&data_dir)?;
     Ok(templates)
+}
+
+#[tauri::command]
+/// 交换两个模板在持久化数组中的位置，用于维护界面的手动排序。
+pub(crate) fn move_template(
+    app: AppHandle,
+    template_id: String,
+    target_template_id: String,
+) -> Result<Vec<PromptTemplate>, String> {
+    let data_dir = ensure_data_dir(&app)?;
+    let mut templates = read_templates(&data_dir)?;
+    swap_template_order(&mut templates, &template_id, &target_template_id)?;
+    write_json(&templates_path(&data_dir), &templates)?;
+    Ok(templates)
+}
+
+fn swap_template_order(
+    templates: &mut [PromptTemplate],
+    template_id: &str,
+    target_template_id: &str,
+) -> Result<(), String> {
+    let index = templates
+        .iter()
+        .position(|template| template.id == template_id)
+        .ok_or("找不到要移动的模板")?;
+    let target_index = templates
+        .iter()
+        .position(|template| template.id == target_template_id)
+        .ok_or("找不到目标模板")?;
+    templates.swap(index, target_index);
+    Ok(())
 }
 
 #[tauri::command]
@@ -602,6 +623,23 @@ mod tests {
         let normalized =
             normalize_template(template("", "", "第一行标题\n第二行不应进入标题", &[])).unwrap();
         assert_eq!(normalized.title, "第一行标题");
+    }
+
+    #[test]
+    fn templates_can_swap_persisted_order() {
+        let mut templates = vec![
+            template("1", "模板一", "内容一", &[]),
+            template("2", "模板二", "内容二", &[]),
+            template("3", "模板三", "内容三", &[]),
+        ];
+        swap_template_order(&mut templates, "3", "1").unwrap();
+        assert_eq!(
+            templates
+                .iter()
+                .map(|template| template.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["3", "2", "1"]
+        );
     }
 
     fn template(id: &str, title: &str, content: &str, reference_paths: &[&str]) -> PromptTemplate {

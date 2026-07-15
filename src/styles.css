@@ -971,7 +971,7 @@ button:disabled {
 
 .template-table-wrap {
   min-height: 0;
-  max-height: 330px;
+  max-height: 494px;
   overflow: auto;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -988,6 +988,7 @@ button:disabled {
 
 .template-table th,
 .template-table td {
+  height: 38px;
   overflow: hidden;
   border-bottom: 1px solid #eee9fb;
   padding: 9px 10px;
@@ -1005,15 +1006,21 @@ button:disabled {
   font-weight: 700;
 }
 
-.template-table th:nth-child(2),
-.template-table td:nth-child(2) {
+.template-table th:first-child,
+.template-table td:first-child {
+  width: 52px;
+  text-align: center;
+}
+
+.template-table th:nth-child(3),
+.template-table td:nth-child(3) {
   width: 112px;
   text-align: right;
 }
 
 .template-table th:last-child,
 .template-table td:last-child {
-  width: 150px;
+  width: 104px;
   text-align: right;
 }
 
@@ -1030,8 +1037,110 @@ button:disabled {
   white-space: nowrap;
 }
 
+.template-title-button,
+.template-reference-button {
+  display: block;
+  overflow: hidden;
+  width: 100%;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.template-title-button {
+  color: #47375f;
+  transition: color 160ms ease;
+}
+
+.template-title-button:hover,
+.template-title-button:focus-visible {
+  color: var(--primary);
+}
+
+.template-title-button:focus-visible,
+.template-reference-button:focus-visible,
+.template-sort-actions button:focus-visible {
+  outline: 2px solid rgba(124, 92, 232, 0.32);
+  outline-offset: 2px;
+}
+
 .template-reference-cell {
   color: var(--muted);
+}
+
+.template-reference-button {
+  color: var(--muted);
+}
+
+.template-sort-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.template-sort-actions button {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 22px;
+  border: 0;
+  border-radius: 5px;
+  padding: 0;
+  background: transparent;
+  color: #716487;
+  transition:
+    background 160ms ease,
+    color 160ms ease;
+}
+
+.template-sort-actions button:hover:not(:disabled) {
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.template-sort-actions button:disabled {
+  color: #c9c1d6;
+}
+
+.template-prompt-preview {
+  max-height: 240px;
+  overflow: auto;
+  color: #514464;
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.template-reference-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 280px;
+  max-height: 208px;
+  overflow: auto;
+}
+
+.template-reference-thumbnail {
+  display: block;
+  overflow: hidden;
+  width: 64px;
+  height: 64px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-muted);
+}
+
+.template-reference-thumbnail img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .template-empty-cell {

@@ -139,7 +139,7 @@ pnpm run release
 - 改 API 源/模型管理：修改 `src/components/dialogs/ApiSourceDialog.vue`；
 - 改工作台参数区和生图模型选择：修改 `src/components/ComposerPanel.vue`；
 - 改队列/结果预览：修改 `src/components/QueuePanel.vue` 和 `src/components/ResultPanel.vue`；
-- 改模板维护：修改 `src/components/dialogs/TemplateManagerDialog.vue`；列表显示标题、参考图数量和操作，模板内容在查看/编辑弹窗中维护；
+- 改模板维护：修改 `src/components/dialogs/TemplateManagerDialog.vue`；列表支持手动排序、标题点击查看、提示词/参考图悬浮预览和编辑删除；
 - 改模板引用和 AI 填充：修改 `src/components/dialogs/TemplateReferenceDialog.vue` 和 `src-tauri/src/services/chat.rs`；
 - 改模板包导入导出：修改 `src/App.vue`、`src-tauri/src/services/template_bundle.rs` 和 `src/tauri.js`；
 - 改参考图持久化：修改 `src-tauri/src/services/references.rs` 和 `src-tauri/src/services/clipboard.rs`；
@@ -154,6 +154,11 @@ pnpm run release
 - 每个正式版本都需要产出 `.dmg` 和 `.app` 到 `release/`，但不要提交这些二进制产物。
 
 ## 版本记录
+
+### v0.2.47
+
+- 模板维护列表新增持久化上下排序；标题点击直接查看模板，并在悬浮时预览完整提示词。
+- 参考图数量支持悬浮查看 `64×64` 缩略图；操作列移除“查看”，列表最多显示 12 条且表头固定。
 
 ### v0.2.46
 
