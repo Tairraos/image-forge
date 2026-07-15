@@ -2,7 +2,7 @@
   <n-modal v-model:show="show" preset="card" title="模板维护" class="template-manager-modal">
     <div class="template-manager">
       <div class="template-toolbar">
-        <n-input v-model:value="query" clearable placeholder="搜索模板或 ID">
+        <n-input v-model:value="query" clearable placeholder="搜索标题、模板或 ID">
           <template #prefix><Search :size="15" /></template>
         </n-input>
         <div class="template-toolbar-actions">
@@ -25,15 +25,15 @@
         <table class="template-table">
           <thead>
             <tr>
+              <th>标题</th>
               <th>参考图</th>
-              <th>模板</th>
               <th>操作</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="template in templates" :key="template.id">
-              <td>{{ referenceCount(template) }}</td>
-              <td class="template-content-cell" :title="template.content">{{ singleLine(template.content) }}</td>
+              <td class="template-title-cell" :title="template.title">{{ template.title }}</td>
+              <td class="template-reference-cell">{{ referenceCount(template) }}</td>
               <td>
                 <div class="template-table-actions">
                   <n-button size="tiny" secondary @click="$emit('view', template)">查看</n-button>
@@ -65,10 +65,6 @@ defineProps({
 });
 
 defineEmits(["create", "import", "export", "view", "edit", "delete"]);
-
-function singleLine(value) {
-  return String(value || "").replace(/\s+/g, " ").trim();
-}
 
 function referenceCount(template) {
   const count = template.referencePaths?.length || 0;

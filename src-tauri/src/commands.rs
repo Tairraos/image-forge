@@ -324,11 +324,15 @@ fn merge_imported_templates(
     })
 }
 
-fn template_signature(template: &PromptTemplate) -> (String, Vec<String>) {
+fn template_signature(template: &PromptTemplate) -> (String, String, Vec<String>) {
     let mut references = template.reference_paths.clone();
     references.sort();
     references.dedup();
-    (template.content.trim().to_string(), references)
+    (
+        template.title.trim().to_string(),
+        template.content.trim().to_string(),
+        references,
+    )
 }
 
 /// 优先按数字 ID 排序模板，兼容旧数据中的非数字 ID。
@@ -554,29 +558,39 @@ mod tests {
     fn imported_templates_skip_duplicates_and_continue_numeric_ids() {
         let existing = vec![template(
             "4",
+            "相同标题",
             "相同模板",
             &["/references/a.png", "/references/b.png"],
         )];
         let imported = vec![
             template(
                 "",
+                "相同标题",
                 " 相同模板 ",
                 &["/references/b.png", "/references/a.png"],
             ),
-            template("", "新增模板", &[]),
+            template("", "", "新增模板", &[]),
         ];
         let result = merge_imported_templates(existing, imported).unwrap();
         assert_eq!(result.imported_count, 1);
         assert_eq!(result.skipped_count, 1);
         assert_eq!(result.templates.len(), 2);
         assert_eq!(result.templates[1].id, "5");
+        assert_eq!(result.templates[1].title, "新增模板");
         assert_eq!(result.templates[1].content, "新增模板");
     }
 
-    fn template(id: &str, content: &str, reference_paths: &[&str]) -> PromptTemplate {
+    #[test]
+    fn empty_title_uses_only_the_first_line() {
+        let normalized =
+            normalize_template(template("", "", "第一行标题\n第二行不应进入标题", &[])).unwrap();
+        assert_eq!(normalized.title, "第一行标题");
+    }
+
+    fn template(id: &str, title: &str, content: &str, reference_paths: &[&str]) -> PromptTemplate {
         PromptTemplate {
             id: id.into(),
-            title: String::new(),
+            title: title.into(),
             short_title: String::new(),
             category: String::new(),
             content: content.into(),

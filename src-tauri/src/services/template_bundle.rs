@@ -42,6 +42,8 @@ struct BundleManifest {
 struct BundleTemplate {
     #[serde(default)]
     source_id: String,
+    #[serde(default)]
+    title: String,
     content: String,
     #[serde(default)]
     references: Vec<String>,
@@ -183,6 +185,7 @@ fn build_manifest(
             .iter()
             .map(|template| BundleTemplate {
                 source_id: template.id.clone(),
+                title: template.title.clone(),
                 content: template.content.clone(),
                 references: template
                     .reference_paths
@@ -205,8 +208,8 @@ fn build_templates_markdown(
     );
     for template in templates {
         markdown.push_str(&format!(
-            "---\n\n## 模板 {}\n\n{}\n\n",
-            template.id, template.content
+            "---\n\n## 模板 {} · {}\n\n{}\n\n",
+            template.id, template.title, template.content
         ));
         let references = template
             .reference_paths
@@ -344,7 +347,11 @@ fn import_bundle_templates(
                         .ok_or_else(|| format!("模板包缺少参考图：{path}"))
                 })
                 .collect::<Result<Vec<_>, _>>()?;
-            Ok(imported_template(template.content, references))
+            Ok(imported_template(
+                template.title,
+                template.content,
+                references,
+            ))
         })
         .collect()
 }
@@ -389,6 +396,7 @@ fn parse_legacy_markdown(markdown: &str) -> Result<Vec<BundleTemplate>, String> 
             .unwrap_or_default();
         templates.push(BundleTemplate {
             source_id: source_id.trim().into(),
+            title: String::new(),
             content: content.trim().into(),
             references,
         });
@@ -421,10 +429,14 @@ fn verify_reference_hash(archive_path: &str, bytes: &[u8]) -> Result<(), String>
     Ok(())
 }
 
-fn imported_template(content: String, reference_paths: Vec<String>) -> PromptTemplate {
+fn imported_template(
+    title: String,
+    content: String,
+    reference_paths: Vec<String>,
+) -> PromptTemplate {
     PromptTemplate {
         id: String::new(),
-        title: String::new(),
+        title,
         short_title: String::new(),
         category: String::new(),
         content,
@@ -499,6 +511,7 @@ mod tests {
         fs::create_dir_all(&imported_dir).unwrap();
         let imported = import_templates_archive(&imported_dir, &archive_path).unwrap();
         assert_eq!(imported.len(), 2);
+        assert_eq!(imported[0].title, "标题1");
         assert_eq!(imported[0].content, "第一个提示词");
         assert_eq!(imported[1].content, "第二个提示词");
         assert_eq!(imported[0].reference_paths, imported[1].reference_paths);
@@ -552,7 +565,7 @@ mod tests {
     fn template(id: &str, content: &str, reference: &Path) -> PromptTemplate {
         PromptTemplate {
             id: id.into(),
-            title: String::new(),
+            title: format!("标题{id}"),
             short_title: String::new(),
             category: String::new(),
             content: content.into(),

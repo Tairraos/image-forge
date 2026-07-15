@@ -2,7 +2,7 @@
   <n-modal v-model:show="show" preset="card" title="引用模板" class="template-reference-modal">
     <div class="template-reference-layout">
       <div class="template-reference-toolbar">
-        <n-input v-model:value="query" clearable placeholder="搜索模板或 ID">
+        <n-input v-model:value="query" clearable placeholder="搜索标题、模板或 ID">
           <template #prefix><Search :size="15" /></template>
         </n-input>
         <n-select
@@ -117,7 +117,7 @@ const generatedHighlightRef = ref(null);
 const generatedTextareaRef = ref(null);
 const templateOptions = computed(() =>
   props.templates.map((template) => ({
-    label: `${template.id} · ${singleLine(template.content)}`,
+    label: template.title || singleLine(template.content),
     value: template.id,
   })),
 );

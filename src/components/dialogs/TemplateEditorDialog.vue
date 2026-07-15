@@ -1,6 +1,16 @@
 <template>
   <n-modal v-model:show="show" preset="card" :title="dialogTitle" class="template-editor-modal">
     <div class="template-edit-body">
+      <label class="template-title-field">
+        <span>标题</span>
+        <n-input
+          v-model:value="template.title"
+          :readonly="readonly"
+          maxlength="80"
+          show-count
+          placeholder="留空时使用内容第一行，最多 24 个字"
+        />
+      </label>
       <div v-if="readonly" class="template-highlight-box" v-html="highlightedContent"></div>
       <n-input
         v-else

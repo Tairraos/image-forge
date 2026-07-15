@@ -52,6 +52,7 @@ mod tests {
     use uuid::Uuid;
 
     use super::services::references::persist_reference_bytes;
+    use super::store::default_template_title;
     use super::utils::{
         image_prompt_for_transport, normalize_base_url, prompt_with_ratio_instruction, sanitize_id,
         should_send_input_fidelity, size_for_preset,
@@ -79,6 +80,16 @@ mod tests {
     fn provider_ids_are_stable() {
         assert_eq!(sanitize_id("OpenAI Official"), "OpenAI-Official");
         assert_eq!(sanitize_id(""), "default");
+    }
+
+    #[test]
+    fn template_title_uses_the_first_line_and_limits_unicode_length() {
+        assert_eq!(
+            default_template_title("第一行标题\n第二行内容"),
+            "第一行标题"
+        );
+        let long_title = "字".repeat(30);
+        assert_eq!(default_template_title(&long_title), "字".repeat(24));
     }
 
     #[test]

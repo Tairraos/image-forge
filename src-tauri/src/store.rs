@@ -382,7 +382,16 @@ pub(crate) fn clear_running_task(data_dir: &Path, task_id: &str) -> Result<(), S
 }
 
 pub(crate) fn read_templates(data_dir: &Path) -> Result<Vec<PromptTemplate>, String> {
-    read_json(&templates_path(data_dir))
+    let path = templates_path(data_dir);
+    let mut templates: Vec<PromptTemplate> = read_json(&path)?;
+    let mut changed = false;
+    for template in &mut templates {
+        changed |= migrate_template_title(template);
+    }
+    if changed {
+        write_json(&path, &templates)?;
+    }
+    Ok(templates)
 }
 
 /// 清理模板字段并为旧数据补齐标题、短标题等兼容字段。
@@ -412,12 +421,48 @@ pub(crate) fn normalize_template(mut template: PromptTemplate) -> Result<PromptT
         return Err("模板内容不能为空".into());
     }
     if template.title.is_empty() {
-        template.title = template.content.chars().take(24).collect();
+        template.title = default_template_title(&template.content);
     }
     if template.short_title.is_empty() {
         template.short_title = template.title.chars().take(8).collect();
     }
     Ok(template)
+}
+
+/// 标题为空时，取内容第一行并限制为最多 24 个 Unicode 字符。
+pub(crate) fn default_template_title(content: &str) -> String {
+    content
+        .trim()
+        .lines()
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .chars()
+        .take(24)
+        .collect()
+}
+
+/// 把旧版“全文前 24 字”自动标题迁移为当前的首行标题规则。
+fn migrate_template_title(template: &mut PromptTemplate) -> bool {
+    let title = template.title.trim().to_string();
+    let legacy_title = template.content.trim().chars().take(24).collect::<String>();
+    let should_derive = title.is_empty() || title == legacy_title;
+    let next_title = if should_derive {
+        default_template_title(&template.content)
+    } else {
+        title
+    };
+    let mut changed = template.title != next_title;
+    template.title = next_title;
+
+    let next_short_title = template.title.chars().take(8).collect::<String>();
+    if template.short_title.trim().is_empty()
+        || (should_derive && template.short_title != next_short_title)
+    {
+        changed |= template.short_title != next_short_title;
+        template.short_title = next_short_title;
+    }
+    changed
 }
 
 /// 从现有数字 ID 中计算下一个自增模板 ID。
