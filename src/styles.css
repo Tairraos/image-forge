@@ -22,7 +22,6 @@
 
 * {
   box-sizing: border-box;
-  scrollbar-color: transparent transparent;
   scrollbar-width: thin;
 }
 
@@ -33,7 +32,9 @@
 
 *::-webkit-scrollbar-track,
 *::-webkit-scrollbar-corner {
-  background: transparent;
+  border-radius: 999px;
+  background-color: transparent;
+  transition: background-color 1s ease;
 }
 
 *::-webkit-scrollbar-thumb {
@@ -41,11 +42,12 @@
   border-radius: 999px;
   background: transparent;
   background-clip: padding-box;
+  transition: background-color 1s ease;
 }
 
-.scrollbar-active,
-.scrollbar-near {
-  scrollbar-color: rgba(103, 88, 126, 0.42) transparent;
+.scrollbar-active::-webkit-scrollbar-track,
+.scrollbar-near::-webkit-scrollbar-track {
+  background-color: rgba(116, 116, 124, 0.11);
 }
 
 .scrollbar-active::-webkit-scrollbar-thumb,
@@ -61,6 +63,24 @@
 .n-scrollbar {
   --n-scrollbar-width: 5px !important;
   --n-scrollbar-height: 5px !important;
+}
+
+.n-scrollbar > .n-scrollbar-rail {
+  border-radius: 999px;
+  background-color: rgba(116, 116, 124, 0.1) !important;
+  opacity: 0;
+  transition: opacity 1s ease !important;
+}
+
+.n-scrollbar:hover > .n-scrollbar-rail,
+.n-scrollbar.scrollbar-active > .n-scrollbar-rail,
+.n-scrollbar.scrollbar-near > .n-scrollbar-rail {
+  opacity: 1;
+}
+
+.n-scrollbar-rail .fade-in-transition-enter-active,
+.n-scrollbar-rail .fade-in-transition-leave-active {
+  transition: opacity 1s ease !important;
 }
 
 body {

@@ -38,5 +38,6 @@ export const themeOverrides = {
     borderRadius: "999px",
     color: "rgba(103, 88, 126, 0.32)",
     colorHover: "rgba(89, 72, 118, 0.52)",
+    railColor: "rgba(116, 116, 124, 0.10)",
   },
 };

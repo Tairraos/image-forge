@@ -69,7 +69,7 @@ flowchart LR
 - WebView 拖放和可见的 Finder 粘贴数据由 `referenceFiles.js` 提取本地文件路径；模板内容区和“参考图”按钮都可以接收拖放。
 - macOS WebView 未暴露 Finder 文件路径时，`clipboard.rs` 读取系统粘贴板各项目的 `public.file-url`，优先预览原始图片文件，再回退到普通位图剪贴板。
 - 文件路径统一交给 `reference_from_path` 读取并检查真实 MIME；只有图像文件会加入参考图，非图像路径不会写入提示词或显示错误。
-- `scrollbarVisibility.js` 通过捕获滚动事件和指针边缘距离，为原生及 Naive UI 滚动容器维护短暂可见状态；CSS 统一使用细滚动条，停止滚动约 900ms 后恢复隐藏。
+- `scrollbarVisibility.js` 通过捕获滚动事件和指针边缘距离，为原生及 Naive UI 滚动容器维护短暂可见状态；CSS 统一使用细滚动条和浅灰轨道，滚动或靠近边缘时整条显示，停止滚动约 900ms 后以一秒动画淡出。
 - 模板导出通过系统保存对话框选择 ZIP 路径；模板导入通过系统打开对话框选择 ZIP，并显示新增/跳过数量。
 - `App.vue` 启动后调用 `load_app_state`，随后每 1.6 秒调用 `queue_snapshot` 刷新队列。
 
