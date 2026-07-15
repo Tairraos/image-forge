@@ -141,11 +141,20 @@
       </div>
     </template>
   </n-modal>
+
+  <ConfirmDialog
+    v-model:show="showDeleteConfirmation"
+    title="删除 API 源"
+    :message="deleteConfirmationMessage"
+    @confirm="confirmDeleteProvider"
+    @cancel="cancelDeleteProvider"
+  />
 </template>
 
 <script setup>
 import { computed, reactive, ref, watch } from "vue";
 import { ArrowDown, ArrowUp, Copy, Plus, Trash2, Upload } from "@lucide/vue";
+import ConfirmDialog from "./ConfirmDialog.vue";
 import { invoke } from "../../tauri";
 import {
   createProviderId,
@@ -176,6 +185,8 @@ const providerModels = reactive({});
 const loadingModels = ref(false);
 const modelFetchMessage = ref("");
 const modelFetchTone = ref("idle");
+const showDeleteConfirmation = ref(false);
+const pendingDeleteProviderId = ref("");
 const modelTypeOptions = [
   { label: "生图模型", value: "image" },
   { label: "对话模型", value: "chat" },
@@ -192,10 +203,18 @@ const modelOptions = computed(() => {
   return Array.from(models).map((model) => ({ label: model, value: model }));
 });
 
+const deleteConfirmationMessage = computed(() => {
+  const provider = draft.providers.find((item) => item.id === pendingDeleteProviderId.value);
+  return `确认删除 API 源「${provider?.name || "未命名 API 源"}」？`;
+});
+
 watch(
   () => props.show,
   (show) => {
-    if (!show) return;
+    if (!show) {
+      cancelDeleteProvider();
+      return;
+    }
     Object.assign(draft, normalizeSettingsForUi(deepClone(props.settings)));
     selectedId.value = draft.activeImageProviderId || draft.activeProviderId || draft.providers[0]?.id || "";
     modelFetchMessage.value = "";
@@ -283,11 +302,24 @@ function deleteProvider(id = selectedId.value) {
   if (draft.providers.length <= 1) return;
   const index = draft.providers.findIndex((provider) => provider.id === id);
   if (index < 0) return;
-  const providerName = draft.providers[index].name || "未命名 API 源";
-  if (!window.confirm(`确认删除 API 源「${providerName}」？`)) return;
+  pendingDeleteProviderId.value = id;
+  showDeleteConfirmation.value = true;
+}
+
+function confirmDeleteProvider() {
+  const index = draft.providers.findIndex(
+    (provider) => provider.id === pendingDeleteProviderId.value,
+  );
+  cancelDeleteProvider();
+  if (index < 0 || draft.providers.length <= 1) return;
   draft.providers.splice(index, 1);
   const next = draft.providers[Math.min(index, draft.providers.length - 1)] || draft.providers[0];
   selectProvider(next.id);
+}
+
+function cancelDeleteProvider() {
+  showDeleteConfirmation.value = false;
+  pendingDeleteProviderId.value = "";
 }
 
 function moveProvider(id = selectedId.value, offset) {

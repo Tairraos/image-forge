@@ -60,7 +60,7 @@
           @prompt-cursor="capturePromptCursor"
           @prompt-paste="handlePromptPaste"
           @add-reference="addReferenceImages"
-          @remove-reference="confirmRemoveReference(references, $event)"
+          @remove-reference="removeReference(references, $event)"
           @reference-drag-over="referenceDragActive = true"
           @reference-drag-leave="referenceDragActive = false"
           @drop-reference="handleReferenceDropEvent"
@@ -114,7 +114,7 @@
         @ai-fill="fillReferenceTemplate"
         @insert="insertReferenceTemplate"
         @add-reference="addTemplateCallReferenceImages"
-        @remove-reference="confirmRemoveReference(templateReferenceReferences, $event)"
+        @remove-reference="removeReference(templateReferenceReferences, $event)"
       />
 
       <TemplateEditorDialog
@@ -124,7 +124,7 @@
         :references="templateDraftReferences"
         @save="savePromptTemplate"
         @add-reference="addTemplateDraftReferenceImages"
-        @remove-reference="confirmRemoveReference(templateDraftReferences, $event)"
+        @remove-reference="removeReference(templateDraftReferences, $event)"
         @paste-reference="handleTemplateDraftPaste"
       />
 
@@ -138,6 +138,14 @@
         v-model:show="showAboutDialog"
         :info="aboutInfo"
       />
+
+      <ConfirmDialog
+        v-model:show="confirmation.visible"
+        :title="confirmation.title"
+        :message="confirmation.message"
+        @confirm="resolveConfirmation(true)"
+        @cancel="resolveConfirmation(false)"
+      />
     </main>
   </n-config-provider>
 </template>
@@ -150,6 +158,7 @@ import QueuePanel from "./components/QueuePanel.vue";
 import ResultPanel from "./components/ResultPanel.vue";
 import AboutDialog from "./components/dialogs/AboutDialog.vue";
 import ApiSourceDialog from "./components/dialogs/ApiSourceDialog.vue";
+import ConfirmDialog from "./components/dialogs/ConfirmDialog.vue";
 import TaskDetailDialog from "./components/dialogs/TaskDetailDialog.vue";
 import TemplateEditorDialog from "./components/dialogs/TemplateEditorDialog.vue";
 import TemplateManagerDialog from "./components/dialogs/TemplateManagerDialog.vue";
@@ -194,6 +203,12 @@ const showTemplateReferenceDialog = ref(false);
 const showTemplateEditor = ref(false);
 const showTaskDetail = ref(false);
 const showAboutDialog = ref(false);
+const confirmation = reactive({
+  visible: false,
+  title: "请确认",
+  message: "",
+  resolve: null,
+});
 
 const templateDraft = reactive(emptyTemplate());
 const templateEditorMode = ref("edit");
@@ -546,10 +561,9 @@ function appendReferencePreview(target, preview) {
   return true;
 }
 
-// 所有参考图移除动作都必须先取得用户确认。
-function confirmRemoveReference(target, index) {
+// 参考图只从当前草稿移除，不需要删除确认。
+function removeReference(target, index) {
   if (!target.value[index]) return;
-  if (!window.confirm("确认移除这张参考图？")) return;
   target.value.splice(index, 1);
 }
 
@@ -635,7 +649,11 @@ async function retryTask(task) {
 
 // 删除历史记录，同时由后端负责把对应输出图移入回收站。
 async function deleteTask(task) {
-  if (!window.confirm("确认删除这条生成记录？对应图片会移入系统回收站。")) return;
+  const confirmed = await requestConfirmation(
+    "删除历史任务",
+    "确认删除这条生成记录？对应图片会移入系统回收站。",
+  );
+  if (!confirmed) return;
   try {
     await invoke("delete_task", { taskId: task.id });
     if (selectedTaskId.value === task.id) selectedTaskId.value = "";
@@ -787,7 +805,11 @@ async function importPromptTemplates() {
 
 // 删除模板维护列表中的指定模板。
 async function deletePromptTemplate(id) {
-  if (!window.confirm("确认删除这个模板？未被其它记录引用的参考图会移入系统回收站。")) return;
+  const confirmed = await requestConfirmation(
+    "删除模板",
+    "确认删除这个模板？未被其它记录引用的参考图会移入系统回收站。",
+  );
+  if (!confirmed) return;
   try {
     templates.value = await invoke("delete_template", { templateId: id });
   } catch (error) {
@@ -962,6 +984,22 @@ async function reveal(path) {
 function setStatus(message, tone = "idle") {
   statusText.value = message;
   statusTone.value = tone;
+}
+
+function requestConfirmation(title, message) {
+  return new Promise((resolve) => {
+    confirmation.title = title;
+    confirmation.message = message;
+    confirmation.resolve = resolve;
+    confirmation.visible = true;
+  });
+}
+
+function resolveConfirmation(confirmed) {
+  const resolve = confirmation.resolve;
+  confirmation.resolve = null;
+  confirmation.visible = false;
+  resolve?.(confirmed);
 }
 
 function modelOptionLabel(provider) {

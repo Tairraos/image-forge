@@ -1530,6 +1530,31 @@ button:disabled {
   min-width: 86px;
 }
 
+.confirm-modal {
+  width: min(420px, calc(100vw - 32px));
+}
+
+.confirm-dialog-shell {
+  outline: none;
+}
+
+.confirm-dialog-message {
+  margin: 2px 0 20px;
+  color: #514464;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.confirm-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.confirm-dialog-actions .n-button {
+  min-width: 72px;
+}
+
 @media (max-width: 1320px) {
   .control-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
