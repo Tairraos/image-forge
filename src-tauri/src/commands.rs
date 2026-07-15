@@ -281,7 +281,20 @@ pub(crate) fn import_templates(
             return Err(error);
         }
     };
-    let mut templates = read_templates(&data_dir)?;
+    let templates = read_templates(&data_dir)?;
+    let result = merge_imported_templates(templates, imported)?;
+    if let Err(error) = write_json(&templates_path(&data_dir), &result.templates) {
+        let _ = prune_unreferenced_files(&data_dir);
+        return Err(error);
+    }
+    prune_unreferenced_files(&data_dir)?;
+    Ok(result)
+}
+
+fn merge_imported_templates(
+    mut templates: Vec<PromptTemplate>,
+    imported: Vec<PromptTemplate>,
+) -> Result<TemplateImportResult, String> {
     let mut signatures = templates
         .iter()
         .map(template_signature)
@@ -304,11 +317,6 @@ pub(crate) fn import_templates(
     }
 
     templates.sort_by(compare_template_id);
-    if let Err(error) = write_json(&templates_path(&data_dir), &templates) {
-        let _ = prune_unreferenced_files(&data_dir);
-        return Err(error);
-    }
-    prune_unreferenced_files(&data_dir)?;
     Ok(TemplateImportResult {
         templates,
         imported_count,
@@ -536,4 +544,50 @@ fn unique_download_path(downloads_dir: &Path, file_name: &str) -> PathBuf {
         }
     }
     unreachable!()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn imported_templates_skip_duplicates_and_continue_numeric_ids() {
+        let existing = vec![template(
+            "4",
+            "相同模板",
+            &["/references/a.png", "/references/b.png"],
+        )];
+        let imported = vec![
+            template(
+                "",
+                " 相同模板 ",
+                &["/references/b.png", "/references/a.png"],
+            ),
+            template("", "新增模板", &[]),
+        ];
+        let result = merge_imported_templates(existing, imported).unwrap();
+        assert_eq!(result.imported_count, 1);
+        assert_eq!(result.skipped_count, 1);
+        assert_eq!(result.templates.len(), 2);
+        assert_eq!(result.templates[1].id, "5");
+        assert_eq!(result.templates[1].content, "新增模板");
+    }
+
+    fn template(id: &str, content: &str, reference_paths: &[&str]) -> PromptTemplate {
+        PromptTemplate {
+            id: id.into(),
+            title: String::new(),
+            short_title: String::new(),
+            category: String::new(),
+            content: content.into(),
+            reference_paths: reference_paths.iter().map(|path| (*path).into()).collect(),
+            notes: String::new(),
+            tags: Vec::new(),
+            favorite: false,
+            usage_count: 0,
+            model_hint: String::new(),
+            created_at: String::new(),
+            updated_at: String::new(),
+        }
+    }
 }
