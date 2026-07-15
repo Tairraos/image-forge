@@ -101,10 +101,10 @@
     :x="promptPopover.x"
     :y="promptPopover.y"
     :placement="promptPopover.placement"
-    :max-width="440"
     :z-index="4000"
     :flip="true"
     to="body"
+    style="max-width: 440px"
     content-class="template-prompt-popover"
   >
     <div
