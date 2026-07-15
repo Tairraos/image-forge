@@ -11,11 +11,11 @@
             新增
           </n-button>
           <n-button size="small" secondary @click="$emit('import')">
-            <template #icon><Upload :size="15" /></template>
+            <template #icon><Download :size="15" /></template>
             导入
           </n-button>
           <n-button size="small" secondary @click="$emit('export')">
-            <template #icon><FileArchive :size="15" /></template>
+            <template #icon><Upload :size="15" /></template>
             导出
           </n-button>
         </div>
@@ -149,7 +149,7 @@
 
 <script setup>
 import { onUnmounted, reactive } from "vue";
-import { ArrowDown, ArrowUp, FileArchive, Plus, Search, Upload } from "@lucide/vue";
+import { ArrowDown, ArrowUp, Download, Plus, Search, Upload } from "@lucide/vue";
 import { convertFileSrc } from "../../tauri";
 
 const show = defineModel("show", { type: Boolean, default: false });

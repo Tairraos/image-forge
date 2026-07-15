@@ -142,11 +142,11 @@
             新增
           </n-button>
           <n-button size="small" secondary @click="openImportDialog">
-            <template #icon><Upload :size="15" /></template>
+            <template #icon><Download :size="15" /></template>
             导入
           </n-button>
           <n-button size="small" secondary :loading="exportingProviders" @click="exportProviders">
-            <template #icon><Download :size="15" /></template>
+            <template #icon><Upload :size="15" /></template>
             导出
           </n-button>
           <n-button size="small" secondary @click="copyProvider">

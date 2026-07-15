@@ -71,6 +71,7 @@ flowchart LR
 - 文件路径统一交给 `reference_from_path` 读取并检查真实 MIME；只有图像文件会加入参考图，非图像路径不会写入提示词或显示错误。
 - `scrollbarVisibility.js` 通过捕获滚动事件和指针边缘距离，为原生及 Naive UI 滚动容器维护短暂可见状态；CSS 统一使用细滚动条和浅灰轨道，滚动或靠近边缘时整条显示，停止滚动约 900ms 后以一秒动画淡出。
 - 模板导出通过系统保存对话框选择 ZIP 路径；模板导入通过系统打开对话框选择 ZIP，并显示新增/跳过数量。
+- API 源和模板维护共用导入导出图标语义：`Download` 表示内容进入应用，`Upload` 表示内容离开应用。
 - `App.vue` 启动后调用 `load_app_state`，随后每 1.6 秒调用 `queue_snapshot` 刷新队列。
 
 ## Rust 架构
