@@ -335,7 +335,7 @@ flowchart LR
 | `activeChatProviderId`  | 当前默认对话模型。                         |
 | `activeProviderId`      | 旧字段，继续保留为生图模型兼容字段。                |
 
-API 源卡片按配置数组顺序横向排列，溢出时只允许水平滚动；左右排序按钮直接调整数组顺序。JSON 导入导出规则如下：
+API 源卡片按配置数组顺序横向排列，固定宽度为 `180px`，溢出时只允许水平滚动；左右排序按钮直接调整数组顺序。卡片使用标题、类型与模型、脱敏 Key、操作区四行结构，Key 只显示前后各 6 个字符。JSON 导入导出规则如下：
 
 - 导出格式为 `image-forge-api-sources` v1，包含 `exportedAt` 和 `providers` 数组。
 - 每个导出条目保存名称、模型类型、Base URL、API Key、代理、模型和启用状态，不导出内部 `id`。

@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-0.2.42-9B7BEE?style=flat-square">
+  <img alt="version" src="https://img.shields.io/badge/version-0.2.43-9B7BEE?style=flat-square">
   <img alt="platform desktop" src="https://img.shields.io/badge/platform-desktop-111827?style=flat-square">
   <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white">
   <img alt="Vue" src="https://img.shields.io/badge/Vue-3-42B883?style=flat-square&logo=vuedotjs&logoColor=white">
@@ -157,8 +157,8 @@ pnpm run release
 
 ### v0.2.43
 
-- API 源卡片改为单行横向列表，溢出时显示横向滚动条，排序操作改为左右箭头。
-- 卡片操作区移到底部，名称、类型和模型文字可使用完整卡片宽度，超长内容再显示省略号。
+- API 源卡片改为单行横向列表，固定宽度 `180px`，溢出时显示横向滚动条，排序操作改为左右箭头。
+- 卡片按标题、类型与模型、脱敏 Key、操作按钮四行排列；Key 只显示前后各 6 个字符。
 - API 源管理新增 JSON 导出，保存全部 API 源并在回导时重新生成内部随机 ID。
 - 导入框支持粘贴 JSON 或拖入 JSON 文件，读取后直接显示文件内容，并可一次批量导入全部 API 源。
 - 导出文件包含 API Key，仅应保存在可信位置并妥善保管。
