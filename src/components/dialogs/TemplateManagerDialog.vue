@@ -56,52 +56,26 @@
                 </div>
               </td>
               <td class="template-title-cell">
-                <n-popover
-                  trigger="hover"
-                  placement="right-start"
-                  :delay="280"
-                  :max-width="440"
-                  content-class="template-prompt-popover"
+                <button
+                  type="button"
+                  class="template-title-button"
+                  @mouseenter="showPromptPopover(template, $event)"
+                  @mouseleave="schedulePromptPopoverHide"
+                  @click="emit('view', template)"
                 >
-                  <template #trigger>
-                    <button
-                      type="button"
-                      class="template-title-button"
-                      @click="emit('view', template)"
-                    >
-                      {{ template.title }}
-                    </button>
-                  </template>
-                  <div class="template-prompt-preview">{{ template.content }}</div>
-                </n-popover>
+                  {{ template.title }}
+                </button>
               </td>
               <td class="template-reference-cell">
-                <n-popover
+                <button
                   v-if="template.referencePaths?.length"
-                  trigger="hover"
-                  placement="left-start"
-                  :delay="280"
-                  content-class="template-image-popover"
+                  type="button"
+                  class="template-reference-button"
+                  @mouseenter="showImagePopover(template, $event)"
+                  @mouseleave="scheduleImagePopoverHide"
                 >
-                  <template #trigger>
-                    <button type="button" class="template-reference-button">
-                      {{ referenceCount(template) }}
-                    </button>
-                  </template>
-                  <div class="template-reference-preview">
-                    <span
-                      v-for="(path, referenceIndex) in template.referencePaths"
-                      :key="path"
-                      class="template-reference-thumbnail"
-                    >
-                      <img
-                        :src="convertFileSrc(path)"
-                        :alt="`${template.title} 参考图 ${referenceIndex + 1}`"
-                        loading="lazy"
-                      />
-                    </span>
-                  </div>
-                </n-popover>
+                  {{ referenceCount(template) }}
+                </button>
               </td>
               <td>
                 <div class="template-table-actions">
@@ -120,9 +94,61 @@
       </div>
     </div>
   </n-modal>
+
+  <n-popover
+    trigger="manual"
+    :show="promptPopover.show"
+    :x="promptPopover.x"
+    :y="promptPopover.y"
+    :placement="promptPopover.placement"
+    :max-width="440"
+    :z-index="4000"
+    :flip="true"
+    to="body"
+    content-class="template-prompt-popover"
+  >
+    <div
+      class="template-prompt-preview"
+      @mouseenter="cancelPromptPopoverHide"
+      @mouseleave="schedulePromptPopoverHide"
+    >
+      {{ promptPopover.template?.content }}
+    </div>
+  </n-popover>
+
+  <n-popover
+    trigger="manual"
+    :show="imagePopover.show"
+    :x="imagePopover.x"
+    :y="imagePopover.y"
+    :placement="imagePopover.placement"
+    :z-index="4000"
+    :flip="true"
+    to="body"
+    content-class="template-image-popover"
+  >
+    <div
+      class="template-reference-preview"
+      @mouseenter="cancelImagePopoverHide"
+      @mouseleave="scheduleImagePopoverHide"
+    >
+      <span
+        v-for="(path, referenceIndex) in imagePopover.template?.referencePaths || []"
+        :key="path"
+        class="template-reference-thumbnail"
+      >
+        <img
+          :src="convertFileSrc(path)"
+          :alt="`${imagePopover.template?.title || '模板'} 参考图 ${referenceIndex + 1}`"
+          loading="lazy"
+        />
+      </span>
+    </div>
+  </n-popover>
 </template>
 
 <script setup>
+import { onUnmounted, reactive } from "vue";
 import { ArrowDown, ArrowUp, FileArchive, Plus, Search, Upload } from "@lucide/vue";
 import { convertFileSrc } from "../../tauri";
 
@@ -134,6 +160,59 @@ const props = defineProps({
 });
 
 const emit = defineEmits(["create", "import", "export", "view", "edit", "delete", "move"]);
+const promptPopover = reactive(emptyPopover());
+const imagePopover = reactive(emptyPopover());
+let promptHideTimer = 0;
+let imageHideTimer = 0;
+
+onUnmounted(() => {
+  window.clearTimeout(promptHideTimer);
+  window.clearTimeout(imageHideTimer);
+});
+
+function emptyPopover() {
+  return { show: false, x: 0, y: 0, placement: "bottom-start", template: null };
+}
+
+function popoverPosition(event, estimatedWidth, estimatedHeight) {
+  const gap = 10;
+  const edge = 12;
+  const showAbove = window.innerHeight - event.clientY < estimatedHeight + gap
+    && event.clientY > estimatedHeight;
+  return {
+    x: Math.max(edge, Math.min(event.clientX + gap, window.innerWidth - estimatedWidth - edge)),
+    y: event.clientY + (showAbove ? -gap : gap),
+    placement: showAbove ? "top-start" : "bottom-start",
+  };
+}
+
+function showPromptPopover(template, event) {
+  cancelPromptPopoverHide();
+  Object.assign(promptPopover, popoverPosition(event, 440, 280), { show: true, template });
+}
+
+function schedulePromptPopoverHide() {
+  window.clearTimeout(promptHideTimer);
+  promptHideTimer = window.setTimeout(() => { promptPopover.show = false; }, 180);
+}
+
+function cancelPromptPopoverHide() {
+  window.clearTimeout(promptHideTimer);
+}
+
+function showImagePopover(template, event) {
+  cancelImagePopoverHide();
+  Object.assign(imagePopover, popoverPosition(event, 304, 240), { show: true, template });
+}
+
+function scheduleImagePopoverHide() {
+  window.clearTimeout(imageHideTimer);
+  imageHideTimer = window.setTimeout(() => { imagePopover.show = false; }, 180);
+}
+
+function cancelImagePopoverHide() {
+  window.clearTimeout(imageHideTimer);
+}
 
 function moveTemplate(index, offset) {
   const template = props.templates[index];

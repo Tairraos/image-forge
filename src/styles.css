@@ -1168,13 +1168,18 @@ button:disabled {
 }
 
 .template-prompt-preview {
-  max-height: 240px;
+  max-height: 19.8em;
   overflow: auto;
   color: #514464;
   font-size: 12px;
   line-height: 1.65;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.template-prompt-popover,
+.template-image-popover {
+  font-size: 12px;
 }
 
 .template-reference-preview {
