@@ -18,8 +18,9 @@
               <strong :title="provider.name || '未命名 API 源'">
                 {{ provider.name || "未命名 API 源" }}
               </strong>
+              <span>{{ modelTypeLabel(provider.modelType) }}</span>
               <span :title="provider.imageModel || '未设置模型'">
-                {{ modelTypeLabel(provider.modelType) }}：{{ provider.imageModel || "未设置模型" }}
+                {{ provider.imageModel || "未设置模型" }}
               </span>
               <small>Key: {{ maskedApiKey(provider.apiKey) }}</small>
             </button>

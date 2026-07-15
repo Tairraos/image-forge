@@ -1246,7 +1246,7 @@ button:disabled {
 
 .provider-card-main {
   display: grid;
-  grid-template-rows: repeat(3, minmax(18px, auto));
+  grid-template-rows: repeat(4, minmax(18px, auto));
   width: 100%;
   min-width: 0;
   overflow: hidden;
