@@ -146,6 +146,14 @@
         @confirm="resolveConfirmation(true)"
         @cancel="resolveConfirmation(false)"
       />
+
+      <NoticeDialog
+        v-model:show="notice.visible"
+        :title="notice.title"
+        :message="notice.message"
+        :button-text="notice.buttonText"
+        @close="resolveNotice"
+      />
     </main>
   </n-config-provider>
 </template>
@@ -159,6 +167,7 @@ import ResultPanel from "./components/ResultPanel.vue";
 import AboutDialog from "./components/dialogs/AboutDialog.vue";
 import ApiSourceDialog from "./components/dialogs/ApiSourceDialog.vue";
 import ConfirmDialog from "./components/dialogs/ConfirmDialog.vue";
+import NoticeDialog from "./components/dialogs/NoticeDialog.vue";
 import TaskDetailDialog from "./components/dialogs/TaskDetailDialog.vue";
 import TemplateEditorDialog from "./components/dialogs/TemplateEditorDialog.vue";
 import TemplateManagerDialog from "./components/dialogs/TemplateManagerDialog.vue";
@@ -207,6 +216,13 @@ const confirmation = reactive({
   visible: false,
   title: "请确认",
   message: "",
+  resolve: null,
+});
+const notice = reactive({
+  visible: false,
+  title: "提示",
+  message: "",
+  buttonText: "确认",
   resolve: null,
 });
 
@@ -745,7 +761,7 @@ async function handleTemplateDraftPaste(event) {
 
 async function saveWorkbenchAsTemplate() {
   if (!form.prompt.trim()) {
-    window.alert("提示词为空，无法保存模板");
+    await showNotice("无法保存模板", "提示词为空，无法保存模板");
     return;
   }
   const template = {
@@ -755,11 +771,12 @@ async function saveWorkbenchAsTemplate() {
   };
   try {
     templates.value = await invoke("save_template", { template });
-    window.alert("模板保存成功");
+    await showNotice("模板保存成功", "模板已经保存。");
     setStatus("模板保存成功", "ok");
   } catch (error) {
-    window.alert(String(error));
-    setStatus(String(error), "error");
+    const message = String(error);
+    await showNotice("保存模板失败", message);
+    setStatus(message, "error");
   }
 }
 
@@ -794,11 +811,11 @@ async function importPromptTemplates() {
     const result = await invoke("import_templates", { archivePath });
     templates.value = result.templates || [];
     const message = `模板导入完成：新增 ${result.importedCount || 0} 个，跳过 ${result.skippedCount || 0} 个重复模板`;
-    window.alert(message);
+    await showNotice("模板导入完成", message);
     setStatus(message, "ok");
   } catch (error) {
     const message = String(error);
-    window.alert(message);
+    await showNotice("模板导入失败", message);
     setStatus(message, "error");
   }
 }
@@ -867,7 +884,7 @@ async function fillReferenceTemplate() {
     setStatus("模板已填充", "ok");
   } catch (error) {
     const message = String(error);
-    window.alert(message);
+    await showNotice("AI 填充失败", message);
     setStatus(message, "error");
   } finally {
     templateFilling.value = false;
@@ -1000,6 +1017,23 @@ function resolveConfirmation(confirmed) {
   confirmation.resolve = null;
   confirmation.visible = false;
   resolve?.(confirmed);
+}
+
+function showNotice(title, message, buttonText = "确认") {
+  return new Promise((resolve) => {
+    notice.title = title;
+    notice.message = message;
+    notice.buttonText = buttonText;
+    notice.resolve = resolve;
+    notice.visible = true;
+  });
+}
+
+function resolveNotice() {
+  const resolve = notice.resolve;
+  notice.resolve = null;
+  notice.visible = false;
+  resolve?.();
 }
 
 function modelOptionLabel(provider) {
