@@ -87,6 +87,7 @@
         @edit="editTemplate"
         @delete="deletePromptTemplate"
         @create="newTemplate"
+        @export="exportPromptTemplates"
       />
 
       <TemplateReferenceDialog
@@ -157,7 +158,7 @@ import {
   sizeForPreset,
 } from "./lib/options";
 import { themeOverrides } from "./lib/theme";
-import { invoke, openDialog } from "./tauri";
+import { invoke, openDialog, saveDialog } from "./tauri";
 
 const statusText = ref("启动中");
 const statusTone = ref("busy");
@@ -652,6 +653,25 @@ async function saveWorkbenchAsTemplate() {
     setStatus("模板保存成功", "ok");
   } catch (error) {
     window.alert(String(error));
+    setStatus(String(error), "error");
+  }
+}
+
+// 让用户选择保存位置，并导出包含 Markdown 和参考图资源的模板 ZIP。
+async function exportPromptTemplates() {
+  if (!templates.value.length) {
+    setStatus("没有可导出的模板", "error");
+    return;
+  }
+  try {
+    const destination = await saveDialog({
+      defaultPath: "ImageForge-templates.zip",
+      filters: [{ name: "ZIP 压缩包", extensions: ["zip"] }],
+    });
+    if (!destination) return;
+    const savedPath = await invoke("export_templates", { destination });
+    setStatus(`模板已导出：${fileName(savedPath)}`, "ok");
+  } catch (error) {
     setStatus(String(error), "error");
   }
 }

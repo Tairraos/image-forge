@@ -14,3 +14,7 @@ export function convertFileSrc(path) {
 export function openDialog(options) {
   return invoke("plugin:dialog|open", { options });
 }
+
+export function saveDialog(options) {
+  return invoke("plugin:dialog|save", { options });
+}

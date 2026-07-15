@@ -5,10 +5,16 @@
         <n-input v-model:value="query" clearable placeholder="搜索模板或 ID">
           <template #prefix><Search :size="15" /></template>
         </n-input>
-        <n-button size="small" type="primary" @click="$emit('create')">
-          <template #icon><Plus :size="15" /></template>
-          新增
-        </n-button>
+        <div class="template-toolbar-actions">
+          <n-button size="small" type="primary" @click="$emit('create')">
+            <template #icon><Plus :size="15" /></template>
+            新增
+          </n-button>
+          <n-button size="small" secondary @click="$emit('export')">
+            <template #icon><FileArchive :size="15" /></template>
+            导出
+          </n-button>
+        </div>
       </div>
 
       <div class="template-table-wrap">
@@ -45,7 +51,7 @@
 </template>
 
 <script setup>
-import { Plus, Search } from "@lucide/vue";
+import { FileArchive, Plus, Search } from "@lucide/vue";
 
 const show = defineModel("show", { type: Boolean, default: false });
 const query = defineModel("query", { type: String, default: "" });
@@ -54,7 +60,7 @@ defineProps({
   templates: { type: Array, default: () => [] },
 });
 
-defineEmits(["create", "view", "edit", "delete"]);
+defineEmits(["create", "export", "view", "edit", "delete"]);
 
 function singleLine(value) {
   return String(value || "").replace(/\s+/g, " ").trim();

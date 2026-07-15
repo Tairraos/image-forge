@@ -4,3 +4,4 @@ pub(crate) mod images;
 pub(crate) mod models;
 pub(crate) mod queue;
 pub(crate) mod references;
+pub(crate) mod template_export;

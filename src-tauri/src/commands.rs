@@ -18,6 +18,7 @@ use crate::{
         images::reference_preview,
         queue::{build_queue_snapshot, ensure_queue_worker, recover_stale_running},
         references::{persist_reference_paths, prune_unreferenced_files},
+        template_export::export_templates_archive,
     },
     state::RuntimeState,
     store::{
@@ -254,6 +255,15 @@ pub(crate) fn save_template(
     write_json(&templates_path(&data_dir), &templates)?;
     prune_unreferenced_files(&data_dir)?;
     Ok(templates)
+}
+
+#[tauri::command]
+/// 导出全部提示词模板、Markdown 清单和去重后的参考图资源。
+pub(crate) fn export_templates(app: AppHandle, destination: String) -> Result<String, String> {
+    let data_dir = ensure_data_dir(&app)?;
+    let templates = read_templates(&data_dir)?;
+    let archive = export_templates_archive(&templates, Path::new(&destination))?;
+    Ok(archive.to_string_lossy().into_owned())
 }
 
 /// 优先按数字 ID 排序模板，兼容旧数据中的非数字 ID。

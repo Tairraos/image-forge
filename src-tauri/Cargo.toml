@@ -28,3 +28,4 @@ tokio = { version = "1", features = ["time"] }
 trash = "5"
 url = "2"
 uuid = { version = "1", features = ["v4", "serde"] }
+zip = { version = "4", default-features = false, features = ["deflate"] }

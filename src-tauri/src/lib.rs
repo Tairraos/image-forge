@@ -27,6 +27,7 @@ pub fn run() {
             commands::delete_template,
             commands::download_output,
             commands::enqueue_generation,
+            commands::export_templates,
             commands::fill_prompt_template,
             commands::load_app_state,
             commands::list_provider_models,

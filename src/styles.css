@@ -944,6 +944,12 @@ button:disabled {
   align-items: center;
 }
 
+.template-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .template-table-wrap {
   min-height: 0;
   max-height: 330px;
