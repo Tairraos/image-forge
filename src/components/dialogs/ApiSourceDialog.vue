@@ -22,19 +22,19 @@
             <div class="provider-card-actions">
               <button
                 type="button"
-                title="上移"
+                title="左移"
                 :disabled="index === 0"
                 @click.stop="moveProvider(provider.id, -1)"
               >
-                <ArrowUp :size="13" />
+                <ArrowLeft :size="13" />
               </button>
               <button
                 type="button"
-                title="下移"
+                title="右移"
                 :disabled="index === draft.providers.length - 1"
                 @click.stop="moveProvider(provider.id, 1)"
               >
-                <ArrowDown :size="13" />
+                <ArrowRight :size="13" />
               </button>
               <button
                 type="button"
@@ -153,7 +153,7 @@
 
 <script setup>
 import { computed, reactive, ref, watch } from "vue";
-import { ArrowDown, ArrowUp, Copy, Plus, Trash2, Upload } from "@lucide/vue";
+import { ArrowLeft, ArrowRight, Copy, Plus, Trash2, Upload } from "@lucide/vue";
 import ConfirmDialog from "./ConfirmDialog.vue";
 import { invoke } from "../../tauri";
 import {

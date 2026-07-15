@@ -1216,20 +1216,22 @@ button:disabled {
 }
 
 .provider-card-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  display: flex;
   gap: 9px;
-  max-height: 190px;
-  overflow: auto;
-  padding-right: 2px;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0 0 8px;
 }
 
 .provider-card {
-  display: flex;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
   align-items: stretch;
-  justify-content: space-between;
   gap: 4px;
-  width: 100%;
+  flex: 0 0 292px;
+  width: 292px;
+  min-width: 0;
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 8px;
@@ -1244,7 +1246,7 @@ button:disabled {
 
 .provider-card-main {
   display: grid;
-  flex: 1;
+  width: 100%;
   min-width: 0;
   gap: 4px;
   border: 0;
@@ -1264,8 +1266,8 @@ button:disabled {
 .provider-card-actions {
   display: flex;
   align-items: flex-end;
+  justify-content: flex-end;
   gap: 4px;
-  padding-left: 6px;
 }
 
 .provider-card-actions button {
@@ -1319,6 +1321,11 @@ button:disabled {
   color: #756987;
   font-size: 12px;
   text-overflow: ellipsis;
+}
+
+.provider-card span,
+.provider-card small {
+  white-space: nowrap;
 }
 
 .provider-editor {
