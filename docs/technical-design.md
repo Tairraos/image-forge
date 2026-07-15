@@ -36,6 +36,7 @@ flowchart LR
 | `src/components/TaskCard.vue`                        | 单个历史任务卡片，负责展示结果、计时器和重用/刷新/下载/定位/重试/删除动作。    |
 | `src/components/dialogs/ApiSourceDialog.vue`         | API 源/模型管理、类型选择、导入、克隆、排序和编辑；内部 ID 自动生成且不展示。 |
 | `src/components/dialogs/ConfirmDialog.vue`           | 删除确认弹窗：自动聚焦确认按钮，支持回车确认和 Esc 取消。                 |
+| `src/components/dialogs/NoticeDialog.vue`            | 单按钮通知弹窗：用于成功、错误和超时提示，Enter 与 Esc 都关闭弹窗。       |
 | `src/components/dialogs/TemplateManagerDialog.vue`   | 模板维护弹窗：搜索、标题/参考图数量列表、查看/编辑/删除、新增、导入和导出入口。    |
 | `src/components/dialogs/TemplateEditorDialog.vue`    | 模板新增/编辑/查看弹窗；支持标题、参考图选择和粘贴，查看模式高亮 `{}` 占位区域。     |
 | `src/components/dialogs/TemplateReferenceDialog.vue` | 引用模板弹窗：搜索与标题下拉、原文/AI 结果对比编辑、临时参考图和 AI 填充。     |
@@ -59,6 +60,7 @@ flowchart LR
 - 展示组件通过 props 接收数据，通过 events 把动作抛回 `App.vue`。
 - 表单型组件接收草稿对象并直接修改对象字段，保存动作仍由 `App.vue` 调用 Rust 命令。
 - 历史、模板和 API 源删除先由 `ConfirmDialog` 确认，确认按钮自动取得焦点；回车确认、Esc 取消。参考图只从当前工作台或模板草稿中移除，不弹确认框。
+- 模板保存、导入和 AI 填充的成功/失败提示使用 `NoticeDialog`，单按钮自动取得焦点，回车和 Esc 都会关闭。
 - 任务与模板都保存 `referencePaths`；重用任务或引用模板时，前端重新加载缩略图并合并到工作台参考图。
 - 原生拖放事件由 `src/tauri.js` 转发到 `App.vue`；WebView 拖放和 Finder 粘贴数据由 `referenceFiles.js` 提取本地文件路径。
 - 文件路径统一交给 `reference_from_path` 读取并检查真实 MIME；只有图像文件会加入参考图，非图像路径不会写入提示词或显示错误。
