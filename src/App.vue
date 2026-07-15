@@ -856,8 +856,8 @@ async function importPromptTemplates() {
     if (!archivePath) return;
     const result = await invoke("import_templates", { archivePath });
     templates.value = result.templates || [];
-    const message = `模板导入完成：新增 ${result.importedCount || 0} 个，跳过 ${result.skippedCount || 0} 个重复模板`;
-    await showNotice("模板导入完成", message);
+    const message = `导入 ${result.importedCount || 0} 个，重复 ${result.skippedCount || 0} 个。`;
+    await showNotice("模板导入结果", message);
     setStatus(message, "ok");
   } catch (error) {
     const message = String(error);

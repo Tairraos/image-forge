@@ -586,10 +586,11 @@ mod tests {
                 &["/references/b.png", "/references/a.png"],
             ),
             template("", "", "新增模板", &[]),
+            template("", "新增模板", "新增模板", &[]),
         ];
         let result = merge_imported_templates(existing, imported).unwrap();
         assert_eq!(result.imported_count, 1);
-        assert_eq!(result.skipped_count, 1);
+        assert_eq!(result.skipped_count, 2);
         assert_eq!(result.templates.len(), 2);
         assert_eq!(result.templates[1].id, "5");
         assert_eq!(result.templates[1].title, "新增模板");
