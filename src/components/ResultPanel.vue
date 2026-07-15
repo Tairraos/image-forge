@@ -3,7 +3,8 @@
     <div v-if="selectedTask" class="selected-task">
       <div class="selected-task-head">
         <span class="selected-task-meta">
-          状态：{{ statusLabel(selectedTask.status) }}，api 源：{{ selectedTask.providerName || "未配置" }}
+          状态：{{ statusLabel(selectedTask.status) }}，api 源：{{ selectedTask.providerName || "未配置" }} ·
+          {{ selectedTask.model || "未指定模型" }}
         </span>
         <div class="selected-task-actions">
           <n-button

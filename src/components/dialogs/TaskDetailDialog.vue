@@ -2,7 +2,7 @@
   <n-modal v-model:show="show" preset="card" title="任务详情" class="task-detail-modal">
     <div v-if="task" class="detail-grid task-detail-scroll">
       <div>
-        <h3>{{ task.providerName }}</h3>
+        <h3>API 源：{{ task.providerName || "未配置" }} · {{ task.model || "未指定模型" }}</h3>
         <p>{{ task.prompt }}</p>
         <n-descriptions :column="3" size="small" bordered class="task-parameter-descriptions">
           <n-descriptions-item label="状态">{{ statusLabel(task.status) }}</n-descriptions-item>
