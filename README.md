@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-0.2.41-9B7BEE?style=flat-square">
+  <img alt="version" src="https://img.shields.io/badge/version-0.2.42-9B7BEE?style=flat-square">
   <img alt="platform desktop" src="https://img.shields.io/badge/platform-desktop-111827?style=flat-square">
   <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white">
   <img alt="Vue" src="https://img.shields.io/badge/Vue-3-42B883?style=flat-square&logo=vuedotjs&logoColor=white">
@@ -158,6 +158,10 @@ pnpm run release
 ### v0.2.42
 
 - 主工作台点击“清空”时，同时清空提示词和当前参考图。
+- 结果预览使用统一弹性网格间距，错误原因增高时不会与下方预览区域相碰。
+- 历史列表只在应用首次加载和新生成任务加入队列时自动滚到底部，轮询、搜索和状态变化不再抢占滚动位置。
+- 任务详情移除固定数量参数，剩余 9 项使用更紧凑的三列布局。
+- 结果预览状态行和任务详情标题同时显示 API 源名称与任务模型。
 
 ### v0.2.41
 

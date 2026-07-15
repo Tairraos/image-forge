@@ -30,8 +30,8 @@ flowchart LR
 | ---------------------------------------------------- | ------------------------------------------- |
 | `src/App.vue`                                        | 页面控制器：集中管理状态、computed、Tauri 命令调用、轮询和业务动作。   |
 | `src/components/AppTopbar.vue`                       | 顶部品牌、API 源、模板维护和关于入口。                      |
-| `src/components/QueuePanel.vue`                      | 生成历史搜索和任务列表。                                |
-| `src/components/ResultPanel.vue`                     | 当前任务状态、结果图片预览、详情和重用入口。                      |
+| `src/components/QueuePanel.vue`                      | 生成历史搜索和任务列表；按显式请求执行首次加载和新增任务后的滚底。            |
+| `src/components/ResultPanel.vue`                     | 当前任务状态、API 源/模型、弹性结果图片预览、详情和重用入口。                |
 | `src/components/ComposerPanel.vue`                   | 生图模型选择、生成参数、提示词输入、参考图条、存为模板和引用模板入口。           |
 | `src/components/TaskCard.vue`                        | 单个历史任务卡片，负责展示结果、计时器和重用/刷新/下载/定位/重试/删除动作。    |
 | `src/components/dialogs/ApiSourceDialog.vue`         | API 源/模型管理、类型选择、导入、克隆、排序和编辑；内部 ID 自动生成且不展示。 |
@@ -40,7 +40,7 @@ flowchart LR
 | `src/components/dialogs/TemplateManagerDialog.vue`   | 模板维护弹窗：搜索、标题/参考图数量列表、查看/编辑/删除、新增、导入和导出入口。    |
 | `src/components/dialogs/TemplateEditorDialog.vue`    | 模板新增/编辑/查看弹窗；支持标题、参考图选择、粘贴和拖放，查看模式高亮 `{}` 占位区域。 |
 | `src/components/dialogs/TemplateReferenceDialog.vue` | 引用模板弹窗：搜索与标题下拉、原文/AI 结果对比编辑、临时参考图和 AI 填充。     |
-| `src/components/dialogs/TaskDetailDialog.vue`        | 任务详情、输出图列表和重用入口，弹窗不超过屏幕可视区域并允许滚动。           |
+| `src/components/dialogs/TaskDetailDialog.vue`        | API 源/模型、三列参数表、输出图和重用入口；弹窗不超过可视区域并允许滚动。      |
 | `src/components/dialogs/AboutDialog.vue`             | 版本、编译时间、应用说明和本次运行内存日志。                       |
 | `src/lib/models.js`                                  | 前端默认数据结构、空草稿对象、深拷贝和设置归一化。                   |
 | `src/lib/options.js`                                 | 生图参数选项和预设换算：提示词模式、分辨率、比例、质量、尺寸映射。           |
@@ -62,6 +62,8 @@ flowchart LR
 - 历史、模板和 API 源删除先由 `ConfirmDialog` 确认，确认按钮自动取得焦点；回车确认、Esc 取消。参考图只从当前工作台或模板草稿中移除，不弹确认框。
 - 模板保存、导入和 AI 填充的成功/失败提示使用 `NoticeDialog`，单按钮自动取得焦点，回车和 Esc 都会关闭。
 - 任务与模板都保存 `referencePaths`；重用任务或引用模板时，前端重新加载缩略图并合并到工作台参考图。
+- `QueuePanel` 只监听 `App.vue` 的滚动请求计数；首次状态加载和新任务入队后递增，定时队列快照不会修改用户当前浏览位置。
+- 结果预览列使用 `auto + minmax(0, 1fr)` 两行网格和固定间距，状态区随错误内容增高时，图片或空预览区在剩余空间内弹性收缩。
 - 原生拖放事件由 `src/tauri.js` 转发到 `App.vue`；`data-reference-drop-target` 区分主工作台和模板草稿，坐标无法识别时按当前可见编辑器兜底路由。
 - WebView 拖放和可见的 Finder 粘贴数据由 `referenceFiles.js` 提取本地文件路径；模板内容区和“参考图”按钮都可以接收拖放。
 - macOS WebView 未暴露 Finder 文件路径时，`clipboard.rs` 读取系统粘贴板各项目的 `public.file-url`，优先预览原始图片文件，再回退到普通位图剪贴板。
