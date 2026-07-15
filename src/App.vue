@@ -13,6 +13,7 @@
           :filtered-history="filteredHistory"
           :selected-task-id="selectedTaskId"
           :history-query="historyQuery"
+          :scroll-request="historyScrollRequest"
           @select-task="selectedTaskId = $event"
           @update:history-query="historyQuery = $event"
           @reuse="reuseTask"
@@ -201,6 +202,7 @@ const templateDraftReferences = ref([]);
 const templateDraftDragActive = ref(false);
 const templateReferenceReferences = ref([]);
 const selectedTaskId = ref("");
+const historyScrollRequest = ref(0);
 const submitting = ref(false);
 const historyQuery = ref("");
 const templateQuery = ref("");
@@ -340,6 +342,7 @@ onMounted(async () => {
     // 浏览器预览没有 Tauri 拖放事件，保留 HTML5 drop 作为兼容路径。
   }
   await refreshAll();
+  historyScrollRequest.value += 1;
   pollTimer = window.setInterval(refreshQueueOnly, 1600);
 });
 
@@ -460,6 +463,7 @@ async function submitTask() {
     selectedTaskId.value = task.id;
     setStatus("已开始生成", "ok");
     await refreshQueueOnly();
+    historyScrollRequest.value += 1;
   } catch (error) {
     setStatus(String(error), "error");
   } finally {

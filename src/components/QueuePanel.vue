@@ -41,6 +41,7 @@ const props = defineProps({
   filteredHistory: { type: Array, default: () => [] },
   selectedTaskId: { type: String, default: "" },
   historyQuery: { type: String, default: "" },
+  scrollRequest: { type: Number, default: 0 },
 });
 
 defineEmits([
@@ -58,13 +59,12 @@ defineEmits([
 const historyListRef = ref(null);
 
 watch(
-  () => [props.filteredHistory.length, props.filteredHistory.at(-1)?.id, props.historyQuery],
+  () => props.scrollRequest,
   async () => {
     await nextTick();
     if (historyListRef.value) {
       historyListRef.value.scrollTop = historyListRef.value.scrollHeight;
     }
   },
-  { immediate: true },
 );
 </script>
