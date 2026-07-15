@@ -73,6 +73,7 @@
           :value="chatProviderId"
           :options="chatProviderOptions"
           size="small"
+          placement="top-start"
           class="reference-chat-select"
           placeholder="选择对话模型"
           :disabled="!chatProviderOptions.length"
