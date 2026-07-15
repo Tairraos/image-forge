@@ -119,7 +119,8 @@
         <n-input
           v-model:value="importText"
           type="textarea"
-          :autosize="{ minRows: 12 }"
+          :autosize="{ minRows: 12, maxRows: 12 }"
+          :resizable="false"
           placeholder="粘贴 JSON 配置或者拖入 JSON 文件"
         />
         <small v-if="readingImportFile">正在读取 JSON 文件…</small>
