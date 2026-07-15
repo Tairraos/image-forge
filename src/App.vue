@@ -579,7 +579,8 @@ function clearReferenceDragTargets() {
 }
 
 async function pasteReferenceImage(event, target, successMessage) {
-  const filePaths = extractClipboardFilePaths(event?.clipboardData);
+  const clipboardData = event?.clipboardData;
+  const filePaths = extractClipboardFilePaths(clipboardData);
   if (filePaths.length) {
     event.preventDefault();
     await addReferencePathsWithOptions(target, filePaths, successMessage, {
@@ -587,14 +588,23 @@ async function pasteReferenceImage(event, target, successMessage) {
     });
     return;
   }
-  const items = Array.from(event?.clipboardData?.items || []);
-  const files = Array.from(event?.clipboardData?.files || []);
+  const items = Array.from(clipboardData?.items || []);
+  const files = Array.from(clipboardData?.files || []);
+  const types = Array.from(clipboardData?.types || []);
   const hasImage = [...items, ...files].some((item) => item.type?.startsWith("image/"));
-  if (!hasImage) return;
+  const hasFilePayload = files.length > 0 || types.includes("Files");
+  const hasText = ["text/plain", "text/uri-list"].some((type) => {
+    try {
+      return Boolean(clipboardData?.getData?.(type)?.trim());
+    } catch {
+      return false;
+    }
+  });
+  if (!hasImage && !hasFilePayload && hasText) return;
   event.preventDefault();
   try {
     const preview = await invoke("reference_from_clipboard");
-    if (appendReferencePreview(target, preview)) {
+    if (preview && appendReferencePreview(target, preview)) {
       setStatus(successMessage, "ok");
     }
   } catch (error) {

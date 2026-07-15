@@ -225,8 +225,8 @@ pub(crate) fn reference_from_path(path: String) -> Result<ReferencePreview, Stri
 }
 
 #[tauri::command]
-/// 从系统剪贴板读取图片并保存为参考图临时文件。
-pub(crate) fn reference_from_clipboard(app: AppHandle) -> Result<ReferencePreview, String> {
+/// 从系统剪贴板读取 Finder 文件引用或图片，并保存为参考图资源。
+pub(crate) fn reference_from_clipboard(app: AppHandle) -> Result<Option<ReferencePreview>, String> {
     crate::services::clipboard::reference_from_clipboard(&app)
 }
 
