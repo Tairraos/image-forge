@@ -4,8 +4,10 @@
   <sub>一个基于 Tauri 2 + Vue 3 + Rust 的本地 AI 生图工作台 · Multi-Protocol Images · Queue · Templates · Skills</sub>
 </p>
 
+![Image Forge 1.0.1 运行界面](docs/image-forge-1.0.1-running.png)
+
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-0.2.56-9B7BEE?style=flat-square">
+  <img alt="version" src="https://img.shields.io/badge/version-1.0.1-9B7BEE?style=flat-square">
   <img alt="platform desktop" src="https://img.shields.io/badge/platform-desktop-111827?style=flat-square">
   <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white">
   <img alt="Vue" src="https://img.shields.io/badge/Vue-3-42B883?style=flat-square&logo=vuedotjs&logoColor=white">
@@ -160,14 +162,11 @@ pnpm run release
 
 版本记录只保留影响产品能力、数据兼容或开发流程的里程碑，零散的样式微调和内部重构不再单独列出。
 
-### v0.2.56
-
-- 精简版本记录，保留产品能力和工程流程相关的主要里程碑。
-
-### v0.2.55
+### v1.0.1
 
 - Skill 执行结果必须明确说明参考图是否需要参与提示词；生成的单图或多图提示词会自动进入受 API 源并发数控制的画图队列。
 - Skill 执行弹窗保留最终提示词输出；API 源卡片在并发数大于 1 时显示并发信息。
+- Skill 维护列表按名称、备注、来源、操作分列，固定名称、来源和操作列宽。
 - 新增 Skill 备注、Markdown 拖放导入、`@` 补全和引用 Skill 弹窗；品牌区域支持使用自定义标题图片。
 
 ### v0.2.52

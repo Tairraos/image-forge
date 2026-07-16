@@ -1199,12 +1199,18 @@ button:disabled {
 
 .skill-table th:first-child,
 .skill-table td:first-child {
-  width: 200px;
+  width: 250px;
+}
+
+.skill-table th:nth-child(3),
+.skill-table td:nth-child(3) {
+  width: 100px;
 }
 
 .skill-table th:last-child,
 .skill-table td:last-child {
-  width: 80px;
+  width: 120px;
+  text-align: right;
 }
 
 .skill-name-cell {
@@ -1247,19 +1253,9 @@ button:disabled {
 }
 
 .skill-table-actions {
-  position: absolute;
-  top: 50%;
-  right: 8px;
   display: flex;
+  justify-content: flex-end;
   gap: 6px;
-  opacity: 0;
-  transform: translateY(-50%);
-  transition: opacity 140ms ease;
-}
-
-.skill-table tr:hover .skill-table-actions,
-.skill-table tr:focus-within .skill-table-actions {
-  opacity: 1;
 }
 
 .skill-empty-cell {
