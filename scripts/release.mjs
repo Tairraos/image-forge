@@ -37,9 +37,7 @@ try {
     console.warn("tauri build 没有完整结束，继续整理已生成的发布产物。");
   }
 
-  if (process.platform === "darwin" && macAppPath() && !findFiles(join(bundleDir, "dmg"), ".dmg").length) {
-    createSimpleDmg();
-  }
+  if (process.platform === "darwin" && macAppPath()) prepareMacBundles();
 
   const outputs = collectReleaseFiles();
   assertExpectedOutputs(outputs);
@@ -87,10 +85,27 @@ function createSimpleDmg() {
     mkdirSync(dmgDir, { recursive: true });
     cpSync(appPath, join(stagingDir, `${productName}.app`), { recursive: true });
     symlinkSync("/Applications", join(stagingDir, "Applications"));
-    run("hdiutil", ["makehybrid", "-hfs", "-hfs-volume-name", productName, "-o", dmgPath, stagingDir]);
+    run("hdiutil", [
+      "create",
+      "-volname",
+      productName,
+      "-srcfolder",
+      stagingDir,
+      "-ov",
+      "-format",
+      "UDZO",
+      dmgPath,
+    ]);
   } finally {
     rmSync(stagingDir, { recursive: true, force: true });
   }
+}
+
+function prepareMacBundles() {
+  const appPath = macAppPath();
+  run("codesign", ["--force", "--deep", "--sign", "-", appPath]);
+  rmSync(join(bundleDir, "dmg"), { recursive: true, force: true });
+  createSimpleDmg();
 }
 
 function collectReleaseFiles() {
