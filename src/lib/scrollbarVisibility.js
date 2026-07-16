@@ -25,6 +25,10 @@ export function installAutoHideScrollbars() {
     return element.classList.contains("n-scrollbar");
   }
 
+  function usesPersistentNativeScrollbar(element) {
+    return Boolean(element.closest("[data-persistent-scrollbar]"));
+  }
+
   function scrollAxes(element) {
     const style = window.getComputedStyle(element);
     const vertical = /(auto|scroll|overlay)/.test(style.overflowY)
@@ -134,6 +138,7 @@ export function installAutoHideScrollbars() {
   }
 
   function showWhileScrolling(element) {
+    if (usesPersistentNativeScrollbar(element)) return;
     const owner = ownerFor(element);
     if (isNaiveOwner(owner)) {
       owner.classList.add(SCROLLING_CLASS);
@@ -175,7 +180,9 @@ export function installAutoHideScrollbars() {
   function collectScrollableAncestors(element, point, owners) {
     let current = element;
     while (current && current !== document.documentElement) {
-      if (isNearScrollbar(current, point)) owners.add(ownerFor(current));
+      if (!usesPersistentNativeScrollbar(current) && isNearScrollbar(current, point)) {
+        owners.add(ownerFor(current));
+      }
       current = current.parentElement;
     }
   }

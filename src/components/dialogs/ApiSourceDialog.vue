@@ -2,12 +2,16 @@
   <n-modal v-model:show="visible" preset="card" title="API 源管理" class="api-modal">
     <div class="api-manager stacked">
       <section class="provider-list provider-list-horizontal" aria-label="API 源列表">
-        <div class="provider-card-grid">
+        <div class="provider-card-grid" data-persistent-scrollbar>
           <article
             v-for="(provider, index) in draft.providers"
             :key="provider.id"
             class="provider-card"
-            :class="{ active: selectedId === provider.id }"
+            :class="{
+              active: selectedId === provider.id,
+              'provider-card--chat': provider.modelType === 'chat',
+              'provider-card--image': provider.modelType !== 'chat',
+            }"
             @click="selectProvider(provider.id)"
           >
             <button

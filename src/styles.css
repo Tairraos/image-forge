@@ -1425,6 +1425,28 @@ button:disabled {
   overflow-x: auto;
   overflow-y: hidden;
   padding: 0 2px 4px;
+  scrollbar-color: rgba(103, 88, 126, 0.52) rgba(116, 116, 124, 0.12);
+  scrollbar-width: thin;
+}
+
+.provider-card-grid::-webkit-scrollbar {
+  display: block !important;
+  height: 6px !important;
+}
+
+.provider-card-grid::-webkit-scrollbar-track {
+  border-radius: 999px;
+  background: rgba(116, 116, 124, 0.12);
+}
+
+.provider-card-grid::-webkit-scrollbar-thumb {
+  min-width: 36px;
+  border-radius: 999px;
+  background: rgba(103, 88, 126, 0.5);
+}
+
+.provider-card-grid::-webkit-scrollbar-thumb:hover {
+  background: rgba(89, 72, 118, 0.68);
 }
 
 .provider-card {
@@ -1519,9 +1541,36 @@ button:disabled {
   box-shadow: inset 3px 0 0 var(--primary);
 }
 
-.provider-card:hover {
-  border-color: var(--line-strong);
-  background: #ffffff;
+.provider-card--image {
+  border-color: #ead8b7;
+  background: #fffaf0;
+}
+
+.provider-card--image:hover {
+  border-color: #d9bc82;
+  background: #fffdf8;
+}
+
+.provider-card--image.active {
+  border-color: #d8b46e;
+  background: #fff2d9;
+  box-shadow: inset 3px 0 0 #d5962f;
+}
+
+.provider-card--chat {
+  border-color: #c9ddeb;
+  background: #f2f8fd;
+}
+
+.provider-card--chat:hover {
+  border-color: #9fc5df;
+  background: #f8fcff;
+}
+
+.provider-card--chat.active {
+  border-color: #91bddb;
+  background: #e7f3fc;
+  box-shadow: inset 3px 0 0 #4f91bd;
 }
 
 .provider-card span,
