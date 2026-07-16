@@ -79,6 +79,17 @@ export function emptyTemplate() {
   };
 }
 
+export function emptySkill() {
+  return {
+    id: "",
+    name: "",
+    sourceUrl: "",
+    content: "",
+    createdAt: "",
+    updatedAt: "",
+  };
+}
+
 export function deepClone(value) {
   return JSON.parse(JSON.stringify(value));
 }

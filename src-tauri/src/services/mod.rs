@@ -5,4 +5,5 @@ pub(crate) mod models;
 pub(crate) mod provider_bundle;
 pub(crate) mod queue;
 pub(crate) mod references;
+pub(crate) mod skill;
 pub(crate) mod template_bundle;

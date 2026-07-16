@@ -12,7 +12,7 @@ use crate::{
     defaults::APP_BUILD_TIME,
     models::{
         AboutInfo, ApiProvider, AppState, GenerateRequest, PromptTemplate, QueueSnapshot,
-        ReferencePreview, TaskRecord, TemplateImportResult,
+        ReferencePreview, SkillEntry, SkillFetchResult, TaskRecord, TemplateImportResult,
     },
     services::{
         chat::fill_template,
@@ -20,14 +20,16 @@ use crate::{
         provider_bundle::{export_providers_json, read_providers_json},
         queue::{build_queue_snapshot, ensure_queue_worker, recover_stale_running},
         references::{persist_reference_paths, prune_unreferenced_files},
+        skill::fetch_skill_markdown as fetch_skill_markdown_from_url,
         template_bundle::{export_templates_archive, import_templates_archive},
     },
     state::RuntimeState,
     store::{
         enqueue_task, ensure_data_dir, next_template_id, normalize_request, normalize_settings,
-        normalize_template, params_from_request, provider_for_request, read_history, read_json,
-        read_queue, read_settings, read_templates, refresh_history_output_sizes, request_path,
-        templates_path, upsert_history, write_history, write_json, write_queue, write_settings,
+        normalize_skill, normalize_template, params_from_request, provider_for_request,
+        read_history, read_json, read_queue, read_settings, read_skills, read_templates,
+        refresh_history_output_sizes, request_path, skills_path, templates_path, upsert_history,
+        write_history, write_json, write_queue, write_settings,
     },
     utils::utc_now,
 };
@@ -58,6 +60,7 @@ pub(crate) fn load_app_state(app: AppHandle) -> Result<AppState, String> {
         history: history.clone(),
         queue: build_queue_snapshot(&app, &data_dir, history)?,
         templates: read_templates(&data_dir)?,
+        skills: read_skills(&data_dir)?,
         data_dir: data_dir.to_string_lossy().into_owned(),
     })
 }
@@ -361,6 +364,43 @@ pub(crate) fn delete_template(
     write_json(&templates_path(&data_dir), &templates)?;
     prune_unreferenced_files(&data_dir)?;
     Ok(templates)
+}
+
+#[tauri::command]
+/// 新增或更新纯 Markdown Skill，名称始终从内容中自动提取。
+pub(crate) fn save_skill(app: AppHandle, skill: SkillEntry) -> Result<Vec<SkillEntry>, String> {
+    let data_dir = ensure_data_dir(&app)?;
+    let mut skills = read_skills(&data_dir)?;
+    let mut next = normalize_skill(skill)?;
+    if next.id.is_empty() {
+        next.id = Uuid::new_v4().to_string();
+        next.created_at = utc_now();
+    }
+    next.updated_at = utc_now();
+    if let Some(index) = skills.iter().position(|item| item.id == next.id) {
+        next.created_at = skills[index].created_at.clone();
+        skills[index] = next;
+    } else {
+        skills.push(next);
+    }
+    write_json(&skills_path(&data_dir), &skills)?;
+    Ok(skills)
+}
+
+#[tauri::command]
+/// 删除指定 Skill 并返回更新后的列表。
+pub(crate) fn delete_skill(app: AppHandle, skill_id: String) -> Result<Vec<SkillEntry>, String> {
+    let data_dir = ensure_data_dir(&app)?;
+    let mut skills = read_skills(&data_dir)?;
+    skills.retain(|skill| skill.id != skill_id);
+    write_json(&skills_path(&data_dir), &skills)?;
+    Ok(skills)
+}
+
+#[tauri::command]
+/// 提取 URL 指向的 Markdown Skill，目录 URL 会继续尝试大小写文件名。
+pub(crate) async fn fetch_skill_markdown(source_url: String) -> Result<SkillFetchResult, String> {
+    fetch_skill_markdown_from_url(&source_url).await
 }
 
 #[tauri::command]

@@ -281,6 +281,7 @@ pub struct AppState {
     pub history: Vec<TaskRecord>,
     pub queue: QueueSnapshot,
     pub templates: Vec<PromptTemplate>,
+    pub skills: Vec<SkillEntry>,
     pub data_dir: String,
 }
 
@@ -323,6 +324,30 @@ pub struct PromptTemplate {
     pub created_at: String,
     #[serde(default = "utc_now")]
     pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillEntry {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub source_url: String,
+    #[serde(default)]
+    pub content: String,
+    #[serde(default = "utc_now")]
+    pub created_at: String,
+    #[serde(default = "utc_now")]
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillFetchResult {
+    pub source_url: String,
+    pub content: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -15,7 +15,7 @@ use crate::{
     },
     models::{
         ApiProvider, GenerateRequest, GenerationParams, PromptTemplate, QueueRun, QueueState,
-        Settings, TaskRecord,
+        Settings, SkillEntry, TaskRecord,
     },
     utils::{
         clean_text, image_size_from_path, normalize_base_url, normalize_output_format,
@@ -483,6 +483,124 @@ pub(crate) fn next_template_id(templates: &[PromptTemplate]) -> String {
     next.to_string()
 }
 
+pub(crate) fn read_skills(data_dir: &Path) -> Result<Vec<SkillEntry>, String> {
+    read_json(&skills_path(data_dir))
+}
+
+/// 清理 Skill 内容，自动提取名称，并拒绝依赖外部脚本的定义。
+pub(crate) fn normalize_skill(mut skill: SkillEntry) -> Result<SkillEntry, String> {
+    skill.id = skill.id.trim().to_string();
+    skill.source_url = skill.source_url.trim().to_string();
+    skill.content = skill.content.trim().to_string();
+    if skill.content.is_empty() {
+        return Err("Skill 内容不能为空".into());
+    }
+    if let Some(reference) = skill_script_reference(&skill.content) {
+        return Err(format!(
+            "这个 Skill 引用了脚本（{reference}）。Image Forge 当前只支持纯 Markdown Skill，无法保存。"
+        ));
+    }
+    skill.name = skill_name_from_markdown(&skill.content);
+    Ok(skill)
+}
+
+/// 按 frontmatter、一级标题、首个非空行的顺序提取 Skill 名称。
+pub(crate) fn skill_name_from_markdown(content: &str) -> String {
+    let trimmed = content.trim_start();
+    let mut body_start = 0;
+    if trimmed.starts_with("---") {
+        let mut offset = 0;
+        for (index, line) in trimmed.lines().enumerate() {
+            offset += line.len() + 1;
+            if index == 0 {
+                continue;
+            }
+            if line.trim() == "---" {
+                body_start = offset;
+                break;
+            }
+            if let Some((key, value)) = line.split_once(':') {
+                if key.trim().eq_ignore_ascii_case("name") {
+                    let name = value.trim().trim_matches(['\'', '"']);
+                    if !name.is_empty() {
+                        return name.chars().take(80).collect();
+                    }
+                }
+            }
+        }
+    }
+
+    let body = trimmed.get(body_start..).unwrap_or(trimmed);
+    for line in body.lines() {
+        let line = line.trim();
+        if let Some(name) = line.strip_prefix("# ") {
+            let name = name.trim();
+            if !name.is_empty() {
+                return name.chars().take(80).collect();
+            }
+        }
+    }
+    body.lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(|line| line.trim_start_matches(['#', '>', '-', '*', ' ']))
+        .filter(|line| !line.is_empty())
+        .map(|line| line.chars().take(80).collect())
+        .unwrap_or_else(|| "未命名 Skill".into())
+}
+
+fn skill_script_reference(content: &str) -> Option<String> {
+    let lower = content.to_lowercase();
+    if let Some(reference) = ["scripts/", "script/"]
+        .into_iter()
+        .find(|reference| lower.contains(reference))
+    {
+        return Some(reference.into());
+    }
+
+    if lower.starts_with("---") {
+        for line in lower.lines().skip(1) {
+            let line = line.trim();
+            if line == "---" {
+                break;
+            }
+            if let Some((key, _)) = line.split_once(':') {
+                if matches!(key.trim(), "script" | "scripts") {
+                    return Some(format!("{}:", key.trim()));
+                }
+            }
+        }
+    }
+
+    let mut remainder = lower.as_str();
+    while let Some(start) = remainder.find("](") {
+        remainder = &remainder[start + 2..];
+        let Some(end) = remainder.find(')') else {
+            break;
+        };
+        let destination = remainder[..end]
+            .split_whitespace()
+            .next()
+            .unwrap_or_default()
+            .trim_matches(['<', '>']);
+        let path = destination
+            .split(['?', '#'])
+            .next()
+            .unwrap_or_default()
+            .trim_end_matches('/');
+        if [
+            "py", "js", "ts", "sh", "mjs", "cjs", "rb", "ps1", "bat", "cmd",
+        ]
+        .iter()
+        .any(|extension| path.ends_with(&format!(".{extension}")))
+        {
+            return Some(destination.into());
+        }
+        remainder = &remainder[end + 1..];
+    }
+    None
+}
+
 /// 读取 JSON 文件；文件不存在时返回类型默认值，简化首启逻辑。
 pub(crate) fn read_json<T>(path: &Path) -> Result<T, String>
 where
@@ -512,6 +630,10 @@ pub(crate) fn request_path(data_dir: &Path, task_id: &str) -> PathBuf {
 
 pub(crate) fn templates_path(data_dir: &Path) -> PathBuf {
     data_dir.join("prompt-templates.json")
+}
+
+pub(crate) fn skills_path(data_dir: &Path) -> PathBuf {
+    data_dir.join("skills.json")
 }
 
 /// 归一化单个 API 源，隐藏并固定不再由界面维护的字段。

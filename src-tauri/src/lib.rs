@@ -24,12 +24,14 @@ pub fn run() {
             commands::about_info,
             commands::copy_image_to_clipboard,
             commands::delete_task,
+            commands::delete_skill,
             commands::delete_template,
             commands::download_output,
             commands::enqueue_generation,
             commands::export_api_providers,
             commands::export_templates,
             commands::fill_prompt_template,
+            commands::fetch_skill_markdown,
             commands::import_templates,
             commands::load_app_state,
             commands::list_provider_models,
@@ -42,6 +44,7 @@ pub fn run() {
             commands::retry_task,
             commands::reveal_path,
             commands::save_settings,
+            commands::save_skill,
             commands::save_template,
         ])
         .run(tauri::generate_context!())
@@ -54,8 +57,11 @@ mod tests {
 
     use uuid::Uuid;
 
+    use super::models::SkillEntry;
     use super::services::{images::reference_preview, references::persist_reference_bytes};
-    use super::store::{default_template_title, normalize_model_type};
+    use super::store::{
+        default_template_title, normalize_model_type, normalize_skill, skill_name_from_markdown,
+    };
     use super::utils::{
         image_prompt_for_transport, normalize_base_url, prompt_with_ratio_instruction, sanitize_id,
         should_send_input_fidelity, size_for_preset,
@@ -118,6 +124,28 @@ mod tests {
         );
         let long_title = "字".repeat(30);
         assert_eq!(default_template_title(&long_title), "字".repeat(24));
+    }
+
+    #[test]
+    fn skill_name_prefers_frontmatter_then_heading() {
+        assert_eq!(
+            skill_name_from_markdown("---\nname: Composition Director\n---\n# 其它标题"),
+            "Composition Director"
+        );
+        assert_eq!(skill_name_from_markdown("# 光影导演\n\n内容"), "光影导演");
+    }
+
+    #[test]
+    fn markdown_only_skills_reject_script_references() {
+        let skill = SkillEntry {
+            id: String::new(),
+            name: String::new(),
+            source_url: String::new(),
+            content: "# 测试\n\n运行 [脚本](scripts/render.py)".into(),
+            created_at: String::new(),
+            updated_at: String::new(),
+        };
+        assert!(normalize_skill(skill).unwrap_err().contains("脚本"));
     }
 
     #[test]

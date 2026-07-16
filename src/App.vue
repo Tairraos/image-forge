@@ -5,6 +5,7 @@
       <AppTopbar
         @show-api="showApiDialog = true"
         @show-template-manager="showTemplateManagerDialog = true"
+        @show-skill-manager="showSkillManagerDialog = true"
         @show-about="openAbout"
       />
 
@@ -119,6 +120,25 @@
         @remove-reference="removeReference(templateReferenceReferences, $event)"
       />
 
+      <SkillManagerDialog
+        v-model:show="showSkillManagerDialog"
+        v-model:query="skillQuery"
+        :skills="filteredSkills"
+        @create="newSkill"
+        @view="viewSkill"
+        @edit="editSkill"
+        @delete="deleteSkill"
+      />
+
+      <SkillEditorDialog
+        v-model:show="showSkillEditor"
+        :skill="skillDraft"
+        :mode="skillEditorMode"
+        :fetching="skillFetching"
+        @fetch="fetchSkillContent"
+        @save="saveSkill"
+      />
+
       <TemplateEditorDialog
         v-model:show="showTemplateEditor"
         :template="templateDraft"
@@ -175,12 +195,20 @@ import AboutDialog from "./components/dialogs/AboutDialog.vue";
 import ApiSourceDialog from "./components/dialogs/ApiSourceDialog.vue";
 import ConfirmDialog from "./components/dialogs/ConfirmDialog.vue";
 import NoticeDialog from "./components/dialogs/NoticeDialog.vue";
+import SkillEditorDialog from "./components/dialogs/SkillEditorDialog.vue";
+import SkillManagerDialog from "./components/dialogs/SkillManagerDialog.vue";
 import TaskDetailDialog from "./components/dialogs/TaskDetailDialog.vue";
 import TemplateEditorDialog from "./components/dialogs/TemplateEditorDialog.vue";
 import TemplateManagerDialog from "./components/dialogs/TemplateManagerDialog.vue";
 import TemplateReferenceDialog from "./components/dialogs/TemplateReferenceDialog.vue";
 import { clamp, fileName, statusLabel } from "./lib/formatters";
-import { deepClone, defaultSettings, emptyTemplate, normalizeSettingsForUi } from "./lib/models";
+import {
+  deepClone,
+  defaultSettings,
+  emptySkill,
+  emptyTemplate,
+  normalizeSettingsForUi,
+} from "./lib/models";
 import { extractClipboardFilePaths, extractDroppedFilePaths } from "./lib/referenceFiles";
 import { installAutoHideScrollbars } from "./lib/scrollbarVisibility";
 import {
@@ -198,6 +226,7 @@ const settings = ref(defaultSettings());
 const history = ref([]);
 const queue = reactive({ waiting: [], running: [], recent: [], workerActive: false, updatedAt: "" });
 const templates = ref([]);
+const skills = ref([]);
 const references = ref([]);
 const referenceDragActive = ref(false);
 const templateDraftReferences = ref([]);
@@ -208,18 +237,22 @@ const historyScrollRequest = ref(0);
 const submitting = ref(false);
 const historyQuery = ref("");
 const templateQuery = ref("");
+const skillQuery = ref("");
 const templateReferenceQuery = ref("");
 const templateReferenceSourceContent = ref("");
 const templateReferenceGeneratedContent = ref("");
 const selectedReferenceTemplateId = ref("");
 const templateFilledRanges = ref([]);
 const templateFilling = ref(false);
+const skillFetching = ref(false);
 const promptCursor = ref(0);
 
 const showApiDialog = ref(false);
 const showTemplateManagerDialog = ref(false);
 const showTemplateReferenceDialog = ref(false);
 const showTemplateEditor = ref(false);
+const showSkillManagerDialog = ref(false);
+const showSkillEditor = ref(false);
 const showTaskDetail = ref(false);
 const showAboutDialog = ref(false);
 const confirmation = reactive({
@@ -238,6 +271,8 @@ const notice = reactive({
 
 const templateDraft = reactive(emptyTemplate());
 const templateEditorMode = ref("edit");
+const skillDraft = reactive(emptySkill());
+const skillEditorMode = ref("edit");
 const aboutInfo = ref({ version: "", buildTime: "", logs: "" });
 
 const form = reactive({
@@ -338,6 +373,18 @@ const filteredReferenceTemplates = computed(() => {
   );
 });
 
+const filteredSkills = computed(() => {
+  const query = skillQuery.value.trim().toLowerCase();
+  if (!query) return skills.value;
+  return skills.value.filter((item) =>
+    [item.name, item.sourceUrl, item.content]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase()
+      .includes(query),
+  );
+});
+
 onMounted(async () => {
   removeScrollbarVisibility = installAutoHideScrollbars();
   try {
@@ -414,6 +461,7 @@ function applyState(state) {
   history.value = state.history || [];
   applyQueue(state.queue || {});
   templates.value = state.templates || [];
+  skills.value = state.skills || [];
   ensureSelectedModels();
   ensureSelectedTask();
 }
@@ -797,6 +845,68 @@ async function savePromptTemplate() {
     templates.value = await invoke("save_template", { template: deepClone(templateDraft) });
     showTemplateEditor.value = false;
     setStatus("模板已保存", "ok");
+  } catch (error) {
+    setStatus(String(error), "error");
+  }
+}
+
+// 打开空白 Skill 编辑器，名称会在保存时从 Markdown 中自动提取。
+function newSkill() {
+  Object.assign(skillDraft, emptySkill());
+  skillEditorMode.value = "new";
+  showSkillEditor.value = true;
+}
+
+function viewSkill(skill) {
+  Object.assign(skillDraft, deepClone(skill));
+  skillEditorMode.value = "view";
+  showSkillEditor.value = true;
+}
+
+function editSkill(skill) {
+  Object.assign(skillDraft, deepClone(skill));
+  skillEditorMode.value = "edit";
+  showSkillEditor.value = true;
+}
+
+// 从 URL 提取 Markdown，后端会继续尝试目录下的大小写 Skill 文件名。
+async function fetchSkillContent() {
+  if (!skillDraft.sourceUrl.trim()) return;
+  skillFetching.value = true;
+  setStatus("正在提取 Skill…", "busy");
+  try {
+    const result = await invoke("fetch_skill_markdown", { sourceUrl: skillDraft.sourceUrl });
+    skillDraft.sourceUrl = result.sourceUrl;
+    skillDraft.content = result.content;
+    setStatus("Skill 已提取", "ok");
+  } catch (error) {
+    const message = String(error);
+    await showNotice("Skill 提取失败", message);
+    setStatus(message, "error");
+  } finally {
+    skillFetching.value = false;
+  }
+}
+
+// 保存纯 Markdown Skill；脚本依赖错误使用统一通知弹窗反馈。
+async function saveSkill() {
+  try {
+    skills.value = await invoke("save_skill", { skill: deepClone(skillDraft) });
+    showSkillEditor.value = false;
+    setStatus("Skill 已保存", "ok");
+  } catch (error) {
+    const message = String(error);
+    await showNotice("无法保存 Skill", message);
+    setStatus(message, "error");
+  }
+}
+
+async function deleteSkill(skillId) {
+  const confirmed = await requestConfirmation("删除 Skill", "确认删除这个 Skill？");
+  if (!confirmed) return;
+  try {
+    skills.value = await invoke("delete_skill", { skillId });
+    setStatus("Skill 已删除", "ok");
   } catch (error) {
     setStatus(String(error), "error");
   }

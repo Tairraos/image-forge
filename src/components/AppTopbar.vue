@@ -16,6 +16,10 @@
         <template #icon><BookOpen :size="16" /></template>
         模板
       </n-button>
+      <n-button quaternary size="small" @click="$emit('show-skill-manager')">
+        <template #icon><FileText :size="16" /></template>
+        Skill
+      </n-button>
       <n-button quaternary size="small" @click="$emit('show-about')">
         <template #icon><Info :size="16" /></template>
         关于
@@ -25,8 +29,8 @@
 </template>
 
 <script setup>
-import { BookOpen, Info, Settings } from "@lucide/vue";
+import { BookOpen, FileText, Info, Settings } from "@lucide/vue";
 import logoUrl from "../assets/app-icon.png";
 
-defineEmits(["show-api", "show-template-manager", "show-about"]);
+defineEmits(["show-api", "show-template-manager", "show-skill-manager", "show-about"]);
 </script>
