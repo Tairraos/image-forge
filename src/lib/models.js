@@ -13,7 +13,14 @@ export function defaultSettings() {
   };
 }
 
-export function defaultProvider(index = 1, modelType = "image") {
+export const IMAGE_MODEL_TYPES = [
+  "image-gpt",
+  "image-gemini",
+  "image-grok",
+  "image-seedream",
+];
+
+export function defaultProvider(index = 1, modelType = "image-gpt") {
   return {
     id: createProviderId(),
     name: index === 1 ? "默认" : `供应商 ${index}`,
@@ -32,16 +39,16 @@ export function normalizeSettingsForUi(value) {
   const next = { ...defaultSettings(), ...value };
   next.providers = Array.isArray(next.providers) && next.providers.length ? next.providers : [defaultProvider()];
   next.providers = next.providers.map((provider, index) => ({
-    ...defaultProvider(index + 1, "image"),
+    ...defaultProvider(index + 1, "image-gpt"),
     ...provider,
     id: provider.id || createProviderId(),
-    modelType: normalizeModelType(provider.modelType),
+    modelType: normalizeModelType(provider.modelType, provider.imageModel, provider.baseUrl),
     proxyUrl: provider.proxyUrl || "",
     imagesConcurrency: 1,
     notes: "",
   }));
 
-  const imageProviders = next.providers.filter((provider) => provider.modelType === "image");
+  const imageProviders = next.providers.filter((provider) => isImageModelType(provider.modelType));
   const chatProviders = next.providers.filter((provider) => provider.modelType === "chat");
   const legacyActive = next.activeProviderId;
 
@@ -83,8 +90,22 @@ export function createProviderId() {
   return `provider-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-export function normalizeModelType(value) {
-  return value === "chat" ? "chat" : "image";
+export function normalizeModelType(value, model = "", baseUrl = "") {
+  if (value === "chat") return "chat";
+  if (IMAGE_MODEL_TYPES.includes(value)) return value;
+  return recommendImageModelType(model, baseUrl);
+}
+
+export function recommendImageModelType(model = "", baseUrl = "") {
+  const hint = `${model} ${baseUrl}`.toLowerCase();
+  if (/gemini|imagen|nano[ -]?banana/.test(hint)) return "image-gemini";
+  if (/grok|api\.x\.ai/.test(hint)) return "image-grok";
+  if (/seedream|doubao.*image|byteplus|volces|ark\./.test(hint)) return "image-seedream";
+  return "image-gpt";
+}
+
+export function isImageModelType(value) {
+  return value !== "chat";
 }
 
 function pickActiveProviderId(candidate, providers) {

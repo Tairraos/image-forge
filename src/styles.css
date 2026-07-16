@@ -1394,7 +1394,7 @@ button:disabled {
 }
 
 .provider-list-horizontal {
-  min-height: 180px;
+  min-height: 204px;
   overflow: visible;
   border-right: 0;
   border-bottom: 1px solid var(--line);
@@ -1420,11 +1420,11 @@ button:disabled {
   display: flex;
   align-items: flex-start;
   gap: 9px;
-  min-height: 166px;
+  min-height: 190px;
   min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
-  padding: 0 2px 4px;
+  padding: 0 2px 12px;
   scrollbar-color: rgba(103, 88, 126, 0.52) rgba(116, 116, 124, 0.12);
   scrollbar-width: thin;
 }
@@ -1456,7 +1456,7 @@ button:disabled {
   gap: 4px;
   flex: 0 0 180px;
   width: 180px;
-  min-height: 156px;
+  min-height: 172px;
   min-width: 0;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -1541,20 +1541,68 @@ button:disabled {
   box-shadow: inset 3px 0 0 var(--primary);
 }
 
-.provider-card--image {
+.provider-card--gpt {
   border-color: #ead8b7;
   background: #fffaf0;
 }
 
-.provider-card--image:hover {
+.provider-card--gpt:hover {
   border-color: #d9bc82;
   background: #fffdf8;
 }
 
-.provider-card--image.active {
+.provider-card--gpt.active {
   border-color: #d8b46e;
   background: #fff2d9;
   box-shadow: inset 3px 0 0 #d5962f;
+}
+
+.provider-card--gemini {
+  border-color: #d7c9eb;
+  background: #f8f3fd;
+}
+
+.provider-card--gemini:hover {
+  border-color: #bba4dd;
+  background: #fcfaff;
+}
+
+.provider-card--gemini.active {
+  border-color: #aa8ed3;
+  background: #eee5f9;
+  box-shadow: inset 3px 0 0 #8763b9;
+}
+
+.provider-card--grok {
+  border-color: #d1d5db;
+  background: #f5f6f8;
+}
+
+.provider-card--grok:hover {
+  border-color: #aeb5bf;
+  background: #fbfbfc;
+}
+
+.provider-card--grok.active {
+  border-color: #929ba8;
+  background: #e9ebef;
+  box-shadow: inset 3px 0 0 #596273;
+}
+
+.provider-card--seedream {
+  border-color: #bfe1cf;
+  background: #f1faf5;
+}
+
+.provider-card--seedream:hover {
+  border-color: #91c8aa;
+  background: #f8fdf9;
+}
+
+.provider-card--seedream.active {
+  border-color: #78b995;
+  background: #e1f4e9;
+  box-shadow: inset 3px 0 0 #438b63;
 }
 
 .provider-card--chat {

@@ -19,12 +19,26 @@ pub(crate) async fn list_provider_models(provider: &ApiProvider) -> Result<Vec<S
     }
 
     let base_url = normalize_base_url(&provider.base_url)?;
+    let gemini = provider.model_type == "image-gemini";
+    let base_url = if gemini {
+        base_url
+            .strip_suffix("/openai")
+            .unwrap_or(&base_url)
+            .to_string()
+    } else {
+        base_url
+    };
     let client = model_list_client(&provider.proxy_url)?;
-    let response = client
+    let mut request = client
         .get(format!("{base_url}/models"))
-        .bearer_auth(provider.api_key.trim())
         .header(ACCEPT, "*/*")
-        .header(ACCEPT_LANGUAGE, "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7")
+        .header(ACCEPT_LANGUAGE, "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7");
+    request = if gemini {
+        request.header("x-goog-api-key", provider.api_key.trim())
+    } else {
+        request.bearer_auth(provider.api_key.trim())
+    };
+    let response = request
         .timeout(Duration::from_secs(MODEL_LIST_TIMEOUT_SECONDS))
         .send()
         .await
@@ -49,12 +63,24 @@ pub(crate) async fn list_provider_models(provider: &ApiProvider) -> Result<Vec<S
         return Err(format!("获取模型列表失败: HTTP {}", status.as_u16()));
     }
 
-    let mut models: Vec<String> = value
-        .get("data")
+    let list = if gemini {
+        value.get("models")
+    } else {
+        value.get("data")
+    };
+    let mut models: Vec<String> = list
         .and_then(Value::as_array)
-        .ok_or("模型列表缺少 data 数组")?
+        .ok_or(if gemini {
+            "Gemini 模型列表缺少 models 数组"
+        } else {
+            "模型列表缺少 data 数组"
+        })?
         .iter()
-        .filter_map(|item| item.get("id").and_then(Value::as_str))
+        .filter_map(|item| {
+            item.get(if gemini { "name" } else { "id" })
+                .and_then(Value::as_str)
+        })
+        .map(|id| id.strip_prefix("models/").unwrap_or(id))
         .map(str::trim)
         .filter(|id| !id.is_empty())
         .map(ToOwned::to_owned)

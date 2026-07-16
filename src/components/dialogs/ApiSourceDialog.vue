@@ -7,11 +7,10 @@
             v-for="(provider, index) in draft.providers"
             :key="provider.id"
             class="provider-card"
-            :class="{
-              active: selectedId === provider.id,
-              'provider-card--chat': provider.modelType === 'chat',
-              'provider-card--image': provider.modelType !== 'chat',
-            }"
+            :class="[
+              { active: selectedId === provider.id },
+              providerTypeClass(provider.modelType),
+            ]"
             @click="selectProvider(provider.id)"
           >
             <button
@@ -66,7 +65,11 @@
               <n-input v-model:value="selectedProvider.name" placeholder="例如 OpenAI / Azure / 自建服务" />
             </n-form-item>
             <n-form-item label="类型">
-              <n-select v-model:value="selectedProvider.modelType" :options="modelTypeOptions" />
+              <n-select
+                :value="selectedProvider.modelType"
+                :options="modelTypeOptions"
+                @update:value="updateSelectedModelType"
+              />
             </n-form-item>
           </div>
           <div class="provider-form-row provider-credentials-row">
@@ -92,11 +95,12 @@
             <n-form-item label="模型">
               <div class="model-select-row">
                 <n-select
-                  v-model:value="selectedProvider.imageModel"
+                  :value="selectedProvider.imageModel"
                   filterable
                   tag
                   :options="modelOptions"
                   placeholder="选择或输入模型 ID"
+                  @update:value="updateSelectedModel"
                 />
                 <n-button secondary :loading="loadingModels" @click="fetchModels">
                   获取
@@ -193,7 +197,10 @@ import {
   deepClone,
   defaultProvider,
   defaultSettings,
+  isImageModelType,
+  normalizeModelType,
   normalizeSettingsForUi,
+  recommendImageModelType,
 } from "../../lib/models";
 
 const props = defineProps({
@@ -224,9 +231,13 @@ const showDeleteConfirmation = ref(false);
 const pendingDeleteProviderId = ref("");
 const showImportResult = ref(false);
 const importResultMessage = ref("");
+const manuallySelectedModelTypes = new Set();
 let unlistenImportDragDrop = null;
 const modelTypeOptions = [
-  { label: "生图模型", value: "image" },
+  { label: "生图模型 - GPT", value: "image-gpt" },
+  { label: "生图模型 - Gemini", value: "image-gemini" },
+  { label: "生图模型 - Grok", value: "image-grok" },
+  { label: "生图模型 - Seedream", value: "image-seedream" },
   { label: "对话模型", value: "chat" },
 ];
 
@@ -254,6 +265,7 @@ watch(
       return;
     }
     Object.assign(draft, normalizeSettingsForUi(deepClone(props.settings)));
+    manuallySelectedModelTypes.clear();
     selectedId.value = draft.activeImageProviderId || draft.activeProviderId || draft.providers[0]?.id || "";
     modelFetchMessage.value = "";
   },
@@ -296,6 +308,24 @@ function addProvider() {
   selectProvider(provider.id);
 }
 
+function updateSelectedModel(value) {
+  const provider = selectedProvider.value;
+  if (!provider) return;
+  provider.imageModel = String(value || "");
+  if (!manuallySelectedModelTypes.has(provider.id)) {
+    provider.modelType = recommendImageModelType(provider.imageModel, provider.baseUrl);
+    selectProvider(provider.id);
+  }
+}
+
+function updateSelectedModelType(value) {
+  const provider = selectedProvider.value;
+  if (!provider) return;
+  provider.modelType = normalizeModelType(value, provider.imageModel, provider.baseUrl);
+  manuallySelectedModelTypes.add(provider.id);
+  selectProvider(provider.id);
+}
+
 function copyProvider() {
   const source = selectedProvider.value;
   if (!source) return;
@@ -303,7 +333,7 @@ function copyProvider() {
   provider.id = createProviderId();
   provider.name = `${source.name || "API 源"} 副本`;
   draft.providers.push(provider);
-  selectedId.value = provider.id;
+  selectProvider(provider.id);
 }
 
 function openImportDialog() {
@@ -437,7 +467,11 @@ function importProviders() {
       ...defaultProvider(draft.providers.length + imported.length + 1),
       id: createProviderId(),
       name,
-      modelType: item.modelType === "chat" ? "chat" : "image",
+      modelType: normalizeModelType(
+        item.modelType,
+        item.openAiModelId || item.imageModel || item.model,
+        item.openAiBaseUrl || item.baseUrl,
+      ),
       baseUrl: item.openAiBaseUrl || item.baseUrl || "",
       apiKey: item.openAiApiKey || item.apiKey || "",
       proxyUrl: item.proxyUrl || "",
@@ -469,7 +503,7 @@ function importProviders() {
 function providerImportSignature(provider) {
   return JSON.stringify([
     String(provider.name || "").trim(),
-    provider.modelType === "chat" ? "chat" : "image",
+    normalizeModelType(provider.modelType, provider.imageModel, provider.baseUrl),
     String(provider.baseUrl || "").trim(),
     String(provider.apiKey || "").trim(),
     String(provider.proxyUrl || "").trim(),
@@ -544,9 +578,9 @@ async function fetchModels() {
 
 function save() {
   draft.providers = draft.providers.map((provider) => normalizeProviderForSave(provider));
-  const imageProvider = draft.providers.find((provider) => provider.modelType !== "chat");
+  const imageProvider = draft.providers.find((provider) => isImageModelType(provider.modelType));
   const chatProvider = draft.providers.find((provider) => provider.modelType === "chat");
-  if (!draft.providers.some((provider) => provider.id === draft.activeImageProviderId && provider.modelType !== "chat")) {
+  if (!draft.providers.some((provider) => provider.id === draft.activeImageProviderId && isImageModelType(provider.modelType))) {
     draft.activeImageProviderId = imageProvider?.id || "";
   }
   if (!draft.providers.some((provider) => provider.id === draft.activeChatProviderId && provider.modelType === "chat")) {
@@ -559,7 +593,7 @@ function save() {
 function normalizeProviderForSave(provider) {
   return {
     ...provider,
-    modelType: provider.modelType === "chat" ? "chat" : "image",
+    modelType: normalizeModelType(provider.modelType, provider.imageModel, provider.baseUrl),
     proxyUrl: provider.proxyUrl?.trim() || "",
     imageModel: provider.imageModel?.trim() || "gpt-image-2",
     imagesConcurrency: 1,
@@ -568,7 +602,11 @@ function normalizeProviderForSave(provider) {
 }
 
 function modelTypeLabel(value) {
-  return value === "chat" ? "对话模型" : "生图模型";
+  return modelTypeOptions.find((option) => option.value === value)?.label || "生图模型 - GPT";
+}
+
+function providerTypeClass(value) {
+  return `provider-card--${normalizeModelType(value).replace("image-", "")}`;
 }
 
 function maskedApiKey(value) {

@@ -23,7 +23,12 @@ pub(crate) async fn execute_generation(
     provider: &ApiProvider,
     request: &GenerateRequest,
 ) -> Result<Vec<ApiImageResult>, String> {
-    call_images_api(client, provider, request).await
+    match provider.model_type.as_str() {
+        "image-gemini" => call_gemini_images(client, provider, request).await,
+        "image-grok" => call_grok_images(client, provider, request).await,
+        "image-seedream" => call_seedream_images(client, provider, request).await,
+        _ => call_openai_images(client, provider, request).await,
+    }
 }
 
 pub(crate) fn save_outputs(
@@ -86,7 +91,7 @@ pub(crate) fn reference_preview(path: &Path) -> Result<ReferencePreview, String>
     })
 }
 
-async fn call_images_api(
+async fn call_openai_images(
     client: &Client,
     provider: &ApiProvider,
     request: &GenerateRequest,
@@ -97,6 +102,159 @@ async fn call_images_api(
     } else {
         call_images_edit(client, &base_url, provider, request).await
     }
+}
+
+async fn call_gemini_images(
+    client: &Client,
+    provider: &ApiProvider,
+    request: &GenerateRequest,
+) -> Result<Vec<ApiImageResult>, String> {
+    let base_url = gemini_base_url(&provider.base_url)?;
+    let model = provider.image_model.trim().trim_start_matches("models/");
+    if model.is_empty() {
+        return Err("Gemini 模型不能为空".into());
+    }
+    let prompt =
+        image_prompt_for_transport(&request.prompt, &request.ratio, &request.prompt_fidelity);
+    let mut parts = vec![json!({ "text": prompt })];
+    for data_url in reference_data_urls(request, 14)? {
+        let (mime_type, data) = split_data_url(&data_url)?;
+        parts.push(json!({
+            "inlineData": {
+                "mimeType": mime_type,
+                "data": data,
+            }
+        }));
+    }
+    let payload = json!({
+        "contents": [{ "role": "user", "parts": parts }],
+        "generationConfig": {
+            "responseModalities": ["IMAGE"],
+            "imageConfig": {
+                "aspectRatio": request.ratio,
+                "imageSize": gemini_image_size(&request.resolution),
+            }
+        }
+    });
+    let url = format!("{base_url}/models/{model}:generateContent");
+    let response = client
+        .post(url)
+        .header("x-goog-api-key", provider.api_key.trim())
+        .header(ACCEPT, "application/json")
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|error| format_request_error("Gemini 图片请求", error))?;
+    let body = checked_body(response, "Gemini 图片 API").await?;
+    parse_gemini_response(&body, request)
+}
+
+async fn call_grok_images(
+    client: &Client,
+    provider: &ApiProvider,
+    request: &GenerateRequest,
+) -> Result<Vec<ApiImageResult>, String> {
+    let base_url = normalize_base_url(&provider.base_url)?;
+    let prompt =
+        image_prompt_for_transport(&request.prompt, &request.ratio, &request.prompt_fidelity);
+    let references = reference_data_urls(request, 3)?;
+    let (url, payload, label) = if references.is_empty() {
+        (
+            format!("{base_url}/images/generations"),
+            json!({
+                "model": provider.image_model,
+                "prompt": prompt,
+                "n": request.count,
+                "aspect_ratio": request.ratio,
+                "resolution": grok_resolution(&request.resolution),
+                "response_format": "b64_json",
+            }),
+            "Grok 图片生成",
+        )
+    } else {
+        let images = references
+            .into_iter()
+            .map(|url| json!({ "url": url, "type": "image_url" }))
+            .collect::<Vec<_>>();
+        let image = if images.len() == 1 {
+            images[0].clone()
+        } else {
+            Value::Array(images)
+        };
+        (
+            format!("{base_url}/images/edits"),
+            json!({
+                "model": provider.image_model,
+                "prompt": prompt,
+                "image": image,
+                "aspect_ratio": request.ratio,
+                "resolution": grok_resolution(&request.resolution),
+                "response_format": "b64_json",
+            }),
+            "Grok 图片编辑",
+        )
+    };
+    send_json_images(client, provider, &url, &payload, label, request).await
+}
+
+async fn call_seedream_images(
+    client: &Client,
+    provider: &ApiProvider,
+    request: &GenerateRequest,
+) -> Result<Vec<ApiImageResult>, String> {
+    let base_url = normalize_base_url(&provider.base_url)?;
+    let prompt =
+        image_prompt_for_transport(&request.prompt, &request.ratio, &request.prompt_fidelity);
+    let references = reference_data_urls(request, 14)?;
+    let mut payload = Map::new();
+    payload.insert("model".into(), json!(provider.image_model));
+    payload.insert("prompt".into(), json!(prompt));
+    payload.insert("size".into(), json!(request.size));
+    payload.insert("response_format".into(), json!("b64_json"));
+    payload.insert("watermark".into(), json!(false));
+    if !references.is_empty() {
+        payload.insert(
+            "image".into(),
+            if references.len() == 1 {
+                json!(references[0])
+            } else {
+                json!(references)
+            },
+        );
+    }
+    if provider.image_model.to_lowercase().contains("seedream-5") {
+        payload.insert("output_format".into(), json!(request.output_format));
+    }
+    let url = format!("{base_url}/images/generations");
+    send_json_images(
+        client,
+        provider,
+        &url,
+        &Value::Object(payload),
+        "Seedream 图片请求",
+        request,
+    )
+    .await
+}
+
+async fn send_json_images(
+    client: &Client,
+    provider: &ApiProvider,
+    url: &str,
+    payload: &Value,
+    label: &str,
+    request: &GenerateRequest,
+) -> Result<Vec<ApiImageResult>, String> {
+    let response = client
+        .post(url)
+        .bearer_auth(provider.api_key.trim())
+        .header(ACCEPT, "application/json")
+        .json(payload)
+        .send()
+        .await
+        .map_err(|error| format_request_error(label, error))?;
+    let body = checked_body(response, label).await?;
+    parse_images_response(client, &provider.api_key, &body, request).await
 }
 
 async fn call_images_generation(
@@ -216,6 +374,12 @@ async fn parse_images_response(
         } else {
             continue;
         };
+        let output_format = object
+            .get("output_format")
+            .or_else(|| value.get("output_format"))
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| format_for_bytes(&bytes, &request.output_format).into());
         outputs.push(ApiImageResult {
             bytes,
             revised_prompt: object
@@ -223,12 +387,7 @@ async fn parse_images_response(
                 .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_string(),
-            output_format: object
-                .get("output_format")
-                .or_else(|| value.get("output_format"))
-                .and_then(Value::as_str)
-                .unwrap_or(&request.output_format)
-                .to_string(),
+            output_format,
             size: object
                 .get("size")
                 .or_else(|| value.get("size"))
@@ -252,6 +411,57 @@ async fn parse_images_response(
     }
     if outputs.is_empty() {
         Err("Images API 完成了请求，但没有图像数据".into())
+    } else {
+        Ok(outputs)
+    }
+}
+
+fn parse_gemini_response(
+    body: &[u8],
+    request: &GenerateRequest,
+) -> Result<Vec<ApiImageResult>, String> {
+    let value: Value = serde_json::from_slice(body)
+        .map_err(|error| format!("Gemini 图片 API 返回了无效 JSON: {error}"))?;
+    if let Some(error) = value.get("error") {
+        return Err(format_api_error("Gemini 图片 API", error));
+    }
+    let mut outputs = Vec::new();
+    for part in value
+        .get("candidates")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|candidate| candidate.get("content"))
+        .filter_map(|content| content.get("parts"))
+        .filter_map(Value::as_array)
+        .flatten()
+    {
+        let inline = part.get("inlineData").or_else(|| part.get("inline_data"));
+        let Some(data) = inline
+            .and_then(|value| value.get("data"))
+            .and_then(Value::as_str)
+        else {
+            continue;
+        };
+        let bytes = general_purpose::STANDARD
+            .decode(data)
+            .map_err(|error| format!("Gemini 图片 API 返回了无效 base64 图像: {error}"))?;
+        let mime_type = inline
+            .and_then(|value| value.get("mimeType").or_else(|| value.get("mime_type")))
+            .and_then(Value::as_str)
+            .unwrap_or("image/png");
+        outputs.push(ApiImageResult {
+            bytes,
+            revised_prompt: String::new(),
+            output_format: format_for_mime(mime_type).into(),
+            size: request.size.clone(),
+            background: String::new(),
+            quality: request.quality.clone(),
+            usage: value.get("usageMetadata").cloned().unwrap_or(Value::Null),
+        });
+    }
+    if outputs.is_empty() {
+        Err("Gemini 图片 API 完成了请求，但没有返回图像数据".into())
     } else {
         Ok(outputs)
     }
@@ -317,6 +527,86 @@ fn add_image_part(
     Ok(form.part(field, part))
 }
 
+fn reference_data_urls(request: &GenerateRequest, max_count: usize) -> Result<Vec<String>, String> {
+    let mut paths = request.reference_paths.clone();
+    if let Some(mask_path) = request.mask_path.as_ref() {
+        paths.push(mask_path.clone());
+    }
+    if paths.len() > max_count {
+        return Err(format!("当前模型最多支持 {max_count} 张参考图"));
+    }
+    paths
+        .iter()
+        .map(|path| image_data_url(Path::new(path)))
+        .collect()
+}
+
+fn image_data_url(path: &Path) -> Result<String, String> {
+    if !path.is_file() {
+        return Err(format!("找不到图像文件: {}", path.display()));
+    }
+    let bytes = fs::read(path).map_err(|error| format!("读取图像失败: {error}"))?;
+    let mime_type = image_mime_type(path, &bytes)?;
+    Ok(format!(
+        "data:{mime_type};base64,{}",
+        general_purpose::STANDARD.encode(bytes)
+    ))
+}
+
+fn split_data_url(value: &str) -> Result<(&str, &str), String> {
+    let Some((metadata, data)) = value.split_once(',') else {
+        return Err("参考图 Data URL 无效".into());
+    };
+    let mime_type = metadata
+        .strip_prefix("data:")
+        .and_then(|value| value.strip_suffix(";base64"))
+        .ok_or("参考图 Data URL 类型无效")?;
+    Ok((mime_type, data))
+}
+
+fn gemini_base_url(value: &str) -> Result<String, String> {
+    let base_url = normalize_base_url(value)?;
+    Ok(base_url
+        .strip_suffix("/openai")
+        .unwrap_or(&base_url)
+        .to_string())
+}
+
+fn gemini_image_size(value: &str) -> &'static str {
+    match value.trim().to_lowercase().as_str() {
+        "4k" => "4K",
+        "2k" => "2K",
+        _ => "1K",
+    }
+}
+
+fn grok_resolution(value: &str) -> &'static str {
+    match value.trim().to_lowercase().as_str() {
+        "2k" | "4k" => "2k",
+        _ => "1k",
+    }
+}
+
+fn format_for_mime(value: &str) -> &'static str {
+    match value.to_lowercase().as_str() {
+        "image/jpeg" | "image/jpg" => "jpeg",
+        "image/webp" => "webp",
+        _ => "png",
+    }
+}
+
+fn format_for_bytes(bytes: &[u8], fallback: &str) -> &'static str {
+    if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+        "jpeg"
+    } else if bytes.starts_with(b"RIFF") && bytes.len() > 12 && &bytes[8..12] == b"WEBP" {
+        "webp"
+    } else if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        "png"
+    } else {
+        format_for_mime(mime_for_format(fallback))
+    }
+}
+
 fn insert_optional_text(map: &mut Map<String, Value>, key: &str, value: &str) {
     let value = value.trim();
     if !value.is_empty() {
@@ -334,5 +624,33 @@ fn add_optional_text_part(
         form
     } else {
         form.text(key, value.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use base64::{engine::general_purpose, Engine as _};
+
+    use super::{gemini_base_url, parse_gemini_response};
+    use crate::models::GenerateRequest;
+
+    #[test]
+    fn gemini_openai_base_url_is_converted_to_native_base() {
+        assert_eq!(
+            gemini_base_url("https://generativelanguage.googleapis.com/v1beta/openai").unwrap(),
+            "https://generativelanguage.googleapis.com/v1beta"
+        );
+    }
+
+    #[test]
+    fn gemini_inline_image_response_is_parsed() {
+        let encoded = general_purpose::STANDARD.encode(b"image-bytes");
+        let body = format!(
+            r#"{{"candidates":[{{"content":{{"parts":[{{"inlineData":{{"mimeType":"image/png","data":"{encoded}"}}}}]}}}}],"usageMetadata":{{"totalTokenCount":12}}}}"#
+        );
+        let outputs = parse_gemini_response(body.as_bytes(), &GenerateRequest::default()).unwrap();
+        assert_eq!(outputs.len(), 1);
+        assert_eq!(outputs[0].bytes, b"image-bytes");
+        assert_eq!(outputs[0].output_format, "png");
     }
 }

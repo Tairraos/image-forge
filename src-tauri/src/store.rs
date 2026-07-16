@@ -59,7 +59,14 @@ pub(crate) fn output_dir_for(data_dir: &Path, settings: &Settings) -> Result<Pat
 }
 
 pub(crate) fn read_settings(data_dir: &Path) -> Result<Settings, String> {
-    read_json(&settings_path(data_dir)).map(normalize_settings)
+    let path = settings_path(data_dir);
+    let settings: Settings = read_json(&path)?;
+    let original = serde_json::to_value(&settings).ok();
+    let normalized = normalize_settings(settings);
+    if original != serde_json::to_value(&normalized).ok() {
+        write_json(&path, &normalized)?;
+    }
+    Ok(normalized)
 }
 
 pub(crate) fn write_settings(data_dir: &Path, settings: &Settings) -> Result<(), String> {
@@ -520,7 +527,11 @@ fn normalize_provider(provider: ApiProvider, index: usize) -> ApiProvider {
     ApiProvider {
         id,
         name: clean_text(provider.name, &format!("供应商 {index}")),
-        model_type: normalize_model_type(&provider.model_type),
+        model_type: normalize_model_type(
+            &provider.model_type,
+            &provider.image_model,
+            &provider.base_url,
+        ),
         base_url: normalize_base_url(&provider.base_url).unwrap_or_else(|_| default_base_url()),
         api_key: provider.api_key.trim().to_string(),
         proxy_url: provider.proxy_url.trim().to_string(),
@@ -531,11 +542,30 @@ fn normalize_provider(provider: ApiProvider, index: usize) -> ApiProvider {
     }
 }
 
-fn normalize_model_type(value: &str) -> String {
-    if value == "chat" {
-        "chat".into()
+pub(crate) fn normalize_model_type(value: &str, model: &str, base_url: &str) -> String {
+    match value.trim() {
+        "chat" => "chat".into(),
+        "image-gpt" | "image-gemini" | "image-grok" | "image-seedream" => value.into(),
+        _ => recommend_image_model_type(model, base_url),
+    }
+}
+
+pub(crate) fn recommend_image_model_type(model: &str, base_url: &str) -> String {
+    let hint = format!("{model} {base_url}").to_lowercase();
+    if ["gemini", "imagen", "nano-banana", "nano banana"]
+        .iter()
+        .any(|value| hint.contains(value))
+    {
+        "image-gemini".into()
+    } else if hint.contains("grok") || hint.contains("api.x.ai") {
+        "image-grok".into()
+    } else if ["seedream", "byteplus", "volces", "ark."]
+        .iter()
+        .any(|value| hint.contains(value))
+    {
+        "image-seedream".into()
     } else {
-        "image".into()
+        "image-gpt".into()
     }
 }
 

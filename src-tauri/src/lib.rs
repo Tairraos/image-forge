@@ -55,7 +55,7 @@ mod tests {
     use uuid::Uuid;
 
     use super::services::{images::reference_preview, references::persist_reference_bytes};
-    use super::store::default_template_title;
+    use super::store::{default_template_title, normalize_model_type};
     use super::utils::{
         image_prompt_for_transport, normalize_base_url, prompt_with_ratio_instruction, sanitize_id,
         should_send_input_fidelity, size_for_preset,
@@ -83,6 +83,31 @@ mod tests {
     fn provider_ids_are_stable() {
         assert_eq!(sanitize_id("OpenAI Official"), "OpenAI-Official");
         assert_eq!(sanitize_id(""), "default");
+    }
+
+    #[test]
+    fn legacy_image_provider_types_are_inferred_from_model_and_url() {
+        assert_eq!(
+            normalize_model_type("image", "gemini-3.1-flash-image", ""),
+            "image-gemini"
+        );
+        assert_eq!(
+            normalize_model_type("image", "grok-imagine-image-quality", ""),
+            "image-grok"
+        );
+        assert_eq!(
+            normalize_model_type("image", "seedream-4-0", ""),
+            "image-seedream"
+        );
+        assert_eq!(
+            normalize_model_type("image", "gpt-image-2", ""),
+            "image-gpt"
+        );
+        assert_eq!(
+            normalize_model_type("image-grok", "gpt-image-2", ""),
+            "image-grok"
+        );
+        assert_eq!(normalize_model_type("chat", "gemini-3.5-flash", ""), "chat");
     }
 
     #[test]
