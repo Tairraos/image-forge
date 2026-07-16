@@ -54,6 +54,7 @@
           :references="references"
           :submitting="submitting"
           :reference-drag-active="referenceDragActive"
+          :skills="skills"
           @submit="submitTask"
           @show-template="showTemplateReferenceDialog = true"
           @show-skill="openSkillReference"
@@ -138,22 +139,13 @@
         :fetching="skillFetching"
         @fetch="fetchSkillContent"
         @save="saveSkill"
+        @drop-markdown="handleSkillMarkdownDrop"
       />
 
       <SkillReferenceDialog
         v-model:show="showSkillReferenceDialog"
-        v-model:query="skillReferenceQuery"
-        v-model:prompt-content="skillPromptContent"
-        :skills="filteredReferenceSkills"
-        :selected-skill-id="selectedReferenceSkillId"
-        :skill-content="skillReferenceContent"
-        :chat-provider-id="form.chatProviderId"
-        :chat-provider-options="chatProviderOptions"
-        :filling="skillFilling"
-        @update:chat-provider-id="form.chatProviderId = $event"
-        @select-skill="selectReferenceSkill"
-        @ai-fill="fillReferenceSkill"
-        @insert="insertReferenceSkill"
+        :skills="skills"
+        @reference="referenceSkill"
       />
 
       <TemplateEditorDialog
@@ -198,6 +190,23 @@
         :button-text="notice.buttonText"
         @close="resolveNotice"
       />
+
+      <SkillRunDialog
+        v-model:show="skillRun.show"
+        :skill-name="skillRun.skillName"
+        :original-prompt="skillRun.originalPrompt"
+        :status-text="skillRun.statusText"
+        :response-mode="skillRun.responseMode"
+        :busy="skillRun.busy"
+        :elapsed-seconds="skillRun.elapsedSeconds"
+        :timeout-seconds="SKILL_DIALOG_TIMEOUT_SECONDS"
+        :questions="skillRun.questions"
+        :answers="skillRun.answers"
+        :preview="skillRun.preview"
+        @update-answer="updateSkillRunAnswer"
+        @continue="continueSkillRun"
+        @cancel="cancelSkillRun"
+      />
     </main>
   </n-config-provider>
 </template>
@@ -215,6 +224,7 @@ import NoticeDialog from "./components/dialogs/NoticeDialog.vue";
 import SkillEditorDialog from "./components/dialogs/SkillEditorDialog.vue";
 import SkillManagerDialog from "./components/dialogs/SkillManagerDialog.vue";
 import SkillReferenceDialog from "./components/dialogs/SkillReferenceDialog.vue";
+import SkillRunDialog from "./components/dialogs/SkillRunDialog.vue";
 import TaskDetailDialog from "./components/dialogs/TaskDetailDialog.vue";
 import TemplateEditorDialog from "./components/dialogs/TemplateEditorDialog.vue";
 import TemplateManagerDialog from "./components/dialogs/TemplateManagerDialog.vue";
@@ -236,7 +246,7 @@ import {
   sizeForPreset,
 } from "./lib/options";
 import { themeOverrides } from "./lib/theme";
-import { invoke, listenDragDrop, openDialog, saveDialog } from "./tauri";
+import { invoke, listenDragDrop, listenEvent, openDialog, saveDialog } from "./tauri";
 
 const statusText = ref("启动中");
 const statusTone = ref("busy");
@@ -256,7 +266,6 @@ const submitting = ref(false);
 const historyQuery = ref("");
 const templateQuery = ref("");
 const skillQuery = ref("");
-const skillReferenceQuery = ref("");
 const templateReferenceQuery = ref("");
 const templateReferenceSourceContent = ref("");
 const templateReferenceGeneratedContent = ref("");
@@ -264,11 +273,25 @@ const selectedReferenceTemplateId = ref("");
 const templateFilledRanges = ref([]);
 const templateFilling = ref(false);
 const skillFetching = ref(false);
-const skillReferenceContent = ref("");
-const skillPromptContent = ref("");
-const selectedReferenceSkillId = ref("");
-const skillFilling = ref(false);
 const promptCursor = ref(0);
+const SKILL_DIALOG_TIMEOUT_SECONDS = 180;
+const skillRun = reactive({
+  show: false,
+  sessionId: "",
+  skillId: "",
+  skillName: "",
+  originalPrompt: "",
+  sanitizedPrompt: "",
+  statusText: "",
+  responseMode: "pending",
+  busy: false,
+  elapsedSeconds: 0,
+  questions: [],
+  answers: {},
+  preview: "",
+  conversation: [],
+  cancelled: false,
+});
 
 const showApiDialog = ref(false);
 const showTemplateManagerDialog = ref(false);
@@ -319,8 +342,10 @@ const workspaceStyle = computed(() => ({
 }));
 
 let pollTimer = 0;
+let skillRunTimer = 0;
 let removeScrollbarVisibility = null;
 let unlistenDragDrop = null;
+let unlistenSkillPlanner = null;
 
 const imageProviders = computed(() =>
   settings.value.providers.filter((provider) => provider.modelType !== "chat"),
@@ -401,19 +426,7 @@ const filteredSkills = computed(() => {
   const query = skillQuery.value.trim().toLowerCase();
   if (!query) return skills.value;
   return skills.value.filter((item) =>
-    [item.name, item.sourceUrl, item.content]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase()
-      .includes(query),
-  );
-});
-
-const filteredReferenceSkills = computed(() => {
-  const query = skillReferenceQuery.value.trim().toLowerCase();
-  if (!query) return skills.value;
-  return skills.value.filter((item) =>
-    [item.name, item.sourceUrl, item.content]
+    [item.name, item.notes, item.sourceUrl, item.content]
       .filter(Boolean)
       .join(" ")
       .toLowerCase()
@@ -428,6 +441,11 @@ onMounted(async () => {
   } catch {
     // 浏览器预览没有 Tauri 拖放事件，保留 HTML5 drop 作为兼容路径。
   }
+  try {
+    unlistenSkillPlanner = await listenEvent("skill-planner", handleSkillPlannerEvent);
+  } catch {
+    // 预览环境可能没有事件通道。
+  }
   await refreshAll();
   historyScrollRequest.value += 1;
   pollTimer = window.setInterval(refreshQueueOnly, 1600);
@@ -435,7 +453,9 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.clearInterval(pollTimer);
+  window.clearInterval(skillRunTimer);
   unlistenDragDrop?.();
+  unlistenSkillPlanner?.();
   removeScrollbarVisibility?.();
 });
 
@@ -533,21 +553,29 @@ async function submitTask() {
     showApiDialog.value = true;
     return;
   }
+  const mention = detectSkillMention(form.prompt);
+  if (mention) {
+    const matchedSkill = resolveSkillByMention(mention.name);
+    if (!matchedSkill) {
+      const message = `没有找到 ${mention.token} 对应的 Skill，请检查名称或先到 Skill 维护里创建。`;
+      await showNotice("Skill 不存在", message);
+      setStatus(message, "error");
+      return;
+    }
+    if (!form.chatProviderId) {
+      const message = "使用 Skill 前请先选择对话模型";
+      await showNotice("缺少对话模型", message);
+      setStatus(message, "error");
+      showApiDialog.value = true;
+      return;
+    }
+    await startSkillRun(matchedSkill, stripSkillMention(form.prompt, mention).trim());
+    return;
+  }
+
   submitting.value = true;
   try {
-    const request = {
-      providerId: form.providerId || settings.value.activeImageProviderId || settings.value.activeProviderId,
-      prompt: form.prompt,
-      referencePaths: references.value.map((item) => item.path),
-      size: sizeForPreset(form.resolution, form.ratio),
-      resolution: form.resolution,
-      ratio: form.ratio,
-      orientation: orientationForRatio(form.ratio),
-      quality: form.quality,
-      outputFormat: "png",
-      count: 1,
-      promptFidelity: form.promptMode,
-    };
+    const request = buildImageRequest(form.prompt, form.promptMode);
     const task = await invoke("enqueue_generation", { request });
     selectedTaskId.value = task.id;
     setStatus("已开始生成", "ok");
@@ -558,6 +586,22 @@ async function submitTask() {
   } finally {
     submitting.value = false;
   }
+}
+
+function buildImageRequest(prompt, promptFidelity = form.promptMode) {
+  return {
+    providerId: form.providerId || settings.value.activeImageProviderId || settings.value.activeProviderId,
+    prompt,
+    referencePaths: references.value.map((item) => item.path),
+    size: sizeForPreset(form.resolution, form.ratio),
+    resolution: form.resolution,
+    ratio: form.ratio,
+    orientation: orientationForRatio(form.ratio),
+    quality: form.quality,
+    outputFormat: "png",
+    count: 1,
+    promptFidelity,
+  };
 }
 
 // 从文件选择器导入参考图，并转换为可预览的数据 URL。
@@ -609,6 +653,13 @@ async function addReferencePathsWithOptions(target, paths, successMessage, optio
 
 function handleReferenceDragDrop(event) {
   const payload = event?.payload || {};
+  if (showSkillEditor.value && skillDropTarget(payload.position)) {
+    clearReferenceDragTargets();
+    if (payload.type === "drop" && payload.paths?.length) {
+      void loadSkillMarkdownPath(payload.paths[0]);
+    }
+    return;
+  }
   const target = referenceDropTarget(payload.position) || defaultReferenceDropTarget();
   if (payload.type === "enter" || payload.type === "over") {
     setReferenceDragTarget(target);
@@ -622,6 +673,16 @@ function handleReferenceDragDrop(event) {
   if (payload.type === "drop" && payload.paths?.length) {
     void addDraggedReferencePaths(target, payload.paths);
   }
+}
+
+function skillDropTarget(position) {
+  const x = Number(position?.x);
+  const y = Number(position?.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+  const scale = window.devicePixelRatio || 1;
+  return [[x, y], [x / scale, y / scale]].some(([left, top]) =>
+    Boolean(document.elementFromPoint(left, top)?.closest("[data-skill-drop-target]")),
+  );
 }
 
 function handleReferenceDropEvent(event) {
@@ -924,6 +985,34 @@ async function fetchSkillContent() {
   }
 }
 
+async function handleSkillMarkdownDrop(event) {
+  const file = Array.from(event?.dataTransfer?.files || [])[0];
+  if (file?.name && !file.name.toLowerCase().endsWith(".md")) {
+    setStatus("只支持拖入 .md 文件", "error");
+    return;
+  }
+  if (file?.path) {
+    await loadSkillMarkdownPath(file.path);
+    return;
+  }
+  if (file?.text) {
+    skillDraft.content = await file.text();
+    setStatus("已读取 Markdown Skill", "ok");
+    return;
+  }
+  const path = extractDroppedFilePaths(event?.dataTransfer)[0];
+  if (path) await loadSkillMarkdownPath(path);
+}
+
+async function loadSkillMarkdownPath(path) {
+  try {
+    skillDraft.content = await invoke("read_skill_markdown_file", { path });
+    setStatus("已读取 Markdown Skill", "ok");
+  } catch (error) {
+    setStatus(String(error), "error");
+  }
+}
+
 // 保存纯 Markdown Skill；脚本依赖错误使用统一通知弹窗反馈。
 async function saveSkill() {
   try {
@@ -942,79 +1031,224 @@ async function deleteSkill(skillId) {
   if (!confirmed) return;
   try {
     skills.value = await invoke("delete_skill", { skillId });
-    if (selectedReferenceSkillId.value === skillId) {
-      selectedReferenceSkillId.value = "";
-      skillReferenceContent.value = "";
-    }
     setStatus("Skill 已删除", "ok");
   } catch (error) {
     setStatus(String(error), "error");
   }
 }
 
-function openSkillReference() {
-  const selected = skills.value.find((skill) => skill.id === selectedReferenceSkillId.value)
-    || filteredReferenceSkills.value[0]
-    || skills.value[0];
-  if (selected && (
-    selected.id !== selectedReferenceSkillId.value
-    || selected.content !== skillReferenceContent.value
-  )) {
-    selectReferenceSkill(selected);
-  } else if (!selected) {
-    selectedReferenceSkillId.value = "";
-    skillReferenceContent.value = "";
-  }
+async function openSkillReference() {
   showSkillReferenceDialog.value = true;
 }
 
-function selectReferenceSkill(skill) {
-  selectedReferenceSkillId.value = skill.id;
-  skillReferenceContent.value = skill.content || "";
-}
-
-// 将完整 Skill 与右侧任务描述交给对话模型，结果直接回填右侧编辑区。
-async function fillReferenceSkill() {
-  if (!skillReferenceContent.value.trim()) {
-    await showNotice("无法使用 Skill", "请先选择 Skill");
-    return;
-  }
-  if (!skillPromptContent.value.trim()) {
-    await showNotice("无法使用 Skill", "请输入要交给 Skill 处理的任务");
-    return;
-  }
-  if (!form.chatProviderId) {
-    await showNotice("无法使用 Skill", "请先选择对话模型");
-    return;
-  }
-
-  skillFilling.value = true;
-  setStatus("Skill 正在生成提示词…", "busy");
-  try {
-    skillPromptContent.value = await invoke("fill_skill_prompt", {
-      providerId: form.chatProviderId,
-      skill: skillReferenceContent.value,
-      request: skillPromptContent.value,
-    });
-    setStatus("Skill 提示词已生成", "ok");
-  } catch (error) {
-    const message = String(error);
-    await showNotice("Skill AI 生成失败", message);
-    setStatus(message, "error");
-  } finally {
-    skillFilling.value = false;
-  }
-}
-
-function insertReferenceSkill() {
-  const content = skillPromptContent.value;
-  if (!content.trim()) {
-    void showNotice("无法引用", "提示词内容为空");
-    return;
-  }
-  insertTextAtCursor(content);
+function referenceSkill(skill) {
+  insertTextAtCursor(`@${skill.name} `);
   showSkillReferenceDialog.value = false;
-  setStatus("Skill 提示词已引用到工作台", "ok");
+  setStatus(`已引用 Skill：${skill.name}`, "ok");
+}
+
+function detectSkillMention(prompt) {
+  const match = /(^|\s)@([^\s@#，。！？；,!?;:：]+)/u.exec(prompt);
+  if (!match) return null;
+  return {
+    token: `@${match[2]}`,
+    name: match[2],
+    start: match.index + match[1].length,
+    end: match.index + match[0].length,
+  };
+}
+
+function stripSkillMention(prompt, mention) {
+  return `${prompt.slice(0, mention.start)}${prompt.slice(mention.end)}`.replace(/\s{2,}/g, " ").trim();
+}
+
+function resolveSkillByMention(name) {
+  const target = normalizeSkillHandle(name);
+  return skills.value.find((skill) =>
+    skillMentionAliases(skill).some((alias) => normalizeSkillHandle(alias) === target),
+  ) || null;
+}
+
+function skillMentionAliases(skill) {
+  const shortName = String(skill.name || "")
+    .split(/[\s/|：:（）()【】\[\]<>-]+/u)
+    .find(Boolean);
+  const aliases = new Set([
+    skill.id,
+    skill.name,
+    shortName,
+    skill.name?.replace(/\s+/g, "-"),
+    skill.name?.replace(/\s+/g, ""),
+  ].filter(Boolean));
+  return Array.from(aliases);
+}
+
+function normalizeSkillHandle(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+async function startSkillRun(skill, sanitizedPrompt) {
+  skillRun.show = true;
+  skillRun.skillId = skill.id;
+  skillRun.skillName = skill.name || skill.id;
+  skillRun.originalPrompt = form.prompt;
+  skillRun.sanitizedPrompt = sanitizedPrompt;
+  skillRun.preview = "";
+  skillRun.questions = [];
+  skillRun.answers = {};
+  skillRun.conversation = [];
+  skillRun.cancelled = false;
+  await runSkillPlanningRound();
+}
+
+async function continueSkillRun() {
+  if (!skillRun.questions.length) return;
+  const answerLines = skillRun.questions
+    .map((question) => `${question.label}：${String(skillRun.answers[question.key] || "").trim()}`)
+    .join("\n");
+  if (!answerLines.trim()) return;
+  skillRun.conversation.push({
+    role: "assistant",
+    content: skillRun.questions.map((question) => question.label).join("\n"),
+  });
+  skillRun.conversation.push({
+    role: "user",
+    content: answerLines,
+  });
+  skillRun.questions = [];
+  skillRun.answers = {};
+  await runSkillPlanningRound();
+}
+
+function updateSkillRunAnswer({ key, value }) {
+  skillRun.answers = {
+    ...skillRun.answers,
+    [key]: value,
+  };
+}
+
+function cancelSkillRun() {
+  skillRun.cancelled = true;
+  stopSkillRunTimer();
+  resetSkillRunState();
+}
+
+async function runSkillPlanningRound() {
+  skillRun.sessionId = createSkillRunSessionId();
+  const sessionId = skillRun.sessionId;
+  skillRun.busy = true;
+  skillRun.statusText = "Skill 正在规划图片任务…";
+  skillRun.responseMode = "pending";
+  skillRun.preview = "";
+  startSkillRunTimer();
+  try {
+    const result = await invoke("plan_skill_generation", {
+      sessionId,
+      providerId: form.chatProviderId,
+      skillId: skillRun.skillId,
+      prompt: skillRun.sanitizedPrompt,
+      conversation: deepClone(skillRun.conversation),
+    });
+    if (skillRun.cancelled || sessionId !== skillRun.sessionId) return;
+    stopSkillRunTimer();
+    skillRun.busy = false;
+    skillRun.responseMode = result.streamMode || skillRun.responseMode;
+    skillRun.statusText = result.message || skillRun.statusText;
+    if (result.status === "needs_input") {
+      skillRun.questions = result.questions || [];
+      skillRun.answers = Object.fromEntries(
+        skillRun.questions.map((question) => [question.key, ""]),
+      );
+      setStatus(result.message || "Skill 需要补充信息", "busy");
+      return;
+    }
+    await enqueueSkillImages(result);
+    resetSkillRunState();
+  } catch (error) {
+    if (skillRun.cancelled || sessionId !== skillRun.sessionId) return;
+    stopSkillRunTimer();
+    skillRun.busy = false;
+    const message = String(error);
+    skillRun.statusText = message;
+    await showNotice("Skill 执行失败", message);
+    setStatus(message, "error");
+  }
+}
+
+async function enqueueSkillImages(result) {
+  const promptFidelity = result.promptFidelity || (result.promptDepth === "deep" ? "strict" : form.promptMode);
+  const requests = (result.images || []).map((image) => buildImageRequest(image.prompt, promptFidelity));
+  const tasks = await invoke("enqueue_generation_batch", { requests });
+  selectedTaskId.value = tasks.at(-1)?.id || selectedTaskId.value;
+  await refreshQueueOnly();
+  historyScrollRequest.value += 1;
+  setStatus(`Skill 已创建 ${tasks.length} 个任务`, "ok");
+}
+
+function handleSkillPlannerEvent(event) {
+  const payload = event?.payload || {};
+  if (!skillRun.show || payload.sessionId !== skillRun.sessionId) return;
+  if (payload.phase === "start") {
+    skillRun.statusText = "Skill 正在准备规划…";
+    return;
+  }
+  if (payload.phase === "mode") {
+    if (payload.mode) skillRun.responseMode = payload.mode;
+    if (payload.message) skillRun.statusText = payload.message;
+    return;
+  }
+  if (payload.phase === "delta") {
+    skillRun.responseMode = "stream";
+    skillRun.preview += payload.chunk || "";
+    skillRun.statusText = "Skill 正在流式返回规划结果…";
+    return;
+  }
+  if (payload.phase === "result" && payload.message) {
+    skillRun.statusText = payload.message;
+    return;
+  }
+  if (payload.phase === "error" && payload.message) {
+    skillRun.statusText = payload.message;
+  }
+}
+
+function startSkillRunTimer() {
+  window.clearInterval(skillRunTimer);
+  skillRun.elapsedSeconds = 0;
+  skillRunTimer = window.setInterval(() => {
+    skillRun.elapsedSeconds += 1;
+  }, 1000);
+}
+
+function stopSkillRunTimer() {
+  window.clearInterval(skillRunTimer);
+  skillRunTimer = 0;
+}
+
+function resetSkillRunState() {
+  stopSkillRunTimer();
+  skillRun.show = false;
+  skillRun.sessionId = "";
+  skillRun.skillId = "";
+  skillRun.skillName = "";
+  skillRun.originalPrompt = "";
+  skillRun.sanitizedPrompt = "";
+  skillRun.statusText = "";
+  skillRun.responseMode = "pending";
+  skillRun.busy = false;
+  skillRun.elapsedSeconds = 0;
+  skillRun.questions = [];
+  skillRun.answers = {};
+  skillRun.preview = "";
+  skillRun.conversation = [];
+  skillRun.cancelled = false;
+}
+
+function createSkillRunSessionId() {
+  if (globalThis.crypto?.randomUUID) {
+    return `skill-${globalThis.crypto.randomUUID()}`;
+  }
+  return `skill-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 async function addTemplateDraftReferenceImages() {

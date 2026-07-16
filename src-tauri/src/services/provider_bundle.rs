@@ -30,6 +30,7 @@ struct ProviderExportItem {
     api_key: String,
     proxy_url: String,
     image_model: String,
+    images_concurrency: u8,
     enabled: bool,
 }
 
@@ -55,6 +56,7 @@ pub(crate) fn export_providers_json(
                 api_key: provider.api_key.clone(),
                 proxy_url: provider.proxy_url.clone(),
                 image_model: provider.image_model.clone(),
+                images_concurrency: provider.images_concurrency,
                 enabled: provider.enabled,
             })
             .collect(),

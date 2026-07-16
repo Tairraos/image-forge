@@ -491,6 +491,7 @@ pub(crate) fn read_skills(data_dir: &Path) -> Result<Vec<SkillEntry>, String> {
 pub(crate) fn normalize_skill(mut skill: SkillEntry) -> Result<SkillEntry, String> {
     skill.id = skill.id.trim().to_string();
     skill.source_url = skill.source_url.trim().to_string();
+    skill.notes = skill.notes.trim().to_string();
     skill.content = skill.content.trim().to_string();
     if skill.content.is_empty() {
         return Err("Skill 内容不能为空".into());
@@ -658,7 +659,7 @@ fn normalize_provider(provider: ApiProvider, index: usize) -> ApiProvider {
         api_key: provider.api_key.trim().to_string(),
         proxy_url: provider.proxy_url.trim().to_string(),
         image_model: clean_text(provider.image_model, DEFAULT_IMAGE_MODEL),
-        images_concurrency: 1,
+        images_concurrency: provider.images_concurrency.max(default_provider_concurrency()),
         enabled: provider.enabled,
         notes: String::new(),
     }

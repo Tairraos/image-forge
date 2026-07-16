@@ -16,27 +16,26 @@
           <thead>
             <tr>
               <th>Skill 名称</th>
+              <th>备注</th>
               <th>来源</th>
-              <th>操作</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="skill in skills" :key="skill.id">
-              <td>
+              <td class="skill-name-cell">
                 <button type="button" class="skill-name-button" @click="$emit('view', skill)">
                   {{ skill.name }}
                 </button>
+                <div class="skill-table-actions">
+                  <n-button size="tiny" text @click="$emit('edit', skill)">编辑</n-button>
+                  <n-button size="tiny" text type="error" @click="$emit('delete', skill.id)">删除</n-button>
+                </div>
+              </td>
+              <td class="skill-notes-cell" :title="skill.notes || ''" @click="$emit('view', skill)">
+                {{ skill.notes || "—" }}
               </td>
               <td class="skill-source-cell" :title="skill.sourceUrl || '本地录入'">
                 {{ skill.sourceUrl || "本地录入" }}
-              </td>
-              <td>
-                <div class="skill-table-actions">
-                  <n-button size="tiny" secondary @click="$emit('edit', skill)">编辑</n-button>
-                  <n-button size="tiny" quaternary type="error" @click="$emit('delete', skill.id)">
-                    删除
-                  </n-button>
-                </div>
               </td>
             </tr>
             <tr v-if="!skills.length">

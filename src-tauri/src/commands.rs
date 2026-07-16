@@ -5,17 +5,19 @@ use std::{
     process::{Command, Stdio},
 };
 
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use uuid::Uuid;
 
 use crate::{
     defaults::APP_BUILD_TIME,
     models::{
         AboutInfo, ApiProvider, AppState, GenerateRequest, PromptTemplate, QueueSnapshot,
-        ReferencePreview, SkillEntry, SkillFetchResult, TaskRecord, TemplateImportResult,
+        ReferencePreview, Settings, SkillConversationMessage, SkillEntry, SkillFetchResult,
+        SkillPlanResult, SkillPlannerEvent, SkillImagePlan, SkillPlannerQuestion, TaskRecord,
+        TemplateImportResult,
     },
     services::{
-        chat::{fill_skill_prompt as generate_prompt_from_skill, fill_template},
+        chat::{fill_skill_prompt as generate_prompt_from_skill, fill_template, plan_skill_response},
         images::reference_preview,
         provider_bundle::{export_providers_json, read_providers_json},
         queue::{build_queue_snapshot, ensure_queue_worker, recover_stale_running},
@@ -94,6 +96,27 @@ pub(crate) fn read_api_providers_file(path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
+/// 读取拖入的 Markdown Skill 文件，限制为 1 MB 以内的本地文件。
+pub(crate) fn read_skill_markdown_file(path: String) -> Result<String, String> {
+    let path = Path::new(path.trim());
+    if !path.is_file() {
+        return Err("找不到拖入的文件".into());
+    }
+    if !path
+        .extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|value| value.eq_ignore_ascii_case("md"))
+    {
+        return Err("只支持拖入 .md 文件".into());
+    }
+    let metadata = fs::metadata(path).map_err(|error| format!("读取 Skill 文件失败: {error}"))?;
+    if metadata.len() > 1_048_576 {
+        return Err("Skill 文件超过 1 MB".into());
+    }
+    fs::read_to_string(path).map_err(|error| format!("读取 Skill 文件失败: {error}"))
+}
+
+#[tauri::command]
 /// 返回队列快照，供前端轮询刷新运行中和等待中的任务。
 pub(crate) fn queue_snapshot(app: AppHandle) -> Result<QueueSnapshot, String> {
     let data_dir = ensure_data_dir(&app)?;
@@ -107,15 +130,43 @@ pub(crate) fn enqueue_generation(
     request: GenerateRequest,
 ) -> Result<TaskRecord, String> {
     let data_dir = ensure_data_dir(&app)?;
-    let mut request = normalize_request(request)?;
     let settings = read_settings(&data_dir)?;
-    let provider = provider_for_request(&settings, request.provider_id.as_deref())?;
-    request.provider_id = Some(provider.id.clone());
+    let record = enqueue_generation_request(&data_dir, &settings, request)?;
+    ensure_queue_worker(&app);
+    Ok(record)
+}
 
+#[tauri::command]
+/// 批量创建生图任务，适用于 Skill 一次规划出多张图的场景。
+pub(crate) fn enqueue_generation_batch(
+    app: AppHandle,
+    requests: Vec<GenerateRequest>,
+) -> Result<Vec<TaskRecord>, String> {
+    if requests.is_empty() {
+        return Err("没有可加入队列的任务".into());
+    }
+    let data_dir = ensure_data_dir(&app)?;
+    let settings = read_settings(&data_dir)?;
+    let mut records = Vec::with_capacity(requests.len());
+    for request in requests {
+        records.push(enqueue_generation_request(&data_dir, &settings, request)?);
+    }
+    ensure_queue_worker(&app);
+    Ok(records)
+}
+
+fn enqueue_generation_request(
+    data_dir: &Path,
+    settings: &Settings,
+    request: GenerateRequest,
+) -> Result<TaskRecord, String> {
+    let mut request = normalize_request(request)?;
+    let provider = provider_for_request(settings, request.provider_id.as_deref())?;
+    request.provider_id = Some(provider.id.clone());
     if provider.api_key.trim().is_empty() {
         return Err(format!("API 源「{}」还没有填写 API Key", provider.name));
     }
-    request.reference_paths = persist_reference_paths(&data_dir, &request.reference_paths)?;
+    request.reference_paths = persist_reference_paths(data_dir, &request.reference_paths)?;
 
     let now = utc_now();
     let id = Uuid::new_v4().to_string();
@@ -138,10 +189,9 @@ pub(crate) fn enqueue_generation(
         error: None,
     };
 
-    write_json(&request_path(&data_dir, &id), &request)?;
-    upsert_history(&data_dir, record.clone())?;
-    enqueue_task(&data_dir, &id)?;
-    ensure_queue_worker(&app);
+    write_json(&request_path(data_dir, &id), &request)?;
+    upsert_history(data_dir, record.clone())?;
+    enqueue_task(data_dir, &id)?;
     Ok(record)
 }
 
@@ -584,6 +634,98 @@ pub(crate) async fn fill_skill_prompt(
 }
 
 #[tauri::command]
+/// 根据用户显式指定的 Skill，规划单图或多图任务，并在需要时返回追问问题。
+pub(crate) async fn plan_skill_generation(
+    app: AppHandle,
+    session_id: String,
+    provider_id: String,
+    skill_id: String,
+    prompt: String,
+    conversation: Vec<SkillConversationMessage>,
+) -> Result<SkillPlanResult, String> {
+    let prompt = prompt.trim().to_string();
+    if session_id.trim().is_empty() {
+        return Err("Skill 会话 ID 不能为空".into());
+    }
+
+    let data_dir = ensure_data_dir(&app)?;
+    let runtime_state = app.state::<RuntimeState>();
+    let settings = read_settings(&data_dir)?;
+    let Some(provider) = settings
+        .providers
+        .iter()
+        .find(|provider| provider.id == provider_id && provider.model_type == "chat")
+    else {
+        return Err("请选择可用的对话模型".into());
+    };
+    if provider.api_key.trim().is_empty() {
+        return Err(format!("对话模型「{}」还没有填写 API Key", provider.name));
+    }
+    let skills = read_skills(&data_dir)?;
+    let skill = skills
+        .into_iter()
+        .find(|item| item.id == skill_id)
+        .ok_or("找不到指定的 Skill")?;
+
+    let conversation = normalize_skill_conversation(conversation);
+    let routed_skill = route_skill_content(&skill.content, &prompt, &conversation);
+    let system_prompt = build_skill_planner_system_prompt(&skill.name, &routed_skill);
+    let user_content = build_skill_planner_user_content(&prompt, &conversation);
+    let request_summary = format!(
+        "skill_id={} skill_name={} prompt_len={} conversation_turns={}",
+        skill.id,
+        skill.name,
+        prompt.chars().count(),
+        conversation.len()
+    );
+
+    let output = plan_skill_response(
+        provider,
+        &system_prompt,
+        &user_content,
+        request_summary,
+        Some(&runtime_state),
+        |event| emit_skill_planner_event(
+            &app,
+            &session_id,
+            event.phase,
+            event.mode,
+            event.chunk,
+            event.message,
+            event.elapsed_ms,
+        ),
+    )
+    .await
+    .map_err(|error| {
+        emit_skill_planner_event(
+            &app,
+            &session_id,
+            "error",
+            "pending",
+            String::new(),
+            error.clone(),
+            None,
+        );
+        error
+    })?;
+
+    let mut result = parse_skill_plan_result(&output.text)?;
+    finalize_skill_plan_result(&mut result, &skill.name)?;
+    result.stream_mode = output.mode;
+
+    emit_skill_planner_event(
+        &app,
+        &session_id,
+        "result",
+        &result.stream_mode,
+        String::new(),
+        result.message.clone(),
+        None,
+    );
+    Ok(result)
+}
+
+#[tauri::command]
 /// 从兼容 OpenAI 的 API 源读取可选模型列表。
 pub(crate) async fn list_provider_models(provider: ApiProvider) -> Result<Vec<String>, String> {
     crate::services::models::list_provider_models(&provider).await
@@ -687,6 +829,362 @@ fn unique_download_path(downloads_dir: &Path, file_name: &str) -> PathBuf {
         }
     }
     unreachable!()
+}
+
+fn emit_skill_planner_event(
+    app: &AppHandle,
+    session_id: &str,
+    phase: &str,
+    mode: &str,
+    chunk: String,
+    message: String,
+    elapsed_ms: Option<u64>,
+) {
+    let _ = app.emit(
+        "skill-planner",
+        SkillPlannerEvent {
+            session_id: session_id.to_string(),
+            phase: phase.to_string(),
+            mode: mode.to_string(),
+            chunk,
+            message,
+            elapsed_ms,
+        },
+    );
+}
+
+fn normalize_skill_conversation(
+    conversation: Vec<SkillConversationMessage>,
+) -> Vec<SkillConversationMessage> {
+    conversation
+        .into_iter()
+        .filter_map(|message| {
+            let role = message.role.trim().to_string();
+            let content = message.content.trim().to_string();
+            if role.is_empty() || content.is_empty() {
+                None
+            } else {
+                Some(SkillConversationMessage { role, content })
+            }
+        })
+        .collect()
+}
+
+fn build_skill_planner_system_prompt(skill_name: &str, routed_skill: &str) -> String {
+    format!(
+        concat!(
+            "你是 Image Forge 的 Skill 路由规划器。用户已经显式指定了 Skill「{}」，你只能根据这个 Skill 工作，不要切换到别的 Skill。\n",
+            "你会收到三类信息：\n",
+            "1. 经过路由筛选后的 Skill 片段\n",
+            "2. 用户原始需求\n",
+            "3. 用户与产品弹窗之间的补充对话\n\n",
+            "你的任务：\n",
+            "- 判断信息是否足够开始生成图片。\n",
+            "- 如果信息不足，返回 1 到 3 个最关键的补充问题，避免一次问太多。\n",
+            "- 如果信息已经足够，直接产出最终图片计划。\n",
+            "- 判断这次输出是否属于深度提示词；深度提示词请把 promptDepth 设为 deep，否则设为 normal。\n",
+            "- 判断 promptFidelity，必须是 original、strict、off 之一。通常 deep 对应 strict。\n",
+            "- 如果需要多张图，images 数组里一张图一个对象，不要把多张图塞进同一条 prompt。\n",
+            "- 每条图片 prompt 都要可以直接交给生图模型使用，不要再写解释。\n\n",
+            "严格返回 JSON，不要输出 Markdown、代码块或说明文字。JSON 结构如下：\n",
+            "{{\n",
+            "  \"status\": \"needs_input\" | \"ready\",\n",
+            "  \"message\": \"一句中文说明\",\n",
+            "  \"promptDepth\": \"deep\" | \"normal\",\n",
+            "  \"promptFidelity\": \"original\" | \"strict\" | \"off\",\n",
+            "  \"questions\": [{{ \"key\": \"field_key\", \"label\": \"要问用户的问题\", \"placeholder\": \"可选占位\", \"required\": true }}],\n",
+            "  \"images\": [{{ \"title\": \"图片标题\", \"prompt\": \"最终生图提示词\" }}]\n",
+            "}}\n\n",
+            "规则：\n",
+            "- status=needs_input 时，questions 必须非空，images 必须为空。\n",
+            "- status=ready 时，images 必须非空，questions 必须为空。\n",
+            "- key 使用英文或下划线命名。\n",
+            "- prompt 里不要写“第几张图提示词如下”这类解释语。\n\n",
+            "<skill_routed>\n{}\n</skill_routed>"
+        ),
+        skill_name.trim(),
+        routed_skill.trim()
+    )
+}
+
+fn build_skill_planner_user_content(
+    prompt: &str,
+    conversation: &[SkillConversationMessage],
+) -> String {
+    let prompt = if prompt.trim().is_empty() {
+        "用户目前只指定了 Skill，尚未提供额外说明。请根据 Skill 自己判断需要补问什么。"
+    } else {
+        prompt.trim()
+    };
+    let mut content = format!("<user_request>\n{}\n</user_request>", prompt);
+    if !conversation.is_empty() {
+        content.push_str("\n\n<dialogue>");
+        for message in conversation {
+            content.push_str(&format!(
+                "\n{}: {}",
+                if message.role == "assistant" {
+                    "助手"
+                } else {
+                    "用户"
+                },
+                message.content
+            ));
+        }
+        content.push_str("\n</dialogue>");
+    }
+    content
+}
+
+fn route_skill_content(
+    skill_content: &str,
+    prompt: &str,
+    conversation: &[SkillConversationMessage],
+) -> String {
+    let skill_content = skill_content.trim();
+    if skill_content.chars().count() <= 5000 {
+        return skill_content.to_string();
+    }
+
+    let sections = split_skill_sections(skill_content);
+    if sections.len() <= 6 {
+        return skill_content.to_string();
+    }
+
+    let query = build_skill_query(prompt, conversation);
+    let mut picked = Vec::new();
+    for (index, (heading, body)) in sections.iter().enumerate() {
+        let haystack = format!("{heading}\n{body}").to_lowercase();
+        let hits = query
+            .iter()
+            .filter(|term| haystack.contains(term.as_str()))
+            .count();
+        if index == 0 || hits > 0 {
+            picked.push((index, heading.as_str(), body.as_str(), hits));
+        }
+    }
+
+    if picked.len() <= 1 {
+        picked = sections
+            .iter()
+            .enumerate()
+            .take(6)
+            .map(|(index, (heading, body))| (index, heading.as_str(), body.as_str(), 0))
+            .collect();
+    } else {
+        picked.sort_by(|left, right| right.3.cmp(&left.3).then(left.0.cmp(&right.0)));
+        picked.truncate(6);
+        picked.sort_by_key(|item| item.0);
+    }
+
+    let mut routed = String::new();
+    for (_, heading, body, _) in picked {
+        if !heading.is_empty() {
+            routed.push_str(heading);
+            routed.push('\n');
+        }
+        routed.push_str(body.trim());
+        routed.push_str("\n\n");
+    }
+    routed.trim().to_string()
+}
+
+fn split_skill_sections(skill_content: &str) -> Vec<(String, String)> {
+    let mut sections = Vec::new();
+    let mut current_heading = String::new();
+    let mut current_body = Vec::new();
+
+    for line in skill_content.lines() {
+        let trimmed = line.trim_start();
+        let heading_text = trimmed.trim_start_matches('#');
+        if trimmed.starts_with('#') && heading_text.starts_with(' ') {
+            if !current_heading.is_empty() || !current_body.is_empty() {
+                sections.push((current_heading.clone(), current_body.join("\n")));
+            }
+            current_heading = trimmed.to_string();
+            current_body.clear();
+        } else {
+            current_body.push(line.to_string());
+        }
+    }
+
+    if !current_heading.is_empty() || !current_body.is_empty() {
+        sections.push((current_heading, current_body.join("\n")));
+    }
+    sections
+}
+
+fn build_skill_query(
+    prompt: &str,
+    conversation: &[SkillConversationMessage],
+) -> HashSet<String> {
+    let mut terms = HashSet::new();
+    collect_query_terms(prompt, &mut terms);
+    for message in conversation {
+        collect_query_terms(&message.content, &mut terms);
+    }
+    terms
+}
+
+fn collect_query_terms(value: &str, terms: &mut HashSet<String>) {
+    let mut current = String::new();
+    for ch in value.chars() {
+        if ch.is_ascii_alphanumeric() || is_cjk(ch) {
+            current.push(ch.to_ascii_lowercase());
+        } else if !current.is_empty() {
+            push_query_term(&current, terms);
+            current.clear();
+        }
+    }
+    if !current.is_empty() {
+        push_query_term(&current, terms);
+    }
+}
+
+fn push_query_term(value: &str, terms: &mut HashSet<String>) {
+    let trimmed = value.trim();
+    if trimmed.chars().count() < 2 {
+        return;
+    }
+    terms.insert(trimmed.to_string());
+    if trimmed.chars().count() > 8 {
+        terms.insert(trimmed.chars().take(8).collect());
+    }
+}
+
+fn is_cjk(ch: char) -> bool {
+    ('\u{4E00}'..='\u{9FFF}').contains(&ch)
+        || ('\u{3400}'..='\u{4DBF}').contains(&ch)
+        || ('\u{F900}'..='\u{FAFF}').contains(&ch)
+}
+
+fn parse_skill_plan_result(text: &str) -> Result<SkillPlanResult, String> {
+    let candidate = extract_json_body(text).unwrap_or(text.trim());
+    serde_json::from_str(candidate).map_err(|error| {
+        format!(
+            "Skill 规划结果不是有效 JSON：{}。原始返回片段：{}",
+            error,
+            candidate.chars().take(200).collect::<String>()
+        )
+    })
+}
+
+fn extract_json_body(text: &str) -> Option<&str> {
+    let trimmed = text.trim();
+    if let Some(inner) = trimmed
+        .strip_prefix("```json")
+        .and_then(|value| value.strip_suffix("```"))
+    {
+        return Some(inner.trim());
+    }
+    if let Some(inner) = trimmed
+        .strip_prefix("```")
+        .and_then(|value| value.strip_suffix("```"))
+    {
+        return Some(inner.trim());
+    }
+    let start = trimmed.find('{')?;
+    let end = trimmed.rfind('}')?;
+    if end > start {
+        Some(trimmed[start..=end].trim())
+    } else {
+        None
+    }
+}
+
+fn finalize_skill_plan_result(result: &mut SkillPlanResult, skill_name: &str) -> Result<(), String> {
+    result.skill_name = skill_name.trim().to_string();
+    result.status = normalize_skill_status(&result.status, &result.questions, &result.images);
+    result.message = result.message.trim().to_string();
+    result.prompt_depth = match result.prompt_depth.trim() {
+        "deep" => "deep".into(),
+        _ => "normal".into(),
+    };
+    result.prompt_fidelity = normalize_prompt_fidelity_choice(
+        &result.prompt_fidelity,
+        &result.prompt_depth,
+    );
+    result.questions = result
+        .questions
+        .drain(..)
+        .filter_map(normalize_skill_question)
+        .take(3)
+        .collect();
+    result.images = result
+        .images
+        .drain(..)
+        .filter_map(normalize_skill_image)
+        .collect();
+
+    match result.status.as_str() {
+        "needs_input" => {
+            result.images.clear();
+            if result.questions.is_empty() {
+                return Err("Skill 认为信息不足，但没有返回补充问题".into());
+            }
+        }
+        "ready" => {
+            result.questions.clear();
+            if result.images.is_empty() {
+                return Err("Skill 已准备生成，但没有返回图片提示词".into());
+            }
+        }
+        _ => unreachable!(),
+    }
+
+    if result.message.is_empty() {
+        result.message = if result.status == "ready" {
+            format!("Skill「{}」已生成 {} 条图片任务", result.skill_name, result.images.len())
+        } else {
+            format!("Skill「{}」需要补充信息", result.skill_name)
+        };
+    }
+    Ok(())
+}
+
+fn normalize_skill_status(
+    status: &str,
+    questions: &[SkillPlannerQuestion],
+    images: &[SkillImagePlan],
+) -> String {
+    match status.trim() {
+        "ready" if !images.is_empty() => "ready".into(),
+        "needs_input" if !questions.is_empty() => "needs_input".into(),
+        _ if !images.is_empty() => "ready".into(),
+        _ => "needs_input".into(),
+    }
+}
+
+fn normalize_prompt_fidelity_choice(value: &str, prompt_depth: &str) -> String {
+    match value.trim() {
+        "original" | "strict" | "off" => value.trim().to_string(),
+        _ if prompt_depth == "deep" => "strict".into(),
+        _ => "off".into(),
+    }
+}
+
+fn normalize_skill_question(question: SkillPlannerQuestion) -> Option<SkillPlannerQuestion> {
+    let key = question.key.trim().to_string();
+    let label = question.label.trim().to_string();
+    if key.is_empty() || label.is_empty() {
+        return None;
+    }
+    Some(SkillPlannerQuestion {
+        key,
+        label,
+        placeholder: question.placeholder.trim().to_string(),
+        required: question.required,
+    })
+}
+
+fn normalize_skill_image(image: SkillImagePlan) -> Option<SkillImagePlan> {
+    let prompt = image.prompt.trim().to_string();
+    if prompt.is_empty() {
+        return None;
+    }
+    Some(SkillImagePlan {
+        title: image.title.trim().to_string(),
+        prompt,
+    })
 }
 
 #[cfg(test)]

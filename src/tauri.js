@@ -1,4 +1,5 @@
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { listen } from "@tauri-apps/api/event";
 
 const tauri = window.__TAURI_INTERNALS__;
 
@@ -23,4 +24,8 @@ export function saveDialog(options) {
 
 export function listenDragDrop(handler) {
   return getCurrentWebview().onDragDropEvent(handler);
+}
+
+export function listenEvent(event, handler) {
+  return listen(event, handler);
 }

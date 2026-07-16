@@ -64,12 +64,25 @@
             <n-form-item label="名称">
               <n-input v-model:value="selectedProvider.name" placeholder="例如 OpenAI / Azure / 自建服务" />
             </n-form-item>
-            <n-form-item label="类型">
-              <n-select
-                :value="selectedProvider.modelType"
-                :options="modelTypeOptions"
-                @update:value="updateSelectedModelType"
-              />
+            <n-form-item label="模型类型与并发">
+              <div class="provider-type-inline">
+                <n-select
+                  class="provider-type-select"
+                  :value="selectedProvider.modelType"
+                  :options="modelTypeOptions"
+                  @update:value="updateSelectedModelType"
+                />
+                <div class="provider-concurrency-inline">
+                  <span>并发</span>
+                  <n-input
+                    class="provider-concurrency-input"
+                    :value="String(selectedProvider.imagesConcurrency || 1)"
+                    inputmode="numeric"
+                    placeholder="1"
+                    @update:value="updateSelectedConcurrency"
+                  />
+                </div>
+              </div>
             </n-form-item>
           </div>
           <div class="provider-form-row provider-credentials-row">
@@ -199,6 +212,7 @@ import {
   defaultSettings,
   isImageModelType,
   normalizeModelType,
+  normalizeProviderConcurrency,
   normalizeSettingsForUi,
   recommendImageModelType,
 } from "../../lib/models";
@@ -302,7 +316,7 @@ function selectProvider(id) {
 
 function addProvider() {
   const provider = defaultProvider(draft.providers.length + 1);
-  provider.imagesConcurrency = 1;
+  provider.imagesConcurrency = normalizeProviderConcurrency(provider.imagesConcurrency);
   provider.notes = "";
   draft.providers.push(provider);
   selectProvider(provider.id);
@@ -324,6 +338,12 @@ function updateSelectedModelType(value) {
   provider.modelType = normalizeModelType(value, provider.imageModel, provider.baseUrl);
   manuallySelectedModelTypes.add(provider.id);
   selectProvider(provider.id);
+}
+
+function updateSelectedConcurrency(value) {
+  const provider = selectedProvider.value;
+  if (!provider) return;
+  provider.imagesConcurrency = normalizeProviderConcurrency(value);
 }
 
 function copyProvider() {
@@ -476,7 +496,7 @@ function importProviders() {
       apiKey: item.openAiApiKey || item.apiKey || "",
       proxyUrl: item.proxyUrl || "",
       imageModel: item.openAiModelId || item.imageModel || item.model || "gpt-image-2",
-      imagesConcurrency: 1,
+      imagesConcurrency: normalizeProviderConcurrency(item.imagesConcurrency),
       enabled: item.enabled !== false,
       notes: "",
     };
@@ -508,6 +528,7 @@ function providerImportSignature(provider) {
     String(provider.apiKey || "").trim(),
     String(provider.proxyUrl || "").trim(),
     String(provider.imageModel || "gpt-image-2").trim() || "gpt-image-2",
+    normalizeProviderConcurrency(provider.imagesConcurrency),
     provider.enabled !== false,
   ]);
 }
@@ -596,7 +617,7 @@ function normalizeProviderForSave(provider) {
     modelType: normalizeModelType(provider.modelType, provider.imageModel, provider.baseUrl),
     proxyUrl: provider.proxyUrl?.trim() || "",
     imageModel: provider.imageModel?.trim() || "gpt-image-2",
-    imagesConcurrency: 1,
+    imagesConcurrency: normalizeProviderConcurrency(provider.imagesConcurrency),
     notes: "",
   };
 }

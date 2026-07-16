@@ -44,7 +44,7 @@ export function normalizeSettingsForUi(value) {
     id: provider.id || createProviderId(),
     modelType: normalizeModelType(provider.modelType, provider.imageModel, provider.baseUrl),
     proxyUrl: provider.proxyUrl || "",
-    imagesConcurrency: 1,
+    imagesConcurrency: normalizeProviderConcurrency(provider.imagesConcurrency),
     notes: "",
   }));
 
@@ -84,6 +84,7 @@ export function emptySkill() {
     id: "",
     name: "",
     sourceUrl: "",
+    notes: "",
     content: "",
     createdAt: "",
     updatedAt: "",
@@ -117,6 +118,12 @@ export function recommendImageModelType(model = "", baseUrl = "") {
 
 export function isImageModelType(value) {
   return value !== "chat";
+}
+
+export function normalizeProviderConcurrency(value) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) return 1;
+  return Math.min(255, parsed);
 }
 
 function pickActiveProviderId(candidate, providers) {
