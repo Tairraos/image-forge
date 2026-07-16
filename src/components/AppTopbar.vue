@@ -2,9 +2,6 @@
   <header class="topbar">
     <div class="brand">
       <img :src="logoUrl" alt="Image Forge" />
-      <div>
-        <h1>Image Forge</h1>
-      </div>
     </div>
 
     <div class="topbar-actions">
@@ -30,7 +27,7 @@
 
 <script setup>
 import { BookOpen, FileText, Info, Settings } from "@lucide/vue";
-import logoUrl from "../assets/app-icon.png";
+import logoUrl from "../assets/title.png";
 
 defineEmits(["show-api", "show-template-manager", "show-skill-manager", "show-about"]);
 </script>

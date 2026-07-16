@@ -388,6 +388,8 @@ pub struct SkillPlanResult {
     #[serde(default)]
     pub prompt_fidelity: String,
     #[serde(default)]
+    pub reference_image_usage: String,
+    #[serde(default)]
     pub stream_mode: String,
     #[serde(default)]
     pub skill_name: String,

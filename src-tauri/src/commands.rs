@@ -642,6 +642,7 @@ pub(crate) async fn plan_skill_generation(
     skill_id: String,
     prompt: String,
     conversation: Vec<SkillConversationMessage>,
+    has_reference_images: bool,
 ) -> Result<SkillPlanResult, String> {
     let prompt = prompt.trim().to_string();
     if session_id.trim().is_empty() {
@@ -670,7 +671,7 @@ pub(crate) async fn plan_skill_generation(
     let conversation = normalize_skill_conversation(conversation);
     let routed_skill = route_skill_content(&skill.content, &prompt, &conversation);
     let system_prompt = build_skill_planner_system_prompt(&skill.name, &routed_skill);
-    let user_content = build_skill_planner_user_content(&prompt, &conversation);
+    let user_content = build_skill_planner_user_content(&prompt, &conversation, has_reference_images);
     let request_summary = format!(
         "skill_id={} skill_name={} prompt_len={} conversation_turns={}",
         skill.id,
@@ -886,12 +887,14 @@ fn build_skill_planner_system_prompt(skill_name: &str, routed_skill: &str) -> St
             "- 判断 promptFidelity，必须是 original、strict、off 之一。通常 deep 对应 strict。\n",
             "- 如果需要多张图，images 数组里一张图一个对象，不要把多张图塞进同一条 prompt。\n",
             "- 每条图片 prompt 都要可以直接交给生图模型使用，不要再写解释。\n\n",
+            "- 必须明确输出 referenceImageUsage：use 表示提示词要配合参考图，not_needed 表示不需要参考图，optional 表示参考图可选。没有参考图时也必须填写 not_needed。\n",
             "严格返回 JSON，不要输出 Markdown、代码块或说明文字。JSON 结构如下：\n",
             "{{\n",
             "  \"status\": \"needs_input\" | \"ready\",\n",
             "  \"message\": \"一句中文说明\",\n",
             "  \"promptDepth\": \"deep\" | \"normal\",\n",
             "  \"promptFidelity\": \"original\" | \"strict\" | \"off\",\n",
+            "  \"referenceImageUsage\": \"use\" | \"not_needed\" | \"optional\",\n",
             "  \"questions\": [{{ \"key\": \"field_key\", \"label\": \"要问用户的问题\", \"placeholder\": \"可选占位\", \"required\": true }}],\n",
             "  \"images\": [{{ \"title\": \"图片标题\", \"prompt\": \"最终生图提示词\" }}]\n",
             "}}\n\n",
@@ -910,6 +913,7 @@ fn build_skill_planner_system_prompt(skill_name: &str, routed_skill: &str) -> St
 fn build_skill_planner_user_content(
     prompt: &str,
     conversation: &[SkillConversationMessage],
+    has_reference_images: bool,
 ) -> String {
     let prompt = if prompt.trim().is_empty() {
         "用户目前只指定了 Skill，尚未提供额外说明。请根据 Skill 自己判断需要补问什么。"
@@ -917,6 +921,11 @@ fn build_skill_planner_user_content(
         prompt.trim()
     };
     let mut content = format!("<user_request>\n{}\n</user_request>", prompt);
+    content.push_str(if has_reference_images {
+        "\n\n<reference_images>用户附加了参考图。你必须明确判断提示词是否需要配合这些参考图。</reference_images>"
+    } else {
+        "\n\n<reference_images>用户没有附加参考图。referenceImageUsage 必须为 not_needed。</reference_images>"
+    });
     if !conversation.is_empty() {
         content.push_str("\n\n<dialogue>");
         for message in conversation {
@@ -1103,6 +1112,10 @@ fn finalize_skill_plan_result(result: &mut SkillPlanResult, skill_name: &str) ->
         &result.prompt_fidelity,
         &result.prompt_depth,
     );
+    result.reference_image_usage = match result.reference_image_usage.trim() {
+        "use" | "optional" | "not_needed" => result.reference_image_usage.trim().to_string(),
+        _ => return Err("Skill 必须明确说明是否需要配合参考图（use / optional / not_needed）".into()),
+    };
     result.questions = result
         .questions
         .drain(..)

@@ -21,7 +21,7 @@
               <strong :title="provider.name || '未命名 API 源'">
                 {{ provider.name || "未命名 API 源" }}
               </strong>
-              <span>{{ modelTypeLabel(provider.modelType) }}</span>
+              <span>{{ modelTypeLabel(provider.modelType, provider.imagesConcurrency) }}</span>
               <span :title="provider.imageModel || '未设置模型'">
                 {{ provider.imageModel || "未设置模型" }}
               </span>
@@ -622,8 +622,10 @@ function normalizeProviderForSave(provider) {
   };
 }
 
-function modelTypeLabel(value) {
-  return modelTypeOptions.find((option) => option.value === value)?.label || "生图模型 - GPT";
+function modelTypeLabel(value, concurrency = 1) {
+  const label = modelTypeOptions.find((option) => option.value === value)?.label || "生图模型 - GPT";
+  const count = normalizeProviderConcurrency(concurrency);
+  return count === 1 ? label : `${label} x ${count} 并发`;
 }
 
 function providerTypeClass(value) {

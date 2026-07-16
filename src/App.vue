@@ -1147,13 +1147,19 @@ async function runSkillPlanningRound() {
       providerId: form.chatProviderId,
       skillId: skillRun.skillId,
       prompt: skillRun.sanitizedPrompt,
-      conversation: deepClone(skillRun.conversation),
+        conversation: deepClone(skillRun.conversation),
+        hasReferenceImages: references.value.length > 0,
     });
     if (skillRun.cancelled || sessionId !== skillRun.sessionId) return;
     stopSkillRunTimer();
     skillRun.busy = false;
     skillRun.responseMode = result.streamMode || skillRun.responseMode;
     skillRun.statusText = result.message || skillRun.statusText;
+    if (result.referenceImageUsage === "use") {
+      skillRun.statusText += " · 提示词需要配合参考图";
+    } else if (result.referenceImageUsage === "optional") {
+      skillRun.statusText += " · 参考图可选";
+    }
     if (result.status === "needs_input") {
       skillRun.questions = result.questions || [];
       skillRun.answers = Object.fromEntries(
@@ -1163,7 +1169,6 @@ async function runSkillPlanningRound() {
       return;
     }
     await enqueueSkillImages(result);
-    resetSkillRunState();
   } catch (error) {
     if (skillRun.cancelled || sessionId !== skillRun.sessionId) return;
     stopSkillRunTimer();
@@ -1182,6 +1187,12 @@ async function enqueueSkillImages(result) {
   selectedTaskId.value = tasks.at(-1)?.id || selectedTaskId.value;
   await refreshQueueOnly();
   historyScrollRequest.value += 1;
+  const promptPreview = (result.images || [])
+    .map((image, index) => `【${index + 1}】${image.title || "图片"}\n${image.prompt}`)
+    .join("\n\n");
+  skillRun.preview = promptPreview;
+  skillRun.statusText = `Skill 已明确输出 ${tasks.length} 条提示词，已加入画图队列`;
+  skillRun.responseMode = "non-stream";
   setStatus(`Skill 已创建 ${tasks.length} 个任务`, "ok");
 }
 
