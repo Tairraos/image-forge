@@ -942,6 +942,10 @@ async function deleteSkill(skillId) {
   if (!confirmed) return;
   try {
     skills.value = await invoke("delete_skill", { skillId });
+    if (selectedReferenceSkillId.value === skillId) {
+      selectedReferenceSkillId.value = "";
+      skillReferenceContent.value = "";
+    }
     setStatus("Skill 已删除", "ok");
   } catch (error) {
     setStatus(String(error), "error");
@@ -952,8 +956,14 @@ function openSkillReference() {
   const selected = skills.value.find((skill) => skill.id === selectedReferenceSkillId.value)
     || filteredReferenceSkills.value[0]
     || skills.value[0];
-  if (selected && !skillReferenceContent.value) {
+  if (selected && (
+    selected.id !== selectedReferenceSkillId.value
+    || selected.content !== skillReferenceContent.value
+  )) {
     selectReferenceSkill(selected);
+  } else if (!selected) {
+    selectedReferenceSkillId.value = "";
+    skillReferenceContent.value = "";
   }
   showSkillReferenceDialog.value = true;
 }

@@ -166,6 +166,10 @@ fn github_raw_candidates(source: &Url) -> Vec<Url> {
 }
 
 fn looks_like_markdown(url: &Url, content_type: &str, content: &str) -> bool {
+    let leading = content.trim_start().to_lowercase();
+    if leading.starts_with("<!doctype html") || leading.starts_with("<html") {
+        return false;
+    }
     let path_is_markdown = url.path().to_lowercase().ends_with(".md");
     let type_is_text = content_type.is_empty()
         || content_type.contains("text/plain")
