@@ -31,6 +31,7 @@ pub fn run() {
             commands::export_api_providers,
             commands::export_templates,
             commands::fill_prompt_template,
+            commands::fill_skill_prompt,
             commands::fetch_skill_markdown,
             commands::import_templates,
             commands::load_app_state,

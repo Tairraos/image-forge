@@ -15,7 +15,7 @@ use crate::{
         ReferencePreview, SkillEntry, SkillFetchResult, TaskRecord, TemplateImportResult,
     },
     services::{
-        chat::fill_template,
+        chat::{fill_skill_prompt as generate_prompt_from_skill, fill_template},
         images::reference_preview,
         provider_bundle::{export_providers_json, read_providers_json},
         queue::{build_queue_snapshot, ensure_queue_worker, recover_stale_running},
@@ -516,6 +516,68 @@ pub(crate) async fn fill_prompt_template(
         Err(error) => runtime_state.push_log(
             "ai_fill.command.error",
             format!("provider_id={} error={}", provider.id, error),
+        ),
+    }
+    result
+}
+
+#[tauri::command]
+/// 把 Skill 规范和用户任务交给选定的对话模型，返回最终生图提示词。
+pub(crate) async fn fill_skill_prompt(
+    app: AppHandle,
+    provider_id: String,
+    skill: String,
+    request: String,
+) -> Result<String, String> {
+    let skill = skill.trim();
+    let request = request.trim();
+    if skill.is_empty() {
+        return Err("请先选择 Skill".into());
+    }
+    if request.is_empty() {
+        return Err("请输入要交给 Skill 处理的任务".into());
+    }
+
+    let data_dir = ensure_data_dir(&app)?;
+    let runtime_state = app.state::<RuntimeState>();
+    runtime_state.push_log(
+        "skill_fill.command.start",
+        format!(
+            "provider_id={} skill_len={} request_len={}",
+            provider_id,
+            skill.chars().count(),
+            request.chars().count()
+        ),
+    );
+    let settings = read_settings(&data_dir)?;
+    let Some(provider) = settings
+        .providers
+        .iter()
+        .find(|provider| provider.id == provider_id && provider.model_type == "chat")
+    else {
+        runtime_state.push_log(
+            "skill_fill.command.provider_not_found",
+            format!("provider_id={provider_id}"),
+        );
+        return Err("请选择可用的对话模型".into());
+    };
+    if provider.api_key.trim().is_empty() {
+        return Err(format!("对话模型「{}」还没有填写 API Key", provider.name));
+    }
+
+    let result = generate_prompt_from_skill(provider, skill, request, Some(&runtime_state)).await;
+    match &result {
+        Ok(value) => runtime_state.push_log(
+            "skill_fill.command.success",
+            format!(
+                "provider_id={} output_len={}",
+                provider.id,
+                value.chars().count()
+            ),
+        ),
+        Err(error) => runtime_state.push_log(
+            "skill_fill.command.error",
+            format!("provider_id={} error={error}", provider.id),
         ),
     }
     result

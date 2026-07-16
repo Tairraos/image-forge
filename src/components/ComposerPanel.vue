@@ -62,7 +62,10 @@
       @drop.prevent="$emit('drop-reference', $event)"
     >
       <div class="prompt-live-head">
-        <span>提示词</span>
+        <div class="prompt-live-title">
+          <span>提示词</span>
+          <n-button size="tiny" quaternary @click="$emit('save-template')">存为模板</n-button>
+        </div>
         <small>{{ form.prompt.length }} 字</small>
       </div>
       <n-input
@@ -79,10 +82,10 @@
       />
       <div class="prompt-submit-row">
         <n-button size="small" secondary @click="$emit('clear-prompt')">清空</n-button>
-        <n-button size="small" secondary @click="$emit('save-template')">存为模板</n-button>
         <n-button size="small" secondary @click="$emit('show-template')">
           引用模板
         </n-button>
+        <n-button size="small" secondary @click="$emit('show-skill')">使用 Skill</n-button>
         <n-button size="small" type="primary" :loading="submitting" @click="$emit('submit')">
           <template #icon><WandSparkles :size="17" /></template>
           开始生成
@@ -112,6 +115,7 @@ defineProps({
 defineEmits([
   "submit",
   "show-template",
+  "show-skill",
   "save-template",
   "clear-prompt",
   "prompt-focus",

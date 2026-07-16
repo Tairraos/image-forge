@@ -13,23 +13,74 @@ use crate::{
 };
 
 const CHAT_COMPLETION_TIMEOUT_SECONDS: u64 = 60;
+const TEMPLATE_SYSTEM_PROMPT: &str = "你是提示词模板填充助手。用户会提供一个包含若干 {占位描述} 的生图提示词模板。请根据花括号里的描述语义，把每一处花括号连同里面的描述替换为具体、自然、适合生图的中文内容。不要保留花括号，不要改变花括号外的其它文字，不要输出解释、Markdown 或代码块，只输出填充后的完整文本。";
 
 pub(crate) async fn fill_template(
     provider: &ApiProvider,
     template: &str,
     runtime_state: Option<&RuntimeState>,
 ) -> Result<String, String> {
+    complete_chat_prompt(
+        provider,
+        TEMPLATE_SYSTEM_PROMPT,
+        template,
+        "ai_fill.service",
+        "AI 填充",
+        format!(
+            "template_len={} placeholders={}",
+            template.chars().count(),
+            placeholder_count(template)
+        ),
+        runtime_state,
+    )
+    .await
+}
+
+pub(crate) async fn fill_skill_prompt(
+    provider: &ApiProvider,
+    skill: &str,
+    request: &str,
+    runtime_state: Option<&RuntimeState>,
+) -> Result<String, String> {
+    let system_prompt = format!(
+        "你是图像生成提示词执行器。请严格遵循下面的 Skill 规范，根据用户任务产出一段可直接交给生图模型的最终提示词。执行 Skill 要求的分析与组织，但不要展示思考过程，不要解释 Skill，不要输出 Markdown 代码块，只返回最终提示词。\n\n<skill>\n{}\n</skill>",
+        skill.trim()
+    );
+    complete_chat_prompt(
+        provider,
+        &system_prompt,
+        request,
+        "skill_fill.service",
+        "Skill AI 生成",
+        format!(
+            "skill_len={} request_len={}",
+            skill.chars().count(),
+            request.chars().count()
+        ),
+        runtime_state,
+    )
+    .await
+}
+
+async fn complete_chat_prompt(
+    provider: &ApiProvider,
+    system_prompt: &str,
+    user_content: &str,
+    event_prefix: &str,
+    operation_label: &str,
+    request_summary: String,
+    runtime_state: Option<&RuntimeState>,
+) -> Result<String, String> {
     let started = Instant::now();
     record_runtime_log(
         runtime_state,
-        "ai_fill.service.start",
+        &format!("{event_prefix}.start"),
         format!(
-            "provider_id={} provider_name={} model={} template_len={} placeholders={} proxy={}",
+            "provider_id={} provider_name={} model={} {} proxy={}",
             provider.id,
             provider.name,
             provider.image_model,
-            template.chars().count(),
-            placeholder_count(template),
+            request_summary,
             if provider.proxy_url.trim().is_empty() {
                 "off"
             } else {
@@ -43,7 +94,7 @@ pub(crate) async fn fill_template(
         Err(error) => {
             record_runtime_log(
                 runtime_state,
-                "ai_fill.service.base_url_error",
+                &format!("{event_prefix}.base_url_error"),
                 format!("provider_id={} error={}", provider.id, error),
             );
             return Err(error);
@@ -52,14 +103,14 @@ pub(crate) async fn fill_template(
     let client = chat_completion_client(&provider.proxy_url).map_err(|error| {
         record_runtime_log(
             runtime_state,
-            "ai_fill.service.client_error",
+            &format!("{event_prefix}.client_error"),
             format!("error={}", error),
         );
         error
     })?;
     record_runtime_log(
         runtime_state,
-        "ai_fill.service.client",
+        &format!("{event_prefix}.client"),
         if provider.proxy_url.trim().is_empty() {
             "using http1 client without proxy".to_string()
         } else {
@@ -74,11 +125,11 @@ pub(crate) async fn fill_template(
         "messages": [
             {
                 "role": "system",
-                "content": "你是提示词模板填充助手。用户会提供一个包含若干 {占位描述} 的生图提示词模板。请根据花括号里的描述语义，把每一处花括号连同里面的描述替换为具体、自然、适合生图的中文内容。不要保留花括号，不要改变花括号外的其它文字，不要输出解释、Markdown 或代码块，只输出填充后的完整文本。"
+                "content": system_prompt
             },
             {
                 "role": "user",
-                "content": template
+                "content": user_content
             }
         ],
         "temperature": 0.2,
@@ -88,7 +139,7 @@ pub(crate) async fn fill_template(
     let url = format!("{base_url}/chat/completions");
     record_runtime_log(
         runtime_state,
-        "ai_fill.service.request",
+        &format!("{event_prefix}.request"),
         format!("url={} model={}", url, provider.image_model),
     );
     let response = match client
@@ -105,7 +156,7 @@ pub(crate) async fn fill_template(
         Err(error) => {
             record_runtime_log(
                 runtime_state,
-                "ai_fill.service.request_error",
+                &format!("{event_prefix}.request_error"),
                 format!(
                     "elapsed_ms={} timeout={} error={:?}",
                     started.elapsed().as_millis(),
@@ -114,9 +165,11 @@ pub(crate) async fn fill_template(
                 ),
             );
             let message = if error.is_timeout() {
-                format!("AI 填充超时：超过 {CHAT_COMPLETION_TIMEOUT_SECONDS} 秒未返回结果")
+                format!(
+                    "{operation_label}超时：超过 {CHAT_COMPLETION_TIMEOUT_SECONDS} 秒未返回结果"
+                )
             } else {
-                format!("AI 填充请求失败: {error}")
+                format!("{operation_label}请求失败: {error}")
             };
             return Err(message);
         }
@@ -125,7 +178,7 @@ pub(crate) async fn fill_template(
     let status = response.status();
     record_runtime_log(
         runtime_state,
-        "ai_fill.service.response",
+        &format!("{event_prefix}.response"),
         format!(
             "elapsed_ms={} status={}",
             started.elapsed().as_millis(),
@@ -137,19 +190,19 @@ pub(crate) async fn fill_template(
         Err(error) => {
             record_runtime_log(
                 runtime_state,
-                "ai_fill.service.body_error",
+                &format!("{event_prefix}.body_error"),
                 format!(
                     "elapsed_ms={} error={}",
                     started.elapsed().as_millis(),
                     error
                 ),
             );
-            return Err(format!("读取对话模型响应失败: {error}"));
+            return Err(format!("读取{operation_label}响应失败: {error}"));
         }
     };
     record_runtime_log(
         runtime_state,
-        "ai_fill.service.body",
+        &format!("{event_prefix}.body"),
         format!(
             "elapsed_ms={} bytes={} preview={}",
             started.elapsed().as_millis(),
@@ -162,22 +215,22 @@ pub(crate) async fn fill_template(
         Err(error) => {
             record_runtime_log(
                 runtime_state,
-                "ai_fill.service.json_error",
+                &format!("{event_prefix}.json_error"),
                 format!(
                     "elapsed_ms={} error={}",
                     started.elapsed().as_millis(),
                     error
                 ),
             );
-            return Err(format!("对话模型返回了无效 JSON: {error}"));
+            return Err(format!("{operation_label}返回了无效 JSON: {error}"));
         }
     };
     if !status.is_success() {
         if let Some(error) = value.get("error") {
-            let message = format_api_error("对话模型", error);
+            let message = format_api_error(operation_label, error);
             record_runtime_log(
                 runtime_state,
-                "ai_fill.service.api_error",
+                &format!("{event_prefix}.api_error"),
                 format!(
                     "elapsed_ms={} error={}",
                     started.elapsed().as_millis(),
@@ -186,10 +239,10 @@ pub(crate) async fn fill_template(
             );
             return Err(message);
         }
-        let message = format!("对话模型请求失败: HTTP {}", status.as_u16());
+        let message = format!("{operation_label}请求失败: HTTP {}", status.as_u16());
         record_runtime_log(
             runtime_state,
-            "ai_fill.service.http_error",
+            &format!("{event_prefix}.http_error"),
             format!(
                 "elapsed_ms={} error={}",
                 started.elapsed().as_millis(),
@@ -213,7 +266,7 @@ pub(crate) async fn fill_template(
     if let Some(result) = result {
         record_runtime_log(
             runtime_state,
-            "ai_fill.service.success",
+            &format!("{event_prefix}.success"),
             format!(
                 "elapsed_ms={} output_len={}",
                 started.elapsed().as_millis(),
@@ -224,14 +277,14 @@ pub(crate) async fn fill_template(
     } else {
         record_runtime_log(
             runtime_state,
-            "ai_fill.service.empty_content",
+            &format!("{event_prefix}.empty_content"),
             format!(
                 "elapsed_ms={} top_level_keys={}",
                 started.elapsed().as_millis(),
                 json_keys(&value)
             ),
         );
-        Err("对话模型没有返回填充内容".into())
+        Err(format!("{operation_label}没有返回内容"))
     }
 }
 

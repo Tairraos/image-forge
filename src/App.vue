@@ -56,6 +56,7 @@
           :reference-drag-active="referenceDragActive"
           @submit="submitTask"
           @show-template="showTemplateReferenceDialog = true"
+          @show-skill="openSkillReference"
           @save-template="saveWorkbenchAsTemplate"
           @clear-prompt="clearPrompt"
           @prompt-focus="capturePromptCursor"
@@ -139,6 +140,22 @@
         @save="saveSkill"
       />
 
+      <SkillReferenceDialog
+        v-model:show="showSkillReferenceDialog"
+        v-model:query="skillReferenceQuery"
+        v-model:prompt-content="skillPromptContent"
+        :skills="filteredReferenceSkills"
+        :selected-skill-id="selectedReferenceSkillId"
+        :skill-content="skillReferenceContent"
+        :chat-provider-id="form.chatProviderId"
+        :chat-provider-options="chatProviderOptions"
+        :filling="skillFilling"
+        @update:chat-provider-id="form.chatProviderId = $event"
+        @select-skill="selectReferenceSkill"
+        @ai-fill="fillReferenceSkill"
+        @insert="insertReferenceSkill"
+      />
+
       <TemplateEditorDialog
         v-model:show="showTemplateEditor"
         :template="templateDraft"
@@ -197,6 +214,7 @@ import ConfirmDialog from "./components/dialogs/ConfirmDialog.vue";
 import NoticeDialog from "./components/dialogs/NoticeDialog.vue";
 import SkillEditorDialog from "./components/dialogs/SkillEditorDialog.vue";
 import SkillManagerDialog from "./components/dialogs/SkillManagerDialog.vue";
+import SkillReferenceDialog from "./components/dialogs/SkillReferenceDialog.vue";
 import TaskDetailDialog from "./components/dialogs/TaskDetailDialog.vue";
 import TemplateEditorDialog from "./components/dialogs/TemplateEditorDialog.vue";
 import TemplateManagerDialog from "./components/dialogs/TemplateManagerDialog.vue";
@@ -238,6 +256,7 @@ const submitting = ref(false);
 const historyQuery = ref("");
 const templateQuery = ref("");
 const skillQuery = ref("");
+const skillReferenceQuery = ref("");
 const templateReferenceQuery = ref("");
 const templateReferenceSourceContent = ref("");
 const templateReferenceGeneratedContent = ref("");
@@ -245,6 +264,10 @@ const selectedReferenceTemplateId = ref("");
 const templateFilledRanges = ref([]);
 const templateFilling = ref(false);
 const skillFetching = ref(false);
+const skillReferenceContent = ref("");
+const skillPromptContent = ref("");
+const selectedReferenceSkillId = ref("");
+const skillFilling = ref(false);
 const promptCursor = ref(0);
 
 const showApiDialog = ref(false);
@@ -253,6 +276,7 @@ const showTemplateReferenceDialog = ref(false);
 const showTemplateEditor = ref(false);
 const showSkillManagerDialog = ref(false);
 const showSkillEditor = ref(false);
+const showSkillReferenceDialog = ref(false);
 const showTaskDetail = ref(false);
 const showAboutDialog = ref(false);
 const confirmation = reactive({
@@ -375,6 +399,18 @@ const filteredReferenceTemplates = computed(() => {
 
 const filteredSkills = computed(() => {
   const query = skillQuery.value.trim().toLowerCase();
+  if (!query) return skills.value;
+  return skills.value.filter((item) =>
+    [item.name, item.sourceUrl, item.content]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase()
+      .includes(query),
+  );
+});
+
+const filteredReferenceSkills = computed(() => {
+  const query = skillReferenceQuery.value.trim().toLowerCase();
   if (!query) return skills.value;
   return skills.value.filter((item) =>
     [item.name, item.sourceUrl, item.content]
@@ -910,6 +946,65 @@ async function deleteSkill(skillId) {
   } catch (error) {
     setStatus(String(error), "error");
   }
+}
+
+function openSkillReference() {
+  const selected = skills.value.find((skill) => skill.id === selectedReferenceSkillId.value)
+    || filteredReferenceSkills.value[0]
+    || skills.value[0];
+  if (selected && !skillReferenceContent.value) {
+    selectReferenceSkill(selected);
+  }
+  showSkillReferenceDialog.value = true;
+}
+
+function selectReferenceSkill(skill) {
+  selectedReferenceSkillId.value = skill.id;
+  skillReferenceContent.value = skill.content || "";
+}
+
+// 将完整 Skill 与右侧任务描述交给对话模型，结果直接回填右侧编辑区。
+async function fillReferenceSkill() {
+  if (!skillReferenceContent.value.trim()) {
+    await showNotice("无法使用 Skill", "请先选择 Skill");
+    return;
+  }
+  if (!skillPromptContent.value.trim()) {
+    await showNotice("无法使用 Skill", "请输入要交给 Skill 处理的任务");
+    return;
+  }
+  if (!form.chatProviderId) {
+    await showNotice("无法使用 Skill", "请先选择对话模型");
+    return;
+  }
+
+  skillFilling.value = true;
+  setStatus("Skill 正在生成提示词…", "busy");
+  try {
+    skillPromptContent.value = await invoke("fill_skill_prompt", {
+      providerId: form.chatProviderId,
+      skill: skillReferenceContent.value,
+      request: skillPromptContent.value,
+    });
+    setStatus("Skill 提示词已生成", "ok");
+  } catch (error) {
+    const message = String(error);
+    await showNotice("Skill AI 生成失败", message);
+    setStatus(message, "error");
+  } finally {
+    skillFilling.value = false;
+  }
+}
+
+function insertReferenceSkill() {
+  const content = skillPromptContent.value;
+  if (!content.trim()) {
+    void showNotice("无法引用", "提示词内容为空");
+    return;
+  }
+  insertTextAtCursor(content);
+  showSkillReferenceDialog.value = false;
+  setStatus("Skill 提示词已引用到工作台", "ok");
 }
 
 async function addTemplateDraftReferenceImages() {
