@@ -16,9 +16,8 @@ export function installAutoHideScrollbars() {
   const resizeObserver = new ResizeObserver(() => requestOverlayUpdate());
 
   function ownerFor(element) {
-    if (element.classList.contains("n-scrollbar-container")) {
-      return element.closest(".n-scrollbar") || element;
-    }
+    const naiveOwner = element.closest(".n-scrollbar");
+    if (naiveOwner) return naiveOwner;
     return element;
   }
 
