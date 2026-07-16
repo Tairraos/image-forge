@@ -47,7 +47,7 @@ flowchart LR
 | `src/lib/formatters.js`                              | 状态标签、文件名、文件 URL、clamp 等展示工具。                |
 | `src/lib/generationTimer.js`                         | 运行中任务的十分之一秒计时和五分钟超时判断。                      |
 | `src/lib/referenceFiles.js`                          | 从 WebView 剪贴板和拖放数据中解析绝对路径与 `file://` URI。       |
-| `src/lib/scrollbarVisibility.js`                     | 监听滚动和指针位置，统一控制原生与 Naive UI 细滚动条的自动显隐。       |
+| `src/lib/scrollbarVisibility.js`                     | 隐藏占位式原生滚动条，按滚动比例绘制可拖动的固定定位悬浮轨道，并统一控制 Naive UI 滚动条显隐。       |
 | `src/lib/theme.js`                                   | Naive UI 主题覆盖。                              |
 | `src/tauri.js`                                       | 对 Tauri `invoke`、文件打开/保存对话框和原生拖放事件的轻封装。                 |
 
@@ -69,7 +69,7 @@ flowchart LR
 - WebView 拖放和可见的 Finder 粘贴数据由 `referenceFiles.js` 提取本地文件路径；模板内容区和“参考图”按钮都可以接收拖放。
 - macOS WebView 未暴露 Finder 文件路径时，`clipboard.rs` 读取系统粘贴板各项目的 `public.file-url`，优先预览原始图片文件，再回退到普通位图剪贴板。
 - 文件路径统一交给 `reference_from_path` 读取并检查真实 MIME；只有图像文件会加入参考图，非图像路径不会写入提示词或显示错误。
-- `scrollbarVisibility.js` 通过捕获滚动事件和指针边缘距离，为原生及 Naive UI 滚动容器维护短暂可见状态；CSS 统一使用细滚动条和浅灰轨道，滚动或靠近边缘时整条显示，停止滚动约 900ms 后以一秒动画淡出。
+- `scrollbarVisibility.js` 隐藏会占用布局宽度的原生滚动条，并在 `body` 上按容器可视边界、滚动比例和滚动位置绘制固定定位的纵向/横向悬浮轨道；轨道支持点击和拖动，不参与内容布局。滚动或靠近边缘时显示，停止滚动后以一秒动画淡出；Naive UI 继续使用自身的覆盖式轨道并复用同一显隐状态。
 - 模板导出通过系统保存对话框选择 ZIP 路径；模板导入通过系统打开对话框选择 ZIP，并显示新增/跳过数量。
 - API 源和模板维护共用导入导出图标语义：`Download` 表示内容进入应用，`Upload` 表示内容离开应用。
 - `App.vue` 启动后调用 `load_app_state`，随后每 1.6 秒调用 `queue_snapshot` 刷新队列。
