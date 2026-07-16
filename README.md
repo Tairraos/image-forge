@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-0.2.48-9B7BEE?style=flat-square">
+  <img alt="version" src="https://img.shields.io/badge/version-0.2.49-9B7BEE?style=flat-square">
   <img alt="platform desktop" src="https://img.shields.io/badge/platform-desktop-111827?style=flat-square">
   <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white">
   <img alt="Vue" src="https://img.shields.io/badge/Vue-3-42B883?style=flat-square&logo=vuedotjs&logoColor=white">
@@ -158,6 +158,7 @@ pnpm run release
 ### v0.2.49
 
 - 原生滚动条不再占用内容面积，改为覆盖在滚动容器边缘的可拖动浅灰悬浮轨道；仅在滚动或鼠标靠近边缘时显示，结束后淡出。
+- 多行提示词输入框显式隐藏 WebKit 原生滚动条，避免与悬浮滚动条重复显示。
 - API 源横向列表容器和卡片进一步增高，四行配置信息及底部排序、删除按钮均可完整显示。
 
 ### v0.2.48

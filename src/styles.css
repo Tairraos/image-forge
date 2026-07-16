@@ -31,6 +31,19 @@
   height: 0;
 }
 
+textarea,
+.n-input__textarea-el {
+  scrollbar-width: none !important;
+}
+
+textarea::-webkit-scrollbar,
+.n-input__textarea-el::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  -webkit-appearance: none;
+}
+
 .n-scrollbar {
   --n-scrollbar-width: 5px !important;
   --n-scrollbar-height: 5px !important;
