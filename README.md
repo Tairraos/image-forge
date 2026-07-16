@@ -1,7 +1,7 @@
 <h1 align="center">Image Forge</h1>
 
 <p align="center">
-  <sub>一个基于 Tauri 2 + Vue 3 + Rust 的本地 AI 生图工作台 · Images API · Queue · Templates</sub>
+  <sub>一个基于 Tauri 2 + Vue 3 + Rust 的本地 AI 生图工作台 · Multi-Protocol Images · Queue · Templates · Skills</sub>
 </p>
 
 <p align="center">
@@ -15,21 +15,22 @@
 
 ## 简介
 
-Image Forge 是一个本地桌面生图工作台。它通过 OpenAI 兼容的 Images API 做文生图和参考图编辑，把 API 源、生成历史、结果预览和提示词模板维护放在一个轻量桌面应用里。
+Image Forge 是一个本地桌面生图工作台。它把 GPT、Gemini、Grok、Seedream 四套并不完全兼容的生图协议收进同一个工作台，同时管理 API 源、生成历史、结果预览、提示词模板和纯 Markdown Skill。
 
-它不依赖 Python WebUI，也不把数据丢给外部数据库。设置、队列、历史和模板都写入本机应用数据目录，生成图片保存到本地输出目录。
+它不是又一个只会转发提示词的薄壳：队列、参考图去重、协议分发、模板资产和 Skill 工作流都在本机真正跑起来。它不依赖 Python WebUI，也不把数据丢给外部数据库；除调用用户配置的模型 API 外，核心数据始终掌握在自己手里。
 
 ## 功能
 
-- OpenAI 兼容 Images API：支持 `/images/generations` 文生图和 `/images/edits` 参考图编辑；
-- 多模型管理：API 源可标记为生图模型或对话模型，支持独立代理、调用 `/models` 获取模型列表及 JSON 批量导入导出；
+- 多协议生图：按 API 源类型分别调用 GPT、Gemini、Grok、Seedream 的正确生成/编辑协议，不再假设所有模型完全兼容 OpenAI Images；
+- 多模型管理：支持 `生图模型 - GPT/Gemini/Grok/Seedream` 和 `对话模型` 五种类型、独立代理、模型列表获取及 JSON 批量导入导出；
 - 生图历史：任务入队、后台执行、刷新、重试、删除、运行状态轮询和失败自动重试，历史卡片显示真实图片尺寸；
 - 结果预览：选择历史任务后预览输出图片，支持复制、下载到 Downloads 和在 Finder 中定位；
 - 提示词模板：支持增删查改、参考图、工作台快捷保存、AI 填充 `{}` 占位和引用到提示词光标位置；
+- 纯 Markdown Skill：支持手动录入或从 URL/GitHub 提取，自动识别名称并拒绝脚本依赖；可把 Skill 与画面需求交给对话模型，生成最终生图提示词；
 - 模板包导入导出：ZIP 同时包含版本化清单、可读 Markdown 和哈希图片，可直接导回并跳过重复模板；
 - 参考图工作流：支持文件选择、剪贴板图片、Finder 文件复制/剪切粘贴和文件拖放，按 SHA-256 去重持久化，历史重用和模板引用会恢复参考图；
 - 安全删除：历史、模板和 API 源删除前需要确认；参考图可直接从当前草稿移除；生成图及无人引用的参考图进入系统回收站；
-- 本地持久化：设置、队列、历史、请求、模板和参考图都保存在本机应用数据目录；
+- 本地持久化：设置、队列、历史、请求、模板、Skill 和参考图都保存在本机应用数据目录；
 - 马卡龙偏紫界面：三栏工作台、小型按钮、可拖拽调整 panel 宽度，默认把弹性空间留给结果预览。
 
 ## 界面结构
@@ -38,8 +39,8 @@ Image Forge 当前是单页三栏布局：
 
 - 左侧：生成历史记录；
 - 中间：任务状态、结果预览、详情和重用；
-- 右侧：生成参数、生图模型、参考图、提示词输入、存为模板和引用模板入口；
-- 顶部：品牌、API 源、模板维护和关于入口；运行数、排队数和提示信息显示在底部状态栏。
+- 右侧：生成参数、生图模型、参考图、提示词输入、存为模板、引用模板和使用 Skill；
+- 顶部：品牌、API 源、模板、Skill 和关于入口；运行数、排队数和提示信息显示在底部状态栏。
 
 ## 数据与架构
 
@@ -51,13 +52,14 @@ app_data_dir/
   queue.json
   history.json
   prompt-templates.json
+  skills.json
   requests/
   outputs/
   references/
   clipboard/
 ```
 
-`references/` 保存任务和模板共享的参考图资源，文件名使用内容哈希；`clipboard/` 仅作为旧版兼容目录保留。
+`references/` 保存任务和模板共享的参考图资源，文件名使用内容哈希；`skills.json` 保存不依赖脚本的纯 Markdown Skill；`clipboard/` 仅作为旧版兼容目录保留。
 
 更多代码分层、数据流和队列运行逻辑见技术设计文档：
 
@@ -126,7 +128,7 @@ pnpm run release
 - `src-tauri/src/commands.rs`：前端可调用的 Tauri 命令；
 - `src-tauri/src/models.rs`：Rust 与前端通信的数据模型；
 - `src-tauri/src/store.rs`：JSON 文件数据库、路径管理和数据归一化；
-- `src-tauri/src/services/`：Images/Chat/Models API、后台队列、剪贴板、参考图资源和模板 ZIP 导入导出；
+- `src-tauri/src/services/`：多协议 Images、Chat/Models API、Skill URL 提取、后台队列、剪贴板、参考图资源和模板 ZIP 导入导出；
 - `src-tauri/src/lib.rs`：Tauri 入口和命令注册；
 - `src-tauri/tauri.conf.json`：Tauri 窗口、打包、权限和应用版本配置；
 - `docs/technical-design.md`：技术架构、数据流、存储结构和运行逻辑说明。
@@ -135,12 +137,13 @@ pnpm run release
 
 - 改三栏默认宽度：修改 `src/App.vue` 里的 `panelSizes` 和 `workspaceStyle`；
 - 改拖拽范围：修改 `src/App.vue` 的 `startPanelResize()`；
-- 改顶部 API 源/模板入口：修改 `src/components/AppTopbar.vue`；
+- 改顶部 API 源/模板/Skill 入口：修改 `src/components/AppTopbar.vue`；
 - 改 API 源/模型管理：修改 `src/components/dialogs/ApiSourceDialog.vue`；
 - 改工作台参数区和生图模型选择：修改 `src/components/ComposerPanel.vue`；
 - 改队列/结果预览：修改 `src/components/QueuePanel.vue` 和 `src/components/ResultPanel.vue`；
 - 改模板维护：修改 `src/components/dialogs/TemplateManagerDialog.vue`；列表支持手动排序、标题点击查看、提示词/参考图悬浮预览和编辑删除；
 - 改模板引用和 AI 填充：修改 `src/components/dialogs/TemplateReferenceDialog.vue` 和 `src-tauri/src/services/chat.rs`；
+- 改 Skill 管理和调用：修改 `src/components/dialogs/SkillManagerDialog.vue`、`SkillEditorDialog.vue`、`SkillReferenceDialog.vue` 以及 `src-tauri/src/services/skill.rs`；
 - 改模板包导入导出：修改 `src/App.vue`、`src-tauri/src/services/template_bundle.rs` 和 `src/tauri.js`；
 - 改参考图持久化：修改 `src-tauri/src/services/references.rs` 和 `src-tauri/src/services/clipboard.rs`；
 - 改配色：优先修改 `src/lib/theme.js`，再修改 `src/styles.css`；
@@ -154,6 +157,14 @@ pnpm run release
 - 每个正式版本都需要产出 `.dmg` 和 `.app` 到 `release/`，但不要提交这些二进制产物。
 
 ## 版本记录
+
+### v0.2.52
+
+- 生图 API 源扩展为 GPT、Gemini、Grok、Seedream 四种协议和对话模型，生成、参考图编辑与模型列表按类型走各自正确的请求结构。
+- 旧 `image` 配置会按模型名和 Base URL 自动迁移；新增 API 源仍可自动推荐类型，用户手动选择后不会被模型名覆盖。
+- 新增纯 Markdown Skill 管理、URL/GitHub 提取、名称自动识别和脚本依赖拦截。
+- 新增 Skill 调用工作流：对话模型读取完整 Skill 和用户任务后生成最终生图提示词，并可插入工作台光标位置。
+- “存为模板”移动到提示词标题旁，工作台底部新增“使用 Skill”入口。
 
 ### v0.2.49
 
