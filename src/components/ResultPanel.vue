@@ -17,6 +17,14 @@
           </n-button>
           <n-button secondary size="small" @click="$emit('show-detail')">详情</n-button>
           <n-button secondary size="small" @click="$emit('reuse', selectedTask)">重用</n-button>
+          <n-button
+            v-if="previewOutput"
+            secondary
+            size="small"
+            @click="$emit('model-template', { task: selectedTask, output: previewOutput })"
+          >
+            建模
+          </n-button>
         </div>
       </div>
       <strong>{{ selectedTask.prompt || "空提示词" }}</strong>
@@ -51,7 +59,7 @@ const props = defineProps({
   currentOutputs: { type: Array, default: () => [] },
 });
 
-defineEmits(["show-detail", "reuse", "copy-output"]);
+defineEmits(["show-detail", "reuse", "copy-output", "model-template"]);
 
 const isWaitingForOutput = computed(() => {
   const task = props.selectedTask;

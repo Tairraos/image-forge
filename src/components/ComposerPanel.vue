@@ -23,6 +23,25 @@
               placeholder="选择生图模型"
             />
           </n-form-item>
+          <n-form-item class="model-form-item">
+            <template #label>
+              <span class="model-form-label">
+                对话模型
+                <n-tooltip trigger="hover">
+                  <template #trigger>
+                    <CircleAlert :size="14" class="model-help-icon" />
+                  </template>
+                  对话模型用于执行 skill
+                </n-tooltip>
+              </span>
+            </template>
+            <n-select
+              v-model:value="form.chatProviderId"
+              :options="chatProviderOptions"
+              size="small"
+              placeholder="选择对话模型"
+            />
+          </n-form-item>
         </div>
       </n-form>
     </div>
@@ -64,7 +83,6 @@
       <div class="prompt-live-head">
         <div class="prompt-live-title">
           <span>提示词</span>
-          <n-button size="tiny" quaternary @click="$emit('save-template')">存为模板</n-button>
         </div>
         <small>{{ form.prompt.length }} 字</small>
       </div>
@@ -115,7 +133,7 @@
 </template>
 
 <script setup>
-import { Plus, WandSparkles, X } from "@lucide/vue";
+import { CircleAlert, Plus, WandSparkles, X } from "@lucide/vue";
 import { computed, nextTick, ref } from "vue";
 import {
   promptModeOptions,
@@ -127,6 +145,7 @@ import {
 const props = defineProps({
   form: { type: Object, required: true },
   imageProviderOptions: { type: Array, default: () => [] },
+  chatProviderOptions: { type: Array, default: () => [] },
   references: { type: Array, default: () => [] },
   submitting: { type: Boolean, default: false },
   referenceDragActive: { type: Boolean, default: false },
@@ -137,7 +156,6 @@ const emit = defineEmits([
   "submit",
   "show-template",
   "show-skill",
-  "save-template",
   "clear-prompt",
   "prompt-focus",
   "prompt-cursor",

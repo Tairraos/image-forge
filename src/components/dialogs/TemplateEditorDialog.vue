@@ -33,19 +33,6 @@
       </div>
       <div class="template-editor-media-row">
         <div class="reference-strip template-editor-reference-strip">
-          <div v-for="(item, index) in references" :key="item.path" class="reference-tile">
-            <img :src="item.previewUrl" :alt="item.fileName" />
-            <button
-              v-if="!readonly"
-              type="button"
-              title="移除参考图"
-              @click.stop="$emit('remove-reference', index)"
-            >
-              <X :size="14" />
-            </button>
-          </div>
-        </div>
-        <div class="template-editor-media-actions">
           <button
             v-if="!readonly"
             class="reference-add"
@@ -60,6 +47,19 @@
             <Plus :size="18" />
             <span>参考图</span>
           </button>
+          <div v-for="(item, index) in references" :key="item.path" class="reference-tile">
+            <img :src="item.previewUrl" :alt="item.fileName" />
+            <button
+              v-if="!readonly"
+              type="button"
+              title="移除参考图"
+              @click.stop="$emit('remove-reference', index)"
+            >
+              <X :size="14" />
+            </button>
+          </div>
+        </div>
+        <div class="template-editor-media-actions">
           <div v-if="effectImage" class="reference-tile template-effect-tile">
             <img :src="effectImage.previewUrl" :alt="effectImage.fileName || '模板效果图'" />
             <button

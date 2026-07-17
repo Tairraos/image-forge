@@ -203,6 +203,11 @@ button:disabled {
   min-width: 72px;
 }
 
+.selected-task-actions .n-button {
+  min-width: 48px;
+  padding-inline: 9px;
+}
+
 .topbar-actions .n-button {
   color: #463a62;
 }
@@ -577,7 +582,18 @@ button:disabled {
 }
 
 .model-form-item {
-  grid-column: 1 / -1;
+  grid-column: auto;
+}
+
+.model-form-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.model-help-icon {
+  color: #7c6b91;
+  cursor: help;
 }
 
 .task-stack,
@@ -1548,6 +1564,11 @@ button:disabled {
   justify-content: flex-end;
   gap: 8px;
   width: 100%;
+}
+
+.template-reference-footer .n-input {
+  width: 260px;
+  margin-right: auto;
 }
 
 .reference-chat-select {

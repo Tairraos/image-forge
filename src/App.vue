@@ -39,6 +39,7 @@
           @show-detail="showTaskDetail = true"
           @reuse="reuseTask"
           @copy-output="copyOutput"
+          @model-template="newTemplateFromTask"
         />
 
         <div
@@ -51,6 +52,7 @@
         <ComposerPanel
           :form="form"
           :image-provider-options="imageProviderOptions"
+          :chat-provider-options="chatProviderOptions"
           :references="references"
           :submitting="submitting"
           :reference-drag-active="referenceDragActive"
@@ -58,7 +60,6 @@
           @submit="submitTask"
           @show-template="showTemplateReferenceDialog = true"
           @show-skill="openSkillReference"
-          @save-template="saveWorkbenchAsTemplate"
           @clear-prompt="clearPrompt"
           @prompt-focus="capturePromptCursor"
           @prompt-cursor="capturePromptCursor"
@@ -942,6 +943,20 @@ function newTemplate() {
   showTemplateEditor.value = true;
 }
 
+async function newTemplateFromTask({ task, output }) {
+  if (!task || !output?.path) return;
+  Object.assign(templateDraft, {
+    ...emptyTemplate(),
+    content: output.revisedPrompt || task.prompt || "",
+  });
+  const { restored, missing } = await restoreReferencePreviews(task.referencePaths || []);
+  templateDraftReferences.value = restored;
+  templateDraftEffectImage.value = await restoreEffectImage(output.path);
+  templateEditorMode.value = "new";
+  showTemplateEditor.value = true;
+  if (missing) setStatus(`${missing} 张任务参考图已不存在`, "busy");
+}
+
 // 以只读模式查看模板，并在弹窗中高亮占位符。
 async function viewTemplate(template) {
   Object.assign(templateDraft, deepClone(template));
@@ -1312,27 +1327,6 @@ async function addTemplateDraftEffectImage() {
 
 async function handleTemplateDraftPaste(event) {
   await pasteReferenceImage(event, templateDraftReferences, "已从剪贴板添加模板参考图");
-}
-
-async function saveWorkbenchAsTemplate() {
-  if (!form.prompt.trim()) {
-    await showNotice("无法保存模板", "提示词为空，无法保存模板");
-    return;
-  }
-  const template = {
-    ...emptyTemplate(),
-    content: form.prompt,
-    referencePaths: references.value.map((item) => item.path),
-  };
-  try {
-    templates.value = await invoke("save_template", { template });
-    await showNotice("模板保存成功", "模板已经保存。");
-    setStatus("模板保存成功", "ok");
-  } catch (error) {
-    const message = String(error);
-    await showNotice("保存模板失败", message);
-    setStatus(message, "error");
-  }
 }
 
 // 让用户选择保存位置，并导出包含 Markdown 和参考图资源的模板 ZIP。

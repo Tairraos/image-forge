@@ -2,9 +2,13 @@
   <n-modal v-model:show="show" preset="card" title="引用模板" class="template-reference-modal">
     <div class="template-reference-layout">
       <div class="template-reference-toolbar">
-        <n-input v-model:value="query" clearable placeholder="搜索标题、模板或 ID">
-          <template #prefix><Search :size="15" /></template>
-        </n-input>
+        <n-select
+          :value="chatProviderId"
+          :options="chatProviderOptions"
+          placeholder="选择对话模型"
+          :disabled="!chatProviderOptions.length"
+          @update:value="$emit('update:chat-provider-id', $event)"
+        />
         <n-select
           :value="selectedTemplateId"
           :options="templateOptions"
@@ -79,16 +83,9 @@
 
     <template #footer>
       <div class="template-reference-footer">
-        <n-select
-          :value="chatProviderId"
-          :options="chatProviderOptions"
-          size="small"
-          placement="top-start"
-          class="reference-chat-select"
-          placeholder="选择对话模型"
-          :disabled="!chatProviderOptions.length"
-          @update:value="$emit('update:chat-provider-id', $event)"
-        />
+        <n-input v-model:value="query" clearable size="small" placeholder="搜索标题、模板或 ID">
+          <template #prefix><Search :size="15" /></template>
+        </n-input>
         <n-button size="small" secondary :loading="filling" @click="$emit('ai-fill')">AI 填充</n-button>
         <n-button size="small" type="primary" @click="$emit('insert')">引用模板</n-button>
       </div>
