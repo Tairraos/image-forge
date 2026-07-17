@@ -1099,7 +1099,12 @@ button:disabled {
 }
 
 .about-modal {
-  width: min(720px, calc(100vw - 48px));
+  width: min(520px, calc(100vw - 48px));
+  max-height: calc(100vh - 48px);
+}
+
+.runtime-log-modal {
+  width: min(900px, calc(100vw - 48px));
   max-height: calc(100vh - 48px);
 }
 
@@ -1109,7 +1114,8 @@ button:disabled {
 .skill-manager-modal .n-card,
 .skill-editor-modal .n-card,
 .skill-reference-modal .n-card,
-.about-modal .n-card {
+.about-modal .n-card,
+.runtime-log-modal .n-card {
   max-height: calc(100vh - 48px);
 }
 
@@ -1119,19 +1125,15 @@ button:disabled {
 .skill-manager-modal .n-card__content,
 .skill-editor-modal .n-card__content,
 .skill-reference-modal .n-card__content,
-.about-modal .n-card__content {
+.about-modal .n-card__content,
+.runtime-log-modal .n-card__content {
   min-height: 0;
   overflow: auto;
 }
 
-.about-body {
-  display: grid;
-  gap: 12px;
-}
-
 .about-meta {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 10px;
 }
 
@@ -1155,14 +1157,7 @@ button:disabled {
   font-weight: 700;
 }
 
-.about-copy {
-  margin: 0;
-  color: #625574;
-  font-size: 13px;
-  line-height: 1.7;
-}
-
-.about-log textarea {
+.runtime-log-input textarea {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12px;
   line-height: 1.55;
@@ -1594,7 +1589,6 @@ button:disabled {
 
 .reference-chat-select {
   width: 260px;
-  margin-right: auto;
 }
 
 .template-fill-editor {

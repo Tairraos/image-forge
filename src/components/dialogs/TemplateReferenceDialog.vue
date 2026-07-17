@@ -5,7 +5,7 @@
         <n-select
           :value="selectedTemplateId"
           :options="templateOptions"
-          placeholder="选择模板"
+          placeholder="选择想要引用的模板"
           :disabled="!templateOptions.length"
           @update:value="selectTemplate"
         />

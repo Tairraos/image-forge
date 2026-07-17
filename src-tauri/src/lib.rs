@@ -47,6 +47,7 @@ pub fn run() {
             commands::reference_from_path,
             commands::retry_task,
             commands::reveal_path,
+            commands::runtime_logs,
             commands::save_settings,
             commands::save_skill,
             commands::save_template,

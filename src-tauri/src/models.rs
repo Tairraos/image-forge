@@ -14,7 +14,6 @@ use crate::utils::utc_now;
 pub struct AboutInfo {
     pub version: String,
     pub build_time: String,
-    pub logs: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

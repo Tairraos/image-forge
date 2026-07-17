@@ -11,6 +11,7 @@ use serde_json::{json, Map, Value};
 use crate::{
     defaults::APP_USER_AGENT,
     models::{ApiImageResult, ApiProvider, GenerateRequest, OutputImage, ReferencePreview},
+    state::record_operation,
     utils::{
         extension_for_format, format_api_error, format_request_error, image_mime_type,
         image_prompt_for_transport, image_size_from_bytes, mime_for_format, normalize_base_url,
@@ -514,7 +515,7 @@ fn add_image_part(
     if !path.is_file() {
         return Err(format!("找不到图像文件: {}", path.display()));
     }
-    let bytes = fs::read(path).map_err(|error| format!("读取图像失败: {error}"))?;
+    let bytes = read_image_file(path, "读取生图表单图像")?;
     let mime_type = image_mime_type(path, &bytes)?;
     let file_name = path
         .file_name()
@@ -545,12 +546,38 @@ fn image_data_url(path: &Path) -> Result<String, String> {
     if !path.is_file() {
         return Err(format!("找不到图像文件: {}", path.display()));
     }
-    let bytes = fs::read(path).map_err(|error| format!("读取图像失败: {error}"))?;
+    let bytes = read_image_file(path, "读取生图参考图")?;
     let mime_type = image_mime_type(path, &bytes)?;
     Ok(format!(
         "data:{mime_type};base64,{}",
         general_purpose::STANDARD.encode(bytes)
     ))
+}
+
+fn read_image_file(path: &Path, operation: &str) -> Result<Vec<u8>, String> {
+    match fs::read(path) {
+        Ok(bytes) => {
+            record_operation(
+                operation,
+                "成功",
+                format!("path={} bytes={}", path.display(), bytes.len()),
+                None,
+                None,
+            );
+            Ok(bytes)
+        }
+        Err(error) => {
+            let message = format!("读取图像失败: {error}");
+            record_operation(
+                operation,
+                "失败",
+                format!("path={}", path.display()),
+                None,
+                Some(&message),
+            );
+            Err(message)
+        }
+    }
 }
 
 fn split_data_url(value: &str) -> Result<(&str, &str), String> {

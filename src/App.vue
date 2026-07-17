@@ -189,6 +189,12 @@
       <AboutDialog
         v-model:show="showAboutDialog"
         :info="aboutInfo"
+        @show-logs="openRuntimeLogs"
+      />
+
+      <RuntimeLogDialog
+        v-model:show="showRuntimeLogDialog"
+        :logs="runtimeLogText"
       />
 
       <ConfirmDialog
@@ -238,6 +244,7 @@ import ApiSourceDialog from "./components/dialogs/ApiSourceDialog.vue";
 import ConfirmDialog from "./components/dialogs/ConfirmDialog.vue";
 import EffectImageViewer from "./components/dialogs/EffectImageViewer.vue";
 import NoticeDialog from "./components/dialogs/NoticeDialog.vue";
+import RuntimeLogDialog from "./components/dialogs/RuntimeLogDialog.vue";
 import SkillEditorDialog from "./components/dialogs/SkillEditorDialog.vue";
 import SkillManagerDialog from "./components/dialogs/SkillManagerDialog.vue";
 import SkillReferenceDialog from "./components/dialogs/SkillReferenceDialog.vue";
@@ -322,6 +329,7 @@ const showSkillEditor = ref(false);
 const showSkillReferenceDialog = ref(false);
 const showTaskDetail = ref(false);
 const showAboutDialog = ref(false);
+const showRuntimeLogDialog = ref(false);
 const confirmation = reactive({
   visible: false,
   title: "请确认",
@@ -341,7 +349,8 @@ const templateDraft = reactive(emptyTemplate());
 const templateEditorMode = ref("edit");
 const skillDraft = reactive(emptySkill());
 const skillEditorMode = ref("edit");
-const aboutInfo = ref({ version: "", buildTime: "", logs: "" });
+const aboutInfo = ref({ version: "", buildTime: "" });
+const runtimeLogText = ref("");
 
 const form = reactive({
   providerId: "",
@@ -1541,9 +1550,18 @@ async function openAbout() {
     aboutInfo.value = {
       version: "",
       buildTime: "",
-      logs: `读取关于信息失败：${String(error)}`,
     };
+    setStatus(`读取关于信息失败：${String(error)}`, "error");
   }
+}
+
+async function openRuntimeLogs() {
+  try {
+    runtimeLogText.value = await invoke("runtime_logs");
+  } catch (error) {
+    runtimeLogText.value = `读取运行日志失败：${String(error)}`;
+  }
+  showRuntimeLogDialog.value = true;
 }
 
 // 将引用模板内容插入到提示词当前光标位置。

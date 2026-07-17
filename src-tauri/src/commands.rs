@@ -28,7 +28,7 @@ use crate::{
         skill::fetch_skill_markdown as fetch_skill_markdown_from_url,
         template_bundle::{export_templates_archive, import_templates_archive},
     },
-    state::RuntimeState,
+    state::{record_operation, runtime_logs_text, RuntimeState},
     store::{
         enqueue_task, ensure_data_dir, next_template_id, normalize_request, normalize_settings,
         normalize_skill, normalize_template, params_from_request, provider_for_request,
@@ -40,12 +40,29 @@ use crate::{
 };
 
 #[tauri::command]
-/// 返回关于弹窗需要的版本、编译时间和本次运行日志。
-pub(crate) fn about_info(app: AppHandle) -> AboutInfo {
+/// 返回关于弹窗需要的版本和编译时间。
+pub(crate) fn about_info() -> AboutInfo {
     AboutInfo {
         version: env!("CARGO_PKG_VERSION").into(),
         build_time: APP_BUILD_TIME.into(),
-        logs: app.state::<RuntimeState>().logs_text(),
+    }
+}
+
+#[tauri::command]
+/// 返回本次运行的结构化日志文本。
+pub(crate) fn runtime_logs() -> String {
+    runtime_logs_text()
+}
+
+fn record_result<T>(
+    operation: &str,
+    params: &str,
+    proxy_used: Option<bool>,
+    result: &Result<T, String>,
+) {
+    match result {
+        Ok(_) => record_operation(operation, "成功", params, proxy_used, None),
+        Err(error) => record_operation(operation, "失败", params, proxy_used, Some(error)),
     }
 }
 
@@ -86,37 +103,50 @@ pub(crate) fn save_settings(
 #[tauri::command]
 /// 将当前 API 源导出为可再次批量导入的 JSON 文件。
 pub(crate) fn export_api_providers(
+    _app: AppHandle,
     destination: String,
     providers: Vec<ApiProvider>,
 ) -> Result<String, String> {
-    export_providers_json(Path::new(&destination), &providers)
+    let params = format!("path={} provider_count={}", destination, providers.len());
+    let result = export_providers_json(Path::new(&destination), &providers);
+    record_result("导出 API 源文件", &params, None, &result);
+    result
 }
 
 #[tauri::command]
 /// 读取用户拖入导入框的 API 源 JSON 文件。
-pub(crate) fn read_api_providers_file(path: String) -> Result<String, String> {
-    read_providers_json(Path::new(&path))
+pub(crate) fn read_api_providers_file(_app: AppHandle, path: String) -> Result<String, String> {
+    let params = format!("path={path}");
+    let result = read_providers_json(Path::new(&path));
+    record_result("读取 API 源文件", &params, None, &result);
+    result
 }
 
 #[tauri::command]
 /// 读取拖入的 Markdown Skill 文件，限制为 1 MB 以内的本地文件。
-pub(crate) fn read_skill_markdown_file(path: String) -> Result<String, String> {
+pub(crate) fn read_skill_markdown_file(_app: AppHandle, path: String) -> Result<String, String> {
     let path = Path::new(path.trim());
-    if !path.is_file() {
-        return Err("找不到拖入的文件".into());
-    }
-    if !path
-        .extension()
-        .and_then(|value| value.to_str())
-        .is_some_and(|value| value.eq_ignore_ascii_case("md"))
-    {
-        return Err("只支持拖入 .md 文件".into());
-    }
-    let metadata = fs::metadata(path).map_err(|error| format!("读取 Skill 文件失败: {error}"))?;
-    if metadata.len() > 1_048_576 {
-        return Err("Skill 文件超过 1 MB".into());
-    }
-    fs::read_to_string(path).map_err(|error| format!("读取 Skill 文件失败: {error}"))
+    let params = format!("path={}", path.display());
+    let result = (|| {
+        if !path.is_file() {
+            return Err("找不到拖入的文件".into());
+        }
+        if !path
+            .extension()
+            .and_then(|value| value.to_str())
+            .is_some_and(|value| value.eq_ignore_ascii_case("md"))
+        {
+            return Err("只支持拖入 .md 文件".into());
+        }
+        let metadata =
+            fs::metadata(path).map_err(|error| format!("读取 Skill 文件失败: {error}"))?;
+        if metadata.len() > 1_048_576 {
+            return Err("Skill 文件超过 1 MB".into());
+        }
+        fs::read_to_string(path).map_err(|error| format!("读取 Skill 文件失败: {error}"))
+    })();
+    record_result("读取 Skill Markdown 文件", &params, None, &result);
+    result
 }
 
 #[tauri::command]
@@ -279,12 +309,27 @@ fn delete_output_files_for_task(record: &TaskRecord) -> Result<(), String> {
     for output in &record.outputs {
         let path = PathBuf::from(&output.path);
         if path.is_file() {
-            trash::delete(&path).map_err(|error| {
-                format!(
+            if let Err(error) = trash::delete(&path) {
+                let message = format!(
                     "将生成图片移到回收站失败（{}）: {error}",
                     path.to_string_lossy()
-                )
-            })?;
+                );
+                record_operation(
+                    "删除生成图片",
+                    "失败",
+                    format!("task_id={} path={}", record.id, path.display()),
+                    None,
+                    Some(&message),
+                );
+                return Err(message);
+            }
+            record_operation(
+                "删除生成图片",
+                "成功",
+                format!("task_id={} path={}", record.id, path.display()),
+                None,
+                None,
+            );
         }
     }
     Ok(())
@@ -292,14 +337,23 @@ fn delete_output_files_for_task(record: &TaskRecord) -> Result<(), String> {
 
 #[tauri::command]
 /// 根据本地图片路径生成参考图预览信息。
-pub(crate) fn reference_from_path(path: String) -> Result<ReferencePreview, String> {
-    reference_preview(Path::new(&path))
+pub(crate) fn reference_from_path(_app: AppHandle, path: String) -> Result<ReferencePreview, String> {
+    let params = format!("path={path}");
+    let result = reference_preview(Path::new(&path));
+    record_result("读取图片文件", &params, None, &result);
+    result
 }
 
 #[tauri::command]
 /// 从系统剪贴板读取 Finder 文件引用或图片，并保存为参考图资源。
 pub(crate) fn reference_from_clipboard(app: AppHandle) -> Result<Option<ReferencePreview>, String> {
-    crate::services::clipboard::reference_from_clipboard(&app)
+    let result = crate::services::clipboard::reference_from_clipboard(&app);
+    let params = match &result {
+        Ok(Some(preview)) => format!("path={} bytes={}", preview.path, preview.file_size),
+        _ => "source=system_clipboard".into(),
+    };
+    record_result("读取剪贴板图片", &params, None, &result);
+    result
 }
 
 #[tauri::command]
@@ -335,8 +389,11 @@ pub(crate) fn save_template(
 pub(crate) fn export_templates(app: AppHandle, destination: String) -> Result<String, String> {
     let data_dir = ensure_data_dir(&app)?;
     let templates = read_templates(&data_dir)?;
-    let archive = export_templates_archive(&templates, Path::new(&destination))?;
-    Ok(archive.to_string_lossy().into_owned())
+    let params = format!("path={} template_count={}", destination, templates.len());
+    let result = export_templates_archive(&templates, Path::new(&destination))
+        .map(|archive| archive.to_string_lossy().into_owned());
+    record_result("导出模板文件", &params, None, &result);
+    result
 }
 
 #[tauri::command]
@@ -346,10 +403,12 @@ pub(crate) fn import_templates(
     archive_path: String,
 ) -> Result<TemplateImportResult, String> {
     let data_dir = ensure_data_dir(&app)?;
+    let params = format!("path={archive_path}");
     let imported = match import_templates_archive(&data_dir, Path::new(&archive_path)) {
         Ok(templates) => templates,
         Err(error) => {
             let _ = prune_unreferenced_files(&data_dir);
+            record_operation("导入模板文件", "失败", &params, None, Some(&error));
             return Err(error);
         }
     };
@@ -357,9 +416,20 @@ pub(crate) fn import_templates(
     let result = merge_imported_templates(templates, imported)?;
     if let Err(error) = write_json(&templates_path(&data_dir), &result.templates) {
         let _ = prune_unreferenced_files(&data_dir);
+        record_operation("导入模板文件", "失败", &params, None, Some(&error));
         return Err(error);
     }
     prune_unreferenced_files(&data_dir)?;
+    record_operation(
+        "导入模板文件",
+        "成功",
+        format!(
+            "{params} imported={} skipped={}",
+            result.imported_count, result.skipped_count
+        ),
+        None,
+        None,
+    );
     Ok(result)
 }
 
@@ -465,8 +535,15 @@ pub(crate) fn delete_skill(app: AppHandle, skill_id: String) -> Result<Vec<Skill
 
 #[tauri::command]
 /// 提取 URL 指向的 Markdown Skill，目录 URL 会继续尝试大小写文件名。
-pub(crate) async fn fetch_skill_markdown(source_url: String) -> Result<SkillFetchResult, String> {
-    fetch_skill_markdown_from_url(&source_url).await
+pub(crate) async fn fetch_skill_markdown(
+    _app: AppHandle,
+    source_url: String,
+) -> Result<SkillFetchResult, String> {
+    let params = format!("url={source_url}");
+    record_operation("从 URL 提取 Skill", "开始", &params, Some(false), None);
+    let result = fetch_skill_markdown_from_url(&source_url).await;
+    record_result("从 URL 提取 Skill", &params, Some(false), &result);
+    result
 }
 
 #[tauri::command]
@@ -757,7 +834,30 @@ pub(crate) async fn plan_skill_generation(
 #[tauri::command]
 /// 从兼容 OpenAI 的 API 源读取可选模型列表。
 pub(crate) async fn list_provider_models(provider: ApiProvider) -> Result<Vec<String>, String> {
-    crate::services::models::list_provider_models(&provider).await
+    let params = format!(
+        "provider_id={} provider_name={} model_type={} base_url={}",
+        provider.id, provider.name, provider.model_type, provider.base_url
+    );
+    let proxy_used = !provider.proxy_url.trim().is_empty();
+    record_operation("获取模型列表", "开始", &params, Some(proxy_used), None);
+    let result = crate::services::models::list_provider_models(&provider).await;
+    match &result {
+        Ok(models) => record_operation(
+            "获取模型列表",
+            "成功",
+            format!("{params} model_count={}", models.len()),
+            Some(proxy_used),
+            None,
+        ),
+        Err(error) => record_operation(
+            "获取模型列表",
+            "失败",
+            params,
+            Some(proxy_used),
+            Some(error),
+        ),
+    }
+    result
 }
 
 #[tauri::command]
@@ -778,14 +878,21 @@ pub(crate) fn download_output(app: AppHandle, path: String) -> Result<String, St
         .to_string_lossy()
         .into_owned();
     let target = unique_download_path(&downloads_dir, &file_name);
-    fs::copy(&source, &target).map_err(|error| format!("保存到下载目录失败: {error}"))?;
-    Ok(target.to_string_lossy().into_owned())
+    let params = format!("source={} target={}", source.display(), target.display());
+    let result = fs::copy(&source, &target)
+        .map(|_| target.to_string_lossy().into_owned())
+        .map_err(|error| format!("保存到下载目录失败: {error}"));
+    record_result("复制生成图片到下载目录", &params, None, &result);
+    result
 }
 
 #[tauri::command]
 /// 将图片复制到系统剪贴板。
 pub(crate) fn copy_image_to_clipboard(path: String) -> Result<(), String> {
-    crate::services::clipboard::copy_image_to_clipboard(Path::new(&path))
+    let params = format!("path={path}");
+    let result = crate::services::clipboard::copy_image_to_clipboard(Path::new(&path));
+    record_result("读取图片并写入剪贴板", &params, None, &result);
+    result
 }
 
 #[tauri::command]

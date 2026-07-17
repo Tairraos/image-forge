@@ -6,7 +6,7 @@ use crate::{
     models::{ApiProvider, GenerateRequest, QueueSnapshot, TaskRecord},
     services::images::{execute_generation, save_outputs},
     services::references::prune_unreferenced_files,
-    state::RuntimeState,
+    state::{record_operation, RuntimeState},
     store::{
         clear_running_task, enqueue_task, ensure_data_dir, fallback_failed_record, history_record,
         output_dir_for, pop_next_runnable, read_history, read_json, read_queue, read_settings,
@@ -200,7 +200,37 @@ async fn run_task(app: AppHandle, task_id: String, provider: ApiProvider) -> Res
         return Ok(());
     }
 
-    let client = http_client_with_proxy(&provider.proxy_url, REQUEST_TIMEOUT_SECONDS, false)?;
+    let network_params = format!(
+        "task_id={} provider_id={} provider_name={} model={} reference_count={} size={} quality={}",
+        task_id,
+        provider.id,
+        provider.name,
+        provider.image_model,
+        request.reference_paths.len(),
+        request.size,
+        request.quality
+    );
+    let proxy_used = !provider.proxy_url.trim().is_empty();
+    record_operation(
+        "调用生图模型",
+        "开始",
+        &network_params,
+        Some(proxy_used),
+        None,
+    );
+    let client = match http_client_with_proxy(&provider.proxy_url, REQUEST_TIMEOUT_SECONDS, false) {
+        Ok(client) => client,
+        Err(error) => {
+            record_operation(
+                "调用生图模型",
+                "失败",
+                &network_params,
+                Some(proxy_used),
+                Some(&error),
+            );
+            return Err(error);
+        }
+    };
     let result = match tokio::time::timeout(
         Duration::from_secs(REQUEST_TIMEOUT_SECONDS),
         execute_generation(&client, &provider, &request),
@@ -224,8 +254,42 @@ async fn run_task(app: AppHandle, task_id: String, provider: ApiProvider) -> Res
 
     match result {
         Ok(images) => {
+            let image_count = images.len();
+            record_operation(
+                "调用生图模型",
+                "成功",
+                format!("{network_params} image_count={image_count}"),
+                Some(proxy_used),
+                None,
+            );
             let output_dir = output_dir_for(&data_dir, &settings)?;
-            let outputs = save_outputs(&output_dir, &task_id, &request, images)?;
+            let outputs = match save_outputs(&output_dir, &task_id, &request, images) {
+                Ok(outputs) => {
+                    record_operation(
+                        "写入生成图片",
+                        "成功",
+                        format!(
+                            "task_id={} output_dir={} file_count={}",
+                            task_id,
+                            output_dir.display(),
+                            outputs.len()
+                        ),
+                        None,
+                        None,
+                    );
+                    outputs
+                }
+                Err(error) => {
+                    record_operation(
+                        "写入生成图片",
+                        "失败",
+                        format!("task_id={} output_dir={}", task_id, output_dir.display()),
+                        None,
+                        Some(&error),
+                    );
+                    return Err(error);
+                }
+            };
             record.outputs = outputs;
             record.status = "completed".into();
             record.error = None;
@@ -239,6 +303,13 @@ async fn run_task(app: AppHandle, task_id: String, provider: ApiProvider) -> Res
             Ok(())
         }
         Err(error) => {
+            record_operation(
+                "调用生图模型",
+                "失败",
+                &network_params,
+                Some(proxy_used),
+                Some(&error),
+            );
             clear_running_task(&data_dir, &task_id)?;
             if settings.auto_retry && record.attempts < 2 {
                 record.status = "queued".into();

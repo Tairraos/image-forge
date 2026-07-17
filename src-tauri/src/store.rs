@@ -17,6 +17,7 @@ use crate::{
         ApiProvider, GenerateRequest, GenerationParams, PromptTemplate, QueueRun, QueueState,
         Settings, SkillEntry, TaskRecord,
     },
+    state::record_operation,
     utils::{
         clean_text, image_size_from_path, normalize_base_url, normalize_output_format,
         normalize_prompt_fidelity, normalize_quality, normalize_ratio, normalize_resolution,
@@ -609,21 +610,106 @@ where
     T: for<'de> Deserialize<'de> + Default,
 {
     if !path.exists() {
+        record_operation(
+            "读取数据文件",
+            "跳过",
+            format!("path={} reason=not_exists", path.display()),
+            None,
+            None,
+        );
         return Ok(T::default());
     }
-    let text = fs::read_to_string(path)
-        .map_err(|error| format!("读取 {} 失败: {error}", path.display()))?;
-    serde_json::from_str(&text).map_err(|error| format!("解析 {} 失败: {error}", path.display()))
+    let text = match fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(error) => {
+            let message = format!("读取 {} 失败: {error}", path.display());
+            record_operation(
+                "读取数据文件",
+                "失败",
+                format!("path={}", path.display()),
+                None,
+                Some(&message),
+            );
+            return Err(message);
+        }
+    };
+    match serde_json::from_str(&text) {
+        Ok(value) => {
+            record_operation(
+                "读取数据文件",
+                "成功",
+                format!("path={} bytes={}", path.display(), text.len()),
+                None,
+                None,
+            );
+            Ok(value)
+        }
+        Err(error) => {
+            let message = format!("解析 {} 失败: {error}", path.display());
+            record_operation(
+                "读取数据文件",
+                "失败",
+                format!("path={} bytes={}", path.display(), text.len()),
+                None,
+                Some(&message),
+            );
+            Err(message)
+        }
+    }
 }
 
 /// 以 pretty JSON 写入文件，并自动创建父目录。
 pub(crate) fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|error| format!("创建目录失败: {error}"))?;
+        if let Err(error) = fs::create_dir_all(parent) {
+            let message = format!("创建目录失败: {error}");
+            record_operation(
+                "写入数据文件",
+                "失败",
+                format!("path={} parent={}", path.display(), parent.display()),
+                None,
+                Some(&message),
+            );
+            return Err(message);
+        }
     }
-    let text = serde_json::to_string_pretty(value)
-        .map_err(|error| format!("序列化 JSON 失败: {error}"))?;
-    fs::write(path, text).map_err(|error| format!("写入 {} 失败: {error}", path.display()))
+    let text = match serde_json::to_string_pretty(value) {
+        Ok(text) => text,
+        Err(error) => {
+            let message = format!("序列化 JSON 失败: {error}");
+            record_operation(
+                "写入数据文件",
+                "失败",
+                format!("path={}", path.display()),
+                None,
+                Some(&message),
+            );
+            return Err(message);
+        }
+    };
+    match fs::write(path, &text) {
+        Ok(()) => {
+            record_operation(
+                "写入数据文件",
+                "成功",
+                format!("path={} bytes={}", path.display(), text.len()),
+                None,
+                None,
+            );
+            Ok(())
+        }
+        Err(error) => {
+            let message = format!("写入 {} 失败: {error}", path.display());
+            record_operation(
+                "写入数据文件",
+                "失败",
+                format!("path={} bytes={}", path.display(), text.len()),
+                None,
+                Some(&message),
+            );
+            Err(message)
+        }
+    }
 }
 
 pub(crate) fn request_path(data_dir: &Path, task_id: &str) -> PathBuf {

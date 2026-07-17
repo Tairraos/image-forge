@@ -7,7 +7,7 @@
 ![Image Forge 1.0.1 运行界面](docs/image-forge-1.0.1-running.png)
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-1.0.5-9B7BEE?style=flat-square">
+  <img alt="version" src="https://img.shields.io/badge/version-1.0.6-9B7BEE?style=flat-square">
   <img alt="platform desktop" src="https://img.shields.io/badge/platform-desktop-111827?style=flat-square">
   <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white">
   <img alt="Vue" src="https://img.shields.io/badge/Vue-3-42B883?style=flat-square&logo=vuedotjs&logoColor=white">
@@ -171,6 +171,12 @@ pnpm run prerelease -- <next-version>
 ## 版本记录
 
 版本记录只保留影响产品能力、数据兼容或开发流程的里程碑，零散的样式微调和内部重构不再单独列出。
+
+### v1.0.6
+
+- 新增结构化运行日志，覆盖数据文件读写、模型列表获取、生图和对话模型调用，并记录时间、操作、结果、参数、代理状态及错误信息。
+- 关于弹窗精简为版本、编译时间和开发者信息，并新增独立的运行日志查看弹窗。
+- 优化引用模板弹窗的模板选择提示和页脚布局，让对话模型选择紧邻 AI 填充操作。
 
 ### v1.0.5
 
