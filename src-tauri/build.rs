@@ -1,6 +1,7 @@
 fn main() {
     let build_time = std::process::Command::new("date")
-        .args(["-u", "+%Y-%m-%dT%H:%M:%SZ"])
+        .env("TZ", "Asia/Shanghai")
+        .arg("+%Y-%m-%d %H:%M:%S UTC+8")
         .output()
         .ok()
         .and_then(|output| String::from_utf8(output.stdout).ok())

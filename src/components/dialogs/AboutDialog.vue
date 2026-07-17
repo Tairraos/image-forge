@@ -1,18 +1,9 @@
 <template>
   <n-modal v-model:show="show" preset="card" title="关于 Image Forge" class="about-modal">
     <section class="about-meta">
-      <div>
-        <span>版本</span>
-        <strong>{{ info.version || "未知" }}</strong>
-      </div>
-      <div>
-        <span>编译时间</span>
-        <strong>{{ info.buildTime || "未知" }}</strong>
-      </div>
-      <div>
-        <span>开发者</span>
-        <strong>Tairraos</strong>
-      </div>
+      <p>版本：{{ info.version || "未知" }}</p>
+      <p>编译时间：{{ info.buildTime || "未知" }}</p>
+      <p>开发者：Tairraos</p>
     </section>
 
     <template #footer>

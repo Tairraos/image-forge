@@ -1,11 +1,11 @@
 use std::{
     collections::HashSet,
+    path::Path,
     sync::{Mutex, OnceLock},
 };
 
-use crate::utils::utc_now;
+use chrono::{FixedOffset, Utc};
 
-const MAX_RUNTIME_LOGS: usize = 500;
 static RUNTIME_LOGS: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
 
 pub struct RuntimeState {
@@ -34,7 +34,6 @@ impl RuntimeState {
             (result == "失败").then_some(message),
         );
     }
-
 }
 
 pub(crate) fn record_operation(
@@ -45,7 +44,7 @@ pub(crate) fn record_operation(
     error: Option<&str>,
 ) {
     let line = format_log_line(
-        &utc_now(),
+        &china_now(),
         operation,
         result,
         params.as_ref(),
@@ -56,10 +55,6 @@ pub(crate) fn record_operation(
         return;
     };
     logs.push(line);
-    let overflow = logs.len().saturating_sub(MAX_RUNTIME_LOGS);
-    if overflow > 0 {
-        logs.drain(0..overflow);
-    }
 }
 
 pub(crate) fn runtime_logs_text() -> String {
@@ -81,19 +76,96 @@ fn format_log_line(
     proxy_used: Option<bool>,
     error: Option<&str>,
 ) -> String {
-    format!(
-        "{} | 操作={} | 结果={} | 参数={} | 代理={} | 错误={}",
-        sanitize(timestamp),
-        sanitize(operation),
-        sanitize(result),
-        non_empty(params),
-        match proxy_used {
-            Some(true) => "是",
-            Some(false) => "否",
-            None => "不适用",
-        },
-        error.map(non_empty).unwrap_or_else(|| "-".into())
-    )
+    let mut fields = vec![sanitize(timestamp), sanitize(operation), sanitize(result)];
+    let params = format_params(params, proxy_used.is_some(), error.is_some());
+    if !params.is_empty() {
+        fields.push(params);
+    }
+    if let Some(proxy_used) = proxy_used {
+        fields.push(format!("代理={}", if proxy_used { "是" } else { "否" }));
+    }
+    if let Some(error) = error {
+        fields.push(format!("错误={}", non_empty(error)));
+    }
+    fields.join(" - ")
+}
+
+fn china_now() -> String {
+    Utc::now()
+        .with_timezone(&FixedOffset::east_opt(8 * 60 * 60).expect("UTC+8 是有效时区"))
+        .format("%m-%d %H:%M:%S")
+        .to_string()
+}
+
+fn format_params(value: &str, omit_proxy: bool, omit_error: bool) -> String {
+    let value = sanitize(value);
+    let fields = parse_param_fields(&value);
+    if fields.is_empty() {
+        return value;
+    }
+    fields
+        .into_iter()
+        .filter(|(key, _)| !(omit_proxy && key == "proxy") && !(omit_error && key == "error"))
+        .map(|(key, value)| {
+            let value = if is_path_key(&key) {
+                simplify_path(&value)
+            } else {
+                value
+            };
+            format!("{key}={value}")
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn parse_param_fields(value: &str) -> Vec<(String, String)> {
+    let starts = value
+        .char_indices()
+        .filter_map(|(index, ch)| {
+            if index > 0 && ch != ' ' {
+                return None;
+            }
+            let start = if ch == ' ' { index + 1 } else { index };
+            let remainder = &value[start..];
+            let equals = remainder.find('=')?;
+            let key = &remainder[..equals];
+            (!key.is_empty()
+                && key
+                    .chars()
+                    .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.')))
+            .then_some((start, equals, key.to_string()))
+        })
+        .collect::<Vec<_>>();
+    if starts.first().map(|(start, _, _)| *start) != Some(0) {
+        return Vec::new();
+    }
+    starts
+        .iter()
+        .enumerate()
+        .map(|(index, (start, equals, key))| {
+            let value_start = start + equals + 1;
+            let value_end = starts
+                .get(index + 1)
+                .map(|(next_start, _, _)| next_start.saturating_sub(1))
+                .unwrap_or(value.len());
+            (
+                key.clone(),
+                value[value_start..value_end].trim().to_string(),
+            )
+        })
+        .collect()
+}
+
+fn is_path_key(key: &str) -> bool {
+    matches!(key, "path" | "parent" | "output_dir" | "input_dir")
+}
+
+fn simplify_path(value: &str) -> String {
+    Path::new(value)
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| value.to_string())
 }
 
 fn sanitize(value: &str) -> String {
@@ -117,9 +189,7 @@ fn event_result(event: &str) -> &'static str {
         || event.contains("not_found")
     {
         "失败"
-    } else if event.contains("success")
-        || event.contains("complete")
-        || event.ends_with(".result")
+    } else if event.contains("success") || event.contains("complete") || event.ends_with(".result")
     {
         "成功"
     } else {
@@ -142,19 +212,34 @@ mod tests {
     use super::format_log_line;
 
     #[test]
-    fn structured_log_contains_required_fields() {
+    fn log_uses_compact_format_and_optional_fields() {
         let line = format_log_line(
-            "2026-07-17T12:00:00Z",
+            "07-17 20:00:00",
             "获取模型列表",
             "失败",
-            "provider=test model=gpt",
+            "provider=test model=gpt proxy=on error=network error",
             Some(true),
             Some("network error"),
         );
-        assert!(line.contains("操作=获取模型列表"));
-        assert!(line.contains("结果=失败"));
-        assert!(line.contains("参数=provider=test model=gpt"));
-        assert!(line.contains("代理=是"));
-        assert!(line.contains("错误=network error"));
+        assert_eq!(
+            line,
+            "07-17 20:00:00 - 获取模型列表 - 失败 - provider=test, model=gpt - 代理=是 - 错误=network error"
+        );
+    }
+
+    #[test]
+    fn log_hides_data_directory_and_empty_optional_fields() {
+        let line = format_log_line(
+            "07-17 18:48:14",
+            "读取数据文件",
+            "成功",
+            "path=/Users/xiaole/Library/Application Support/com.xiaole.imageforge/queue.json bytes=87",
+            None,
+            None,
+        );
+        assert_eq!(
+            line,
+            "07-17 18:48:14 - 读取数据文件 - 成功 - path=queue.json, bytes=87"
+        );
     }
 }
