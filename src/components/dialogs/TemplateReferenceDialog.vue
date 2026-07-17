@@ -3,19 +3,15 @@
     <div class="template-reference-layout">
       <div class="template-reference-toolbar">
         <n-select
-          :value="chatProviderId"
-          :options="chatProviderOptions"
-          placeholder="选择对话模型"
-          :disabled="!chatProviderOptions.length"
-          @update:value="$emit('update:chat-provider-id', $event)"
-        />
-        <n-select
           :value="selectedTemplateId"
           :options="templateOptions"
           placeholder="选择模板"
           :disabled="!templateOptions.length"
           @update:value="selectTemplate"
         />
+        <n-input v-model:value="query" clearable placeholder="搜索标题、模板或 ID">
+          <template #prefix><Search :size="15" /></template>
+        </n-input>
       </div>
 
       <div class="template-reference-editors">
@@ -64,10 +60,18 @@
             <X :size="14" />
           </button>
         </div>
-        <button class="reference-add" type="button" @click="$emit('add-reference')">
-          <Plus :size="18" />
-          <span>参考图</span>
-        </button>
+        <ClipboardImageMenu v-slot="{ open }" @paste="$emit('paste-reference')">
+          <button
+            class="reference-add"
+            type="button"
+            title="点击添加，右键粘贴剪贴板图片"
+            @click="$emit('add-reference')"
+            @contextmenu="open"
+          >
+            <Plus :size="18" />
+            <span>参考图</span>
+          </button>
+        </ClipboardImageMenu>
         <button
           v-if="effectImage"
           class="template-call-effect-thumbnail"
@@ -83,9 +87,16 @@
 
     <template #footer>
       <div class="template-reference-footer">
-        <n-input v-model:value="query" clearable size="small" placeholder="搜索标题、模板或 ID">
-          <template #prefix><Search :size="15" /></template>
-        </n-input>
+        <n-select
+          :value="chatProviderId"
+          :options="chatProviderOptions"
+          size="small"
+          placement="top-start"
+          class="reference-chat-select"
+          placeholder="选择对话模型"
+          :disabled="!chatProviderOptions.length"
+          @update:value="$emit('update:chat-provider-id', $event)"
+        />
         <n-button size="small" secondary :loading="filling" @click="$emit('ai-fill')">AI 填充</n-button>
         <n-button size="small" type="primary" @click="$emit('insert')">引用模板</n-button>
       </div>
@@ -96,6 +107,7 @@
 <script setup>
 import { computed, ref } from "vue";
 import { Plus, Search, X } from "@lucide/vue";
+import ClipboardImageMenu from "../ClipboardImageMenu.vue";
 
 const show = defineModel("show", { type: Boolean, default: false });
 const query = defineModel("query", { type: String, default: "" });
@@ -121,6 +133,7 @@ const emit = defineEmits([
   "ai-fill",
   "insert",
   "add-reference",
+  "paste-reference",
   "remove-reference",
   "show-effect",
 ]);

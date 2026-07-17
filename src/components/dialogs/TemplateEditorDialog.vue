@@ -33,20 +33,23 @@
       </div>
       <div class="template-editor-media-row">
         <div class="reference-strip template-editor-reference-strip">
-          <button
-            v-if="!readonly"
-            class="reference-add"
-            :class="{ 'reference-drop-active': referenceDragActive }"
-            data-reference-drop-target="template-draft"
-            type="button"
-            @dragover.prevent="$emit('reference-drag-over')"
-            @dragleave="$emit('reference-drag-leave')"
-            @drop.prevent="$emit('drop-reference', $event)"
-            @click="$emit('add-reference')"
-          >
-            <Plus :size="18" />
-            <span>参考图</span>
-          </button>
+          <ClipboardImageMenu v-if="!readonly" v-slot="{ open }" @paste="$emit('paste-reference')">
+            <button
+              class="reference-add"
+              :class="{ 'reference-drop-active': referenceDragActive }"
+              data-reference-drop-target="template-draft"
+              type="button"
+              title="点击添加，右键粘贴剪贴板图片"
+              @dragover.prevent="$emit('reference-drag-over')"
+              @dragleave="$emit('reference-drag-leave')"
+              @drop.prevent="$emit('drop-reference', $event)"
+              @click="$emit('add-reference')"
+              @contextmenu="open"
+            >
+              <Plus :size="18" />
+              <span>参考图</span>
+            </button>
+          </ClipboardImageMenu>
           <div v-for="(item, index) in references" :key="item.path" class="reference-tile">
             <img :src="item.previewUrl" :alt="item.fileName" />
             <button
@@ -71,15 +74,18 @@
               <X :size="14" />
             </button>
           </div>
-          <button
-            v-else-if="!readonly"
-            class="reference-add"
-            type="button"
-            @click="$emit('add-effect-image')"
-          >
-            <Plus :size="18" />
-            <span>效果图</span>
-          </button>
+          <ClipboardImageMenu v-else-if="!readonly" v-slot="{ open }" @paste="$emit('paste-effect-image')">
+            <button
+              class="reference-add"
+              type="button"
+              title="点击添加，右键粘贴剪贴板图片"
+              @click="$emit('add-effect-image')"
+              @contextmenu="open"
+            >
+              <Plus :size="18" />
+              <span>效果图</span>
+            </button>
+          </ClipboardImageMenu>
         </div>
       </div>
     </div>
@@ -95,6 +101,7 @@
 <script setup>
 import { Plus, X } from "@lucide/vue";
 import { computed } from "vue";
+import ClipboardImageMenu from "../ClipboardImageMenu.vue";
 
 const show = defineModel("show", { type: Boolean, default: false });
 
@@ -113,6 +120,7 @@ defineEmits([
   "add-effect-image",
   "remove-effect-image",
   "paste-reference",
+  "paste-effect-image",
   "reference-drag-over",
   "reference-drag-leave",
   "drop-reference",

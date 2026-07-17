@@ -19,6 +19,8 @@
             <n-select
               v-model:value="form.providerId"
               :options="imageProviderOptions"
+              :consistent-menu-width="false"
+              :menu-props="modelSelectMenuProps"
               size="small"
               placeholder="选择生图模型"
             />
@@ -38,6 +40,8 @@
             <n-select
               v-model:value="form.chatProviderId"
               :options="chatProviderOptions"
+              :consistent-menu-width="false"
+              :menu-props="modelSelectMenuProps"
               size="small"
               placeholder="选择对话模型"
             />
@@ -57,19 +61,23 @@
           <X :size="14" />
         </button>
       </div>
-      <button
-        class="reference-add"
-        :class="{ 'reference-drop-active': referenceDragActive }"
-        data-reference-drop-target="workbench"
-        type="button"
-        @dragover.prevent="$emit('reference-drag-over')"
-        @dragleave="$emit('reference-drag-leave')"
-        @drop.prevent="$emit('drop-reference', $event)"
-        @click="$emit('add-reference')"
-      >
-        <Plus :size="18" />
-        <span>参考图</span>
-      </button>
+      <ClipboardImageMenu v-slot="{ open }" @paste="$emit('paste-reference')">
+        <button
+          class="reference-add"
+          :class="{ 'reference-drop-active': referenceDragActive }"
+          data-reference-drop-target="workbench"
+          type="button"
+          title="点击添加，右键粘贴剪贴板图片"
+          @dragover.prevent="$emit('reference-drag-over')"
+          @dragleave="$emit('reference-drag-leave')"
+          @drop.prevent="$emit('drop-reference', $event)"
+          @click="$emit('add-reference')"
+          @contextmenu="open"
+        >
+          <Plus :size="18" />
+          <span>参考图</span>
+        </button>
+      </ClipboardImageMenu>
     </div>
 
     <div
@@ -135,6 +143,7 @@
 <script setup>
 import { CircleAlert, Plus, WandSparkles, X } from "@lucide/vue";
 import { computed, nextTick, ref } from "vue";
+import ClipboardImageMenu from "./ClipboardImageMenu.vue";
 import {
   promptModeOptions,
   qualityOptions,
@@ -160,6 +169,7 @@ const emit = defineEmits([
   "prompt-focus",
   "prompt-cursor",
   "prompt-paste",
+  "paste-reference",
   "add-reference",
   "remove-reference",
   "reference-drag-over",
@@ -168,6 +178,7 @@ const emit = defineEmits([
 ]);
 
 const promptInput = ref(null);
+const modelSelectMenuProps = { class: "model-select-menu" };
 const mentionRange = ref(null);
 const mentionIndex = ref(0);
 const promptFocused = ref(false);

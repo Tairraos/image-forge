@@ -64,6 +64,7 @@
           @prompt-focus="capturePromptCursor"
           @prompt-cursor="capturePromptCursor"
           @prompt-paste="handlePromptPaste"
+          @paste-reference="pasteWorkbenchReferenceImage"
           @add-reference="addReferenceImages"
           @remove-reference="removeReference(references, $event)"
           @reference-drag-over="referenceDragActive = true"
@@ -122,6 +123,7 @@
         @ai-fill="fillReferenceTemplate"
         @insert="insertReferenceTemplate"
         @add-reference="addTemplateCallReferenceImages"
+        @paste-reference="pasteTemplateCallReferenceImage"
         @remove-reference="removeReference(templateReferenceReferences, $event)"
         @show-effect="showTemplateEffectByPreview(templateReferenceEffectImage)"
       />
@@ -155,16 +157,17 @@
       <TemplateEditorDialog
         v-model:show="showTemplateEditor"
         :template="templateDraft"
-          :mode="templateEditorMode"
-          :references="templateDraftReferences"
-          :effect-image="templateDraftEffectImage"
-          :reference-drag-active="templateDraftDragActive"
-          @save="savePromptTemplate"
-          @add-reference="addTemplateDraftReferenceImages"
-          @remove-reference="removeReference(templateDraftReferences, $event)"
-          @add-effect-image="addTemplateDraftEffectImage"
-          @remove-effect-image="templateDraftEffectImage = null"
-          @paste-reference="handleTemplateDraftPaste"
+        :mode="templateEditorMode"
+        :references="templateDraftReferences"
+        :effect-image="templateDraftEffectImage"
+        :reference-drag-active="templateDraftDragActive"
+        @save="savePromptTemplate"
+        @add-reference="addTemplateDraftReferenceImages"
+        @remove-reference="removeReference(templateDraftReferences, $event)"
+        @add-effect-image="addTemplateDraftEffectImage"
+        @paste-effect-image="pasteTemplateDraftEffectImage"
+        @remove-effect-image="templateDraftEffectImage = null"
+        @paste-reference="handleTemplateDraftPaste"
         @reference-drag-over="templateDraftDragActive = true"
         @reference-drag-leave="templateDraftDragActive = false"
         @drop-reference="handleTemplateDraftDropEvent"
@@ -639,6 +642,10 @@ async function handlePromptPaste(event) {
   await pasteReferenceImage(event, references, "已从剪贴板添加参考图");
 }
 
+async function pasteWorkbenchReferenceImage() {
+  await pasteClipboardReference(references, "已从剪贴板添加参考图");
+}
+
 async function chooseReferenceImages(target, successMessage) {
   try {
     const selected = await openDialog({
@@ -780,14 +787,26 @@ async function pasteReferenceImage(event, target, successMessage) {
     }
   });
   if (!hasImage && !hasFilePayload && hasText) return;
-  event.preventDefault();
+  event?.preventDefault();
+  await pasteClipboardReference(target, successMessage);
+}
+
+async function pasteClipboardReference(target, successMessage) {
   try {
     const preview = await invoke("reference_from_clipboard");
-    if (preview && appendReferencePreview(target, preview)) {
-      setStatus(successMessage, "ok");
+    if (!preview) {
+      setStatus("剪贴板中没有可用图片", "error");
+      return false;
     }
+    if (!appendReferencePreview(target, preview)) {
+      setStatus("剪贴板图片已经添加", "busy");
+      return false;
+    }
+    setStatus(successMessage, "ok");
+    return true;
   } catch (error) {
     setStatus(String(error), "error");
+    return false;
   }
 }
 
@@ -1325,6 +1344,20 @@ async function addTemplateDraftEffectImage() {
   }
 }
 
+async function pasteTemplateDraftEffectImage() {
+  try {
+    const preview = await invoke("reference_from_clipboard");
+    if (!preview) {
+      setStatus("剪贴板中没有可用图片", "error");
+      return;
+    }
+    templateDraftEffectImage.value = { ...preview, previewUrl: preview.dataUrl };
+    setStatus("已从剪贴板添加模板效果图", "ok");
+  } catch (error) {
+    setStatus(String(error), "error");
+  }
+}
+
 async function handleTemplateDraftPaste(event) {
   await pasteReferenceImage(event, templateDraftReferences, "已从剪贴板添加模板参考图");
 }
@@ -1432,6 +1465,10 @@ function showTemplateEffectByPreview(preview) {
 
 async function addTemplateCallReferenceImages() {
   await chooseReferenceImages(templateReferenceReferences, "已添加本次调用参考图");
+}
+
+async function pasteTemplateCallReferenceImage() {
+  await pasteClipboardReference(templateReferenceReferences, "已从剪贴板添加本次调用参考图");
 }
 
 function updateTemplateReferenceSource(content) {
