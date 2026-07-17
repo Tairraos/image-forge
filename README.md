@@ -7,7 +7,7 @@
 ![Image Forge 1.0.1 运行界面](docs/image-forge-1.0.1-running.png)
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-1.0.1-9B7BEE?style=flat-square">
+  <img alt="version" src="https://img.shields.io/badge/version-1.0.2-9B7BEE?style=flat-square">
   <img alt="platform desktop" src="https://img.shields.io/badge/platform-desktop-111827?style=flat-square">
   <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white">
   <img alt="Vue" src="https://img.shields.io/badge/Vue-3-42B883?style=flat-square&logo=vuedotjs&logoColor=white">
@@ -134,6 +134,7 @@ pnpm run release
 - `src-tauri/src/lib.rs`：Tauri 入口和命令注册；
 - `src-tauri/tauri.conf.json`：Tauri 窗口、打包、权限和应用版本配置；
 - `docs/technical-design.md`：技术架构、数据流、存储结构和运行逻辑说明。
+- `docs/skill-process.md`：当前 Skill 录入、规划、交互、入队流程，以及建议的新流程设计。
 
 ## 调整 UI 的入口
 
@@ -161,6 +162,10 @@ pnpm run release
 ## 版本记录
 
 版本记录只保留影响产品能力、数据兼容或开发流程的里程碑，零散的样式微调和内部重构不再单独列出。
+
+### v1.0.2
+
+- 新增 Skill 处理流程设计文档，完整记录当前实现、已识别的问题和分阶段的新流程方案。
 
 ### v1.0.1
 
