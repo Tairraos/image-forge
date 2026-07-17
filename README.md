@@ -7,7 +7,7 @@
 ![Image Forge 1.0.1 运行界面](docs/image-forge-1.0.1-running.png)
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-1.0.3-9B7BEE?style=flat-square">
+  <img alt="version" src="https://img.shields.io/badge/version-1.0.4-9B7BEE?style=flat-square">
   <img alt="platform desktop" src="https://img.shields.io/badge/platform-desktop-111827?style=flat-square">
   <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white">
   <img alt="Vue" src="https://img.shields.io/badge/Vue-3-42B883?style=flat-square&logo=vuedotjs&logoColor=white">
@@ -27,7 +27,7 @@ Image Forge 是一个本地桌面生图工作台。它把 GPT、Gemini、Grok、
 - 多模型管理：支持 `生图模型 - GPT/Gemini/Grok/Seedream` 和 `对话模型` 五种类型、独立代理、模型列表获取及 JSON 批量导入导出；
 - 生图历史：任务入队、后台执行、刷新、重试、删除、运行状态轮询和失败自动重试，历史卡片显示真实图片尺寸；
 - 结果预览：选择历史任务后预览输出图片，支持复制、下载到 Downloads 和在 Finder 中定位；
-- 提示词模板：支持增删查改、参考图、单张效果图、工作台快捷保存、流式 AI 填充 `{}` 占位和引用到提示词光标位置；
+- 提示词模板：支持增删查改、参考图、单张效果图、从历史任务快速建模、流式 AI 填充 `{}` 占位和引用到提示词光标位置；
 - 纯 Markdown Skill：支持手动录入或从 URL/GitHub 提取，自动识别名称并拒绝脚本依赖；可把 Skill 与画面需求交给对话模型，生成最终生图提示词；
 - 模板包导入导出：ZIP 同时包含版本化清单、可读 Markdown 和哈希图片，可直接导回并跳过重复模板；
 - 参考图工作流：支持文件选择、剪贴板图片、Finder 文件复制/剪切粘贴和文件拖放，按 SHA-256 去重持久化，历史重用和模板引用会恢复参考图；
@@ -118,7 +118,16 @@ pnpm run release -- <next-version>
 pnpm run release
 ```
 
-传入版本号时会先检查新版本必须高于当前版本，再同步修改项目版本、窗口 title、页面 title 和 Rust User-Agent；不传版本号时使用当前版本。发布产物会复制到 `release/` 目录，文件名带版本号；新版 `.app` 和 `.dmg` 生成后，旧版本发布包会移入系统回收站。`release/` 不提交进 Git。
+生成日常开发预发布 App（不生成 DMG）：
+
+```bash
+pnpm run prerelease
+pnpm run prerelease -- <next-version>
+```
+
+`prerelease` 只生成带版本号的 `.app`。构建成功后，会先把 `release/` 目录中的现有文件全部移入系统回收站，再放入本次 `.app`。
+
+传入版本号时会先检查新版本必须高于当前版本，再同步修改项目版本、窗口 title、页面 title 和 Rust User-Agent；不传版本号时使用当前版本。正式发布仍可使用 `release` 生成 `.app` 和 `.dmg`；日常预发布使用 `prerelease`，只保留当前带版本号的 `.app`。`release/` 不提交进 Git。
 
 ## 目录
 
@@ -157,11 +166,17 @@ pnpm run release
 - 本项目使用 PNPM 管理前端依赖；
 - 代码提交遵循 Conventional Commits，例如 `feat: 增加队列工作台`；
 - 每次会话提交代码时都需要升级版本，并把版本差异写入本 README；
-- 每个正式版本都需要产出 `.dmg` 和 `.app` 到 `release/`，但不要提交这些二进制产物。
+- 每次开发会话使用 `prerelease` 产出带版本号的 `.app` 到 `release/`，不生成 `.dmg`，且不提交二进制产物。
 
 ## 版本记录
 
 版本记录只保留影响产品能力、数据兼容或开发流程的里程碑，零散的样式微调和内部重构不再单独列出。
+
+### v1.0.4
+
+- 新增 prerelease 流程，只生成带版本号的 `.app`，成功后清理 `release/` 旧产物。
+- 历史任务预览区新增“建模”，可把任务提示词、参考图和生成图直接转换为模板草稿。
+- 主工作台并列显示生图模型和对话模型；调整模板编辑媒体布局及引用模板搜索/模型选择位置。
 
 ### v1.0.3
 
