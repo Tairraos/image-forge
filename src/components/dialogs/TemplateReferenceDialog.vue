@@ -64,6 +64,16 @@
           <Plus :size="18" />
           <span>参考图</span>
         </button>
+        <button
+          v-if="effectImage"
+          class="template-call-effect-thumbnail"
+          type="button"
+          title="查看模板效果图"
+          @click="$emit('show-effect')"
+        >
+          <img :src="effectImage.previewUrl" :alt="effectImage.fileName || '模板效果图'" />
+          <span>效果图</span>
+        </button>
       </div>
     </div>
 
@@ -103,6 +113,7 @@ const props = defineProps({
   filledRanges: { type: Array, default: () => [] },
   filling: { type: Boolean, default: false },
   references: { type: Array, default: () => [] },
+  effectImage: { type: Object, default: null },
 });
 
 const emit = defineEmits([
@@ -114,6 +125,7 @@ const emit = defineEmits([
   "insert",
   "add-reference",
   "remove-reference",
+  "show-effect",
 ]);
 
 const sourceHighlightRef = ref(null);

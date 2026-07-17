@@ -14,10 +14,13 @@ use crate::{
         AboutInfo, ApiProvider, AppState, GenerateRequest, PromptTemplate, QueueSnapshot,
         ReferencePreview, Settings, SkillConversationMessage, SkillEntry, SkillFetchResult,
         SkillPlanResult, SkillPlannerEvent, SkillImagePlan, SkillPlannerQuestion, TaskRecord,
-        TemplateImportResult,
+        TemplateFillEvent, TemplateImportResult,
     },
     services::{
-        chat::{fill_skill_prompt as generate_prompt_from_skill, fill_template, plan_skill_response},
+        chat::{
+            fill_skill_prompt as generate_prompt_from_skill, fill_template_response,
+            plan_skill_response,
+        },
         images::reference_preview,
         provider_bundle::{export_providers_json, read_providers_json},
         queue::{build_queue_snapshot, ensure_queue_worker, recover_stale_running},
@@ -309,6 +312,7 @@ pub(crate) fn save_template(
     let mut templates = read_templates(&data_dir)?;
     let mut next = normalize_template(template)?;
     next.reference_paths = persist_reference_paths(&data_dir, &next.reference_paths)?;
+    next.effect_image_path = persist_optional_image_path(&data_dir, &next.effect_image_path)?;
     if next.id.is_empty() {
         next.id = next_template_id(&templates);
         next.created_at = utc_now();
@@ -391,7 +395,7 @@ fn merge_imported_templates(
     })
 }
 
-fn template_signature(template: &PromptTemplate) -> (String, String, Vec<String>) {
+fn template_signature(template: &PromptTemplate) -> (String, String, Vec<String>, String) {
     let mut references = template.reference_paths.clone();
     references.sort();
     references.dedup();
@@ -399,7 +403,19 @@ fn template_signature(template: &PromptTemplate) -> (String, String, Vec<String>
         template.title.trim().to_string(),
         template.content.trim().to_string(),
         references,
+        template.effect_image_path.trim().to_string(),
     )
+}
+
+fn persist_optional_image_path(data_dir: &Path, path: &str) -> Result<String, String> {
+    let path = path.trim();
+    if path.is_empty() {
+        return Ok(String::new());
+    }
+    Ok(persist_reference_paths(data_dir, &[path.to_string()])?
+        .into_iter()
+        .next()
+        .unwrap_or_default())
 }
 
 #[tauri::command]
@@ -507,6 +523,7 @@ pub(crate) fn mark_template_used(
 /// 调用对话模型填充模板中的占位描述，返回完整提示词文本。
 pub(crate) async fn fill_prompt_template(
     app: AppHandle,
+    session_id: String,
     provider_id: String,
     template: String,
 ) -> Result<String, String> {
@@ -553,14 +570,25 @@ pub(crate) async fn fill_prompt_template(
             provider.id, provider.name, provider.base_url, provider.image_model
         ),
     );
-    let result = fill_template(provider, content, Some(&runtime_state)).await;
+    let result = fill_template_response(provider, content, Some(&runtime_state), |event| {
+        let _ = app.emit(
+            "template-fill",
+            TemplateFillEvent {
+                session_id: session_id.clone(),
+                phase: event.phase.to_string(),
+                mode: event.mode.to_string(),
+                chunk: event.chunk,
+            },
+        );
+    })
+    .await;
     match &result {
         Ok(value) => runtime_state.push_log(
             "ai_fill.command.success",
             format!(
                 "provider_id={} output_len={}",
                 provider.id,
-                value.chars().count()
+                value.text.chars().count()
             ),
         ),
         Err(error) => runtime_state.push_log(
@@ -568,7 +596,7 @@ pub(crate) async fn fill_prompt_template(
             format!("provider_id={} error={}", provider.id, error),
         ),
     }
-    result
+    result.map(|output| output.text)
 }
 
 #[tauri::command]
@@ -1263,6 +1291,7 @@ mod tests {
             category: String::new(),
             content: content.into(),
             reference_paths: reference_paths.iter().map(|path| (*path).into()).collect(),
+            effect_image_path: String::new(),
             notes: String::new(),
             tags: Vec::new(),
             favorite: false,

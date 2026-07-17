@@ -79,6 +79,14 @@
               </td>
               <td>
                 <div class="template-table-actions">
+                  <n-button
+                    v-if="template.effectImagePath"
+                    size="tiny"
+                    secondary
+                    @click="emit('show-effect', template)"
+                  >
+                    效果图
+                  </n-button>
                   <n-button size="tiny" secondary @click="emit('edit', template)">编辑</n-button>
                   <n-button size="tiny" quaternary type="error" @click="emit('delete', template.id)">
                     删除
@@ -159,7 +167,16 @@ const props = defineProps({
   templates: { type: Array, default: () => [] },
 });
 
-const emit = defineEmits(["create", "import", "export", "view", "edit", "delete", "move"]);
+const emit = defineEmits([
+  "create",
+  "import",
+  "export",
+  "view",
+  "edit",
+  "delete",
+  "move",
+  "show-effect",
+]);
 const promptPopover = reactive(emptyPopover());
 const imagePopover = reactive(emptyPopover());
 let promptHideTimer = 0;

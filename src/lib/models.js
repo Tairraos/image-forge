@@ -69,6 +69,7 @@ export function emptyTemplate() {
     category: "常用",
     content: "",
     referencePaths: [],
+    effectImagePath: "",
     notes: "",
     tags: [],
     favorite: false,

@@ -415,6 +415,7 @@ pub(crate) fn normalize_template(mut template: PromptTemplate) -> Result<PromptT
         .filter(|path| !path.is_empty())
         .filter(|path| seen_reference_paths.insert(path.clone()))
         .collect();
+    template.effect_image_path = template.effect_image_path.trim().to_string();
     template.notes = template.notes.trim().to_string();
     template.model_hint = template.model_hint.trim().to_string();
     template.tags = template

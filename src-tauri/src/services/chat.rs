@@ -29,12 +29,16 @@ pub(crate) struct ChatProgressEventData {
     pub elapsed_ms: Option<u64>,
 }
 
-pub(crate) async fn fill_template(
+pub(crate) async fn fill_template_response<F>(
     provider: &ApiProvider,
     template: &str,
     runtime_state: Option<&RuntimeState>,
-) -> Result<String, String> {
-    complete_chat_prompt(
+    on_event: F,
+) -> Result<ChatCompletionOutput, String>
+where
+    F: FnMut(ChatProgressEventData),
+{
+    complete_chat_prompt_internal(
         provider,
         TEMPLATE_SYSTEM_PROMPT,
         template,
@@ -46,6 +50,9 @@ pub(crate) async fn fill_template(
             placeholder_count(template)
         ),
         runtime_state,
+        true,
+        CHAT_COMPLETION_TIMEOUT_SECONDS,
+        on_event,
     )
     .await
 }

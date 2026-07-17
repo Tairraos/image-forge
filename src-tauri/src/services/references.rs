@@ -84,6 +84,9 @@ pub(crate) fn prune_unreferenced_files(data_dir: &Path) -> Result<(), String> {
     }
     for template in read_templates(data_dir)? {
         extend_used_paths(&mut used, &template.reference_paths);
+        if !template.effect_image_path.trim().is_empty() {
+            used.insert(PathBuf::from(template.effect_image_path));
+        }
     }
     let requests_dir = data_dir.join("requests");
     if requests_dir.is_dir() {

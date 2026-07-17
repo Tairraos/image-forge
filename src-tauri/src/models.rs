@@ -311,6 +311,8 @@ pub struct PromptTemplate {
     #[serde(default)]
     pub reference_paths: Vec<String>,
     #[serde(default)]
+    pub effect_image_path: String,
+    #[serde(default)]
     pub notes: String,
     #[serde(default)]
     pub tags: Vec<String>,
@@ -412,6 +414,17 @@ pub struct SkillPlannerEvent {
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub elapsed_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TemplateFillEvent {
+    pub session_id: String,
+    pub phase: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub mode: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub chunk: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

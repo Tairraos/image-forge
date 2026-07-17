@@ -31,32 +31,56 @@
           @paste="$emit('paste-reference', $event)"
         />
       </div>
-      <div class="reference-strip template-editor-reference-strip">
-        <div v-for="(item, index) in references" :key="item.path" class="reference-tile">
-          <img :src="item.previewUrl" :alt="item.fileName" />
+      <div class="template-editor-media-row">
+        <div class="reference-strip template-editor-reference-strip">
+          <div v-for="(item, index) in references" :key="item.path" class="reference-tile">
+            <img :src="item.previewUrl" :alt="item.fileName" />
+            <button
+              v-if="!readonly"
+              type="button"
+              title="移除参考图"
+              @click.stop="$emit('remove-reference', index)"
+            >
+              <X :size="14" />
+            </button>
+          </div>
+        </div>
+        <div class="template-editor-media-actions">
           <button
             v-if="!readonly"
+            class="reference-add"
+            :class="{ 'reference-drop-active': referenceDragActive }"
+            data-reference-drop-target="template-draft"
             type="button"
-            title="移除参考图"
-            @click.stop="$emit('remove-reference', index)"
+            @dragover.prevent="$emit('reference-drag-over')"
+            @dragleave="$emit('reference-drag-leave')"
+            @drop.prevent="$emit('drop-reference', $event)"
+            @click="$emit('add-reference')"
           >
-            <X :size="14" />
+            <Plus :size="18" />
+            <span>参考图</span>
+          </button>
+          <div v-if="effectImage" class="reference-tile template-effect-tile">
+            <img :src="effectImage.previewUrl" :alt="effectImage.fileName || '模板效果图'" />
+            <button
+              v-if="!readonly"
+              type="button"
+              title="移除效果图"
+              @click.stop="$emit('remove-effect-image')"
+            >
+              <X :size="14" />
+            </button>
+          </div>
+          <button
+            v-else-if="!readonly"
+            class="reference-add"
+            type="button"
+            @click="$emit('add-effect-image')"
+          >
+            <Plus :size="18" />
+            <span>效果图</span>
           </button>
         </div>
-        <button
-          v-if="!readonly"
-          class="reference-add"
-          :class="{ 'reference-drop-active': referenceDragActive }"
-          data-reference-drop-target="template-draft"
-          type="button"
-          @dragover.prevent="$emit('reference-drag-over')"
-          @dragleave="$emit('reference-drag-leave')"
-          @drop.prevent="$emit('drop-reference', $event)"
-          @click="$emit('add-reference')"
-        >
-          <Plus :size="18" />
-          <span>参考图</span>
-        </button>
       </div>
     </div>
     <template #footer>
@@ -78,6 +102,7 @@ const props = defineProps({
   template: { type: Object, required: true },
   mode: { type: String, default: "edit" },
   references: { type: Array, default: () => [] },
+  effectImage: { type: Object, default: null },
   referenceDragActive: { type: Boolean, default: false },
 });
 
@@ -85,6 +110,8 @@ defineEmits([
   "save",
   "add-reference",
   "remove-reference",
+  "add-effect-image",
+  "remove-effect-image",
   "paste-reference",
   "reference-drag-over",
   "reference-drag-leave",

@@ -1047,7 +1047,7 @@ button:disabled {
 }
 
 .template-reference-modal {
-  width: min(1040px, calc(100vw - 48px));
+  width: min(800px, calc(100vw - 48px));
   max-height: calc(100vh - 48px);
 }
 
@@ -1388,7 +1388,7 @@ button:disabled {
 
 .template-table th:last-child,
 .template-table td:last-child {
-  width: 104px;
+  width: 176px;
   text-align: right;
 }
 
@@ -1640,6 +1640,84 @@ button:disabled {
 .template-call-reference-strip {
   justify-content: flex-start;
   min-height: 64px;
+}
+
+.template-editor-media-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.template-editor-media-row .template-editor-reference-strip {
+  flex: 1;
+  min-width: 0;
+}
+
+.template-editor-media-actions {
+  display: flex;
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.template-effect-tile {
+  border-color: rgba(124, 92, 232, 0.42);
+}
+
+.template-call-effect-thumbnail {
+  position: relative;
+  flex: 0 0 64px;
+  overflow: hidden;
+  width: 64px;
+  height: 64px;
+  margin-left: auto;
+  border: 1px solid rgba(124, 92, 232, 0.42);
+  border-radius: 8px;
+  padding: 0;
+  background: var(--surface-muted);
+}
+
+.template-call-effect-thumbnail img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.template-call-effect-thumbnail span {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  padding: 2px 3px;
+  background: rgba(39, 31, 61, 0.72);
+  color: #fff;
+  font-size: 10px;
+  text-align: center;
+}
+
+.effect-image-viewer {
+  width: 100vw;
+  height: 100vh;
+}
+
+.effect-image-viewer-stage {
+  display: grid;
+  place-items: center;
+  width: 100vw;
+  height: 100vh;
+  padding: 24px;
+  outline: none;
+}
+
+.effect-image-viewer-stage img {
+  display: block;
+  max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 48px);
+  border-radius: 8px;
+  object-fit: contain;
+  box-shadow: 0 24px 72px rgba(28, 20, 48, 0.34);
 }
 
 .template-highlight-box {

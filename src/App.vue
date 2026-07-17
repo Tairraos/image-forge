@@ -98,6 +98,7 @@
         @import="importPromptTemplates"
         @export="exportPromptTemplates"
         @move="movePromptTemplate"
+        @show-effect="showTemplateEffect"
       />
 
       <TemplateReferenceDialog
@@ -112,6 +113,7 @@
         :filled-ranges="templateFilledRanges"
         :filling="templateFilling"
         :references="templateReferenceReferences"
+        :effect-image="templateReferenceEffectImage"
         @update:chat-provider-id="form.chatProviderId = $event"
         @update:source-content="updateTemplateReferenceSource"
         @update:generated-content="updateTemplateReferenceGenerated"
@@ -120,6 +122,7 @@
         @insert="insertReferenceTemplate"
         @add-reference="addTemplateCallReferenceImages"
         @remove-reference="removeReference(templateReferenceReferences, $event)"
+        @show-effect="showTemplateEffectByPreview(templateReferenceEffectImage)"
       />
 
       <SkillManagerDialog
@@ -153,15 +156,24 @@
         :template="templateDraft"
           :mode="templateEditorMode"
           :references="templateDraftReferences"
+          :effect-image="templateDraftEffectImage"
           :reference-drag-active="templateDraftDragActive"
           @save="savePromptTemplate"
           @add-reference="addTemplateDraftReferenceImages"
           @remove-reference="removeReference(templateDraftReferences, $event)"
+          @add-effect-image="addTemplateDraftEffectImage"
+          @remove-effect-image="templateDraftEffectImage = null"
           @paste-reference="handleTemplateDraftPaste"
         @reference-drag-over="templateDraftDragActive = true"
         @reference-drag-leave="templateDraftDragActive = false"
         @drop-reference="handleTemplateDraftDropEvent"
         @update:show="templateDraftDragActive = false"
+      />
+
+      <EffectImageViewer
+        v-model:show="effectViewer.show"
+        :image-path="effectViewer.path"
+        :title="effectViewer.title"
       />
 
       <TaskDetailDialog
@@ -220,6 +232,7 @@ import ResultPanel from "./components/ResultPanel.vue";
 import AboutDialog from "./components/dialogs/AboutDialog.vue";
 import ApiSourceDialog from "./components/dialogs/ApiSourceDialog.vue";
 import ConfirmDialog from "./components/dialogs/ConfirmDialog.vue";
+import EffectImageViewer from "./components/dialogs/EffectImageViewer.vue";
 import NoticeDialog from "./components/dialogs/NoticeDialog.vue";
 import SkillEditorDialog from "./components/dialogs/SkillEditorDialog.vue";
 import SkillManagerDialog from "./components/dialogs/SkillManagerDialog.vue";
@@ -258,8 +271,10 @@ const skills = ref([]);
 const references = ref([]);
 const referenceDragActive = ref(false);
 const templateDraftReferences = ref([]);
+const templateDraftEffectImage = ref(null);
 const templateDraftDragActive = ref(false);
 const templateReferenceReferences = ref([]);
+const templateReferenceEffectImage = ref(null);
 const selectedTaskId = ref("");
 const historyScrollRequest = ref(0);
 const submitting = ref(false);
@@ -272,6 +287,7 @@ const templateReferenceGeneratedContent = ref("");
 const selectedReferenceTemplateId = ref("");
 const templateFilledRanges = ref([]);
 const templateFilling = ref(false);
+const templateFillSessionId = ref("");
 const skillFetching = ref(false);
 const promptCursor = ref(0);
 const SKILL_DIALOG_TIMEOUT_SECONDS = 180;
@@ -315,6 +331,7 @@ const notice = reactive({
   buttonText: "确认",
   resolve: null,
 });
+const effectViewer = reactive({ show: false, path: "", title: "" });
 
 const templateDraft = reactive(emptyTemplate());
 const templateEditorMode = ref("edit");
@@ -346,6 +363,7 @@ let skillRunTimer = 0;
 let removeScrollbarVisibility = null;
 let unlistenDragDrop = null;
 let unlistenSkillPlanner = null;
+let unlistenTemplateFill = null;
 
 const imageProviders = computed(() =>
   settings.value.providers.filter((provider) => provider.modelType !== "chat"),
@@ -446,6 +464,11 @@ onMounted(async () => {
   } catch {
     // 预览环境可能没有事件通道。
   }
+  try {
+    unlistenTemplateFill = await listenEvent("template-fill", handleTemplateFillEvent);
+  } catch {
+    // 预览环境可能没有事件通道。
+  }
   await refreshAll();
   historyScrollRequest.value += 1;
   pollTimer = window.setInterval(refreshQueueOnly, 1600);
@@ -456,6 +479,7 @@ onUnmounted(() => {
   window.clearInterval(skillRunTimer);
   unlistenDragDrop?.();
   unlistenSkillPlanner?.();
+  unlistenTemplateFill?.();
   removeScrollbarVisibility?.();
 });
 
@@ -913,6 +937,7 @@ async function copyOutput(output) {
 function newTemplate() {
   Object.assign(templateDraft, emptyTemplate());
   templateDraftReferences.value = [];
+  templateDraftEffectImage.value = null;
   templateEditorMode.value = "new";
   showTemplateEditor.value = true;
 }
@@ -922,6 +947,7 @@ async function viewTemplate(template) {
   Object.assign(templateDraft, deepClone(template));
   const { restored } = await restoreReferencePreviews(template.referencePaths);
   templateDraftReferences.value = restored;
+  templateDraftEffectImage.value = await restoreEffectImage(template.effectImagePath);
   templateEditorMode.value = "view";
   showTemplateEditor.value = true;
 }
@@ -931,6 +957,7 @@ async function editTemplate(template) {
   Object.assign(templateDraft, deepClone(template));
   const { restored } = await restoreReferencePreviews(template.referencePaths);
   templateDraftReferences.value = restored;
+  templateDraftEffectImage.value = await restoreEffectImage(template.effectImagePath);
   templateEditorMode.value = "edit";
   showTemplateEditor.value = true;
 }
@@ -939,6 +966,7 @@ async function editTemplate(template) {
 async function savePromptTemplate() {
   try {
     templateDraft.referencePaths = templateDraftReferences.value.map((item) => item.path);
+    templateDraft.effectImagePath = templateDraftEffectImage.value?.path || "";
     templates.value = await invoke("save_template", { template: deepClone(templateDraft) });
     showTemplateEditor.value = false;
     setStatus("模板已保存", "ok");
@@ -1266,6 +1294,22 @@ async function addTemplateDraftReferenceImages() {
   await chooseReferenceImages(templateDraftReferences, "已添加模板参考图");
 }
 
+async function addTemplateDraftEffectImage() {
+  try {
+    const selected = await openDialog({
+      multiple: false,
+      filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "gif"] }],
+    });
+    const path = Array.isArray(selected) ? selected[0] : selected;
+    if (!path) return;
+    const preview = await invoke("reference_from_path", { path });
+    templateDraftEffectImage.value = { ...preview, previewUrl: preview.dataUrl };
+    setStatus("已添加模板效果图", "ok");
+  } catch (error) {
+    setStatus(String(error), "error");
+  }
+}
+
 async function handleTemplateDraftPaste(event) {
   await pasteReferenceImage(event, templateDraftReferences, "已从剪贴板添加模板参考图");
 }
@@ -1364,7 +1408,32 @@ async function selectReferenceTemplate(template) {
   const { restored, missing } = await restoreReferencePreviews(template.referencePaths);
   if (selectedReferenceTemplateId.value !== selectedId) return;
   templateReferenceReferences.value = restored;
+  templateReferenceEffectImage.value = await restoreEffectImage(template.effectImagePath);
   if (missing) setStatus(`${missing} 张模板参考图已不存在`, "busy");
+}
+
+async function restoreEffectImage(path) {
+  if (!path) return null;
+  try {
+    const preview = await invoke("reference_from_path", { path });
+    return { ...preview, previewUrl: preview.dataUrl };
+  } catch {
+    return null;
+  }
+}
+
+function showTemplateEffect(template) {
+  if (!template?.effectImagePath) return;
+  effectViewer.path = template.effectImagePath;
+  effectViewer.title = `${template.title || "模板"} · 效果图`;
+  effectViewer.show = true;
+}
+
+function showTemplateEffectByPreview(preview) {
+  if (!preview?.path) return;
+  effectViewer.path = preview.path;
+  effectViewer.title = "模板效果图";
+  effectViewer.show = true;
 }
 
 async function addTemplateCallReferenceImages() {
@@ -1392,13 +1461,19 @@ async function fillReferenceTemplate() {
     return;
   }
   templateFilling.value = true;
+  templateFillSessionId.value = createTemplateFillSessionId();
+  const sessionId = templateFillSessionId.value;
+  templateReferenceGeneratedContent.value = "";
+  templateFilledRanges.value = [];
   setStatus("AI 正在填充模板…", "busy");
   try {
     const original = templateReferenceSourceContent.value;
     const filled = await invoke("fill_prompt_template", {
+      sessionId,
       providerId: form.chatProviderId,
       template: original,
     });
+    if (sessionId !== templateFillSessionId.value) return;
     templateReferenceGeneratedContent.value = filled;
     templateFilledRanges.value = mapFilledRanges(original, filled);
     setStatus("模板已填充", "ok");
@@ -1409,6 +1484,22 @@ async function fillReferenceTemplate() {
   } finally {
     templateFilling.value = false;
   }
+}
+
+function handleTemplateFillEvent(event) {
+  const payload = event?.payload || {};
+  if (!templateFilling.value || payload.sessionId !== templateFillSessionId.value) return;
+  if (payload.phase === "delta" && payload.mode === "stream") {
+    templateReferenceGeneratedContent.value += payload.chunk || "";
+    templateFilledRanges.value = [];
+  }
+}
+
+function createTemplateFillSessionId() {
+  if (globalThis.crypto?.randomUUID) {
+    return `template-fill-${globalThis.crypto.randomUUID()}`;
+  }
+  return `template-fill-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 async function openAbout() {

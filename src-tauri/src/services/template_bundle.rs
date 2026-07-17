@@ -47,6 +47,8 @@ struct BundleTemplate {
     content: String,
     #[serde(default)]
     references: Vec<String>,
+    #[serde(default)]
+    effect_image: String,
 }
 
 struct ReferenceEntry {
@@ -148,7 +150,12 @@ fn collect_reference_entries(
     let mut archive_paths = HashMap::new();
     let mut hashes = HashSet::new();
     for template in templates {
-        for raw_path in &template.reference_paths {
+        for raw_path in template
+            .reference_paths
+            .iter()
+            .chain(std::iter::once(&template.effect_image_path))
+            .filter(|path| !path.trim().is_empty())
+        {
             let source = PathBuf::from(raw_path);
             if archive_paths.contains_key(&source) {
                 continue;
@@ -192,6 +199,10 @@ fn build_manifest(
                     .iter()
                     .filter_map(|path| archive_paths.get(&PathBuf::from(path)).cloned())
                     .collect(),
+                effect_image: archive_paths
+                    .get(&PathBuf::from(&template.effect_image_path))
+                    .cloned()
+                    .unwrap_or_default(),
             })
             .collect(),
     }
@@ -216,15 +227,21 @@ fn build_templates_markdown(
             .iter()
             .filter_map(|path| archive_paths.get(&PathBuf::from(path)))
             .collect::<Vec<_>>();
-        if references.is_empty() {
-            continue;
+        if !references.is_empty() {
+            markdown.push_str("### 参考图\n\n");
+            for (index, archive_path) in references.iter().enumerate() {
+                markdown.push_str(&format!(
+                    "![模板 {} 参考图 {}]({archive_path})\n\n",
+                    template.id,
+                    index + 1
+                ));
+            }
         }
-        markdown.push_str("### 参考图\n\n");
-        for (index, archive_path) in references.iter().enumerate() {
+        if let Some(archive_path) = archive_paths.get(&PathBuf::from(&template.effect_image_path)) {
+            markdown.push_str("### 效果图\n\n");
             markdown.push_str(&format!(
-                "![模板 {} 参考图 {}]({archive_path})\n\n",
-                template.id,
-                index + 1
+                "![模板 {} 效果图]({archive_path})\n\n",
+                template.id
             ));
         }
     }
@@ -289,6 +306,9 @@ fn validate_bundle_templates(templates: &[BundleTemplate]) -> Result<(), String>
         for reference in &template.references {
             validate_reference_path(reference)?;
         }
+        if !template.effect_image.is_empty() {
+            validate_reference_path(&template.effect_image)?;
+        }
     }
     Ok(())
 }
@@ -316,7 +336,12 @@ fn import_bundle_templates(
     let mut reference_paths = Vec::new();
     let mut seen = HashSet::new();
     for template in &templates {
-        for reference in &template.references {
+        for reference in template
+            .references
+            .iter()
+            .chain(std::iter::once(&template.effect_image))
+            .filter(|path| !path.is_empty())
+        {
             if seen.insert(reference.clone()) {
                 reference_paths.push(reference.clone());
             }
@@ -347,10 +372,19 @@ fn import_bundle_templates(
                         .ok_or_else(|| format!("模板包缺少参考图：{path}"))
                 })
                 .collect::<Result<Vec<_>, _>>()?;
+            let effect_image_path = if template.effect_image.is_empty() {
+                String::new()
+            } else {
+                persisted
+                    .get(&template.effect_image)
+                    .cloned()
+                    .ok_or_else(|| format!("模板包缺少效果图：{}", template.effect_image))?
+            };
             Ok(imported_template(
                 template.title,
                 template.content,
                 references,
+                effect_image_path,
             ))
         })
         .collect()
@@ -399,6 +433,7 @@ fn parse_legacy_markdown(markdown: &str) -> Result<Vec<BundleTemplate>, String> 
             title: String::new(),
             content: content.trim().into(),
             references,
+            effect_image: String::new(),
         });
     }
     validate_bundle_templates(&templates)?;
@@ -433,6 +468,7 @@ fn imported_template(
     title: String,
     content: String,
     reference_paths: Vec<String>,
+    effect_image_path: String,
 ) -> PromptTemplate {
     PromptTemplate {
         id: String::new(),
@@ -441,6 +477,7 @@ fn imported_template(
         category: String::new(),
         content,
         reference_paths,
+        effect_image_path,
         notes: String::new(),
         tags: Vec::new(),
         favorite: false,
@@ -490,10 +527,11 @@ mod tests {
         let root = test_dir("round-trip");
         let reference = root.join("shared.png");
         write_test_image(&reference);
-        let templates = vec![
+        let mut templates = vec![
             template("1", "第一个提示词", &reference),
             template("2", "第二个提示词", &reference),
         ];
+        templates[0].effect_image_path = reference.to_string_lossy().into_owned();
         let archive_path = export_templates_archive(&templates, &root.join("templates")).unwrap();
         let mut archive = ZipArchive::new(File::open(&archive_path).unwrap()).unwrap();
         assert_eq!(archive.len(), 3);
@@ -505,6 +543,7 @@ mod tests {
             manifest.templates[0].references,
             manifest.templates[1].references
         );
+        assert_eq!(manifest.templates[0].effect_image, manifest.templates[0].references[0]);
         drop(archive);
 
         let imported_dir = root.join("imported");
@@ -515,6 +554,7 @@ mod tests {
         assert_eq!(imported[0].content, "第一个提示词");
         assert_eq!(imported[1].content, "第二个提示词");
         assert_eq!(imported[0].reference_paths, imported[1].reference_paths);
+        assert_eq!(imported[0].effect_image_path, imported[0].reference_paths[0]);
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -570,6 +610,7 @@ mod tests {
             category: String::new(),
             content: content.into(),
             reference_paths: vec![reference.to_string_lossy().into_owned()],
+            effect_image_path: String::new(),
             notes: String::new(),
             tags: Vec::new(),
             favorite: false,

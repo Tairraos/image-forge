@@ -7,7 +7,7 @@
 ![Image Forge 1.0.1 运行界面](docs/image-forge-1.0.1-running.png)
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-1.0.2-9B7BEE?style=flat-square">
+  <img alt="version" src="https://img.shields.io/badge/version-1.0.3-9B7BEE?style=flat-square">
   <img alt="platform desktop" src="https://img.shields.io/badge/platform-desktop-111827?style=flat-square">
   <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white">
   <img alt="Vue" src="https://img.shields.io/badge/Vue-3-42B883?style=flat-square&logo=vuedotjs&logoColor=white">
@@ -27,7 +27,7 @@ Image Forge 是一个本地桌面生图工作台。它把 GPT、Gemini、Grok、
 - 多模型管理：支持 `生图模型 - GPT/Gemini/Grok/Seedream` 和 `对话模型` 五种类型、独立代理、模型列表获取及 JSON 批量导入导出；
 - 生图历史：任务入队、后台执行、刷新、重试、删除、运行状态轮询和失败自动重试，历史卡片显示真实图片尺寸；
 - 结果预览：选择历史任务后预览输出图片，支持复制、下载到 Downloads 和在 Finder 中定位；
-- 提示词模板：支持增删查改、参考图、工作台快捷保存、AI 填充 `{}` 占位和引用到提示词光标位置；
+- 提示词模板：支持增删查改、参考图、单张效果图、工作台快捷保存、流式 AI 填充 `{}` 占位和引用到提示词光标位置；
 - 纯 Markdown Skill：支持手动录入或从 URL/GitHub 提取，自动识别名称并拒绝脚本依赖；可把 Skill 与画面需求交给对话模型，生成最终生图提示词；
 - 模板包导入导出：ZIP 同时包含版本化清单、可读 Markdown 和哈希图片，可直接导回并跳过重复模板；
 - 参考图工作流：支持文件选择、剪贴板图片、Finder 文件复制/剪切粘贴和文件拖放，按 SHA-256 去重持久化，历史重用和模板引用会恢复参考图；
@@ -162,6 +162,11 @@ pnpm run release
 ## 版本记录
 
 版本记录只保留影响产品能力、数据兼容或开发流程的里程碑，零散的样式微调和内部重构不再单独列出。
+
+### v1.0.3
+
+- 模板新增单张效果图，支持维护页预览、引用页缩略图查看，以及随模板 ZIP 导入导出。
+- 引用模板弹窗收窄到 800px；流式对话模型的 AI 填充内容会实时显示，最终完成后再整体替换。
 
 ### v1.0.2
 
