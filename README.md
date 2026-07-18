@@ -4,7 +4,7 @@
   <sub>一个基于 Tauri 2 + Vue 3 + Rust 的本地 AI 生图工作台 · Multi-Protocol Images · Queue · Templates · Skills</sub>
 </p>
 
-![Image Forge 1.0.1 运行界面](docs/image-forge-1.0.1-running.png)
+![Image Forge 1.0.1 运行界面](docs/image-forge-running.png)
 
 <p align="center">
   <img alt="version" src="https://img.shields.io/badge/version-1.0.12-9B7BEE?style=flat-square">
