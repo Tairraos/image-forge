@@ -5,11 +5,21 @@
         :value="historyQuery"
         size="small"
         clearable
-        placeholder="搜索提示词或任务 ID"
+        placeholder="搜索提示词或 ID"
         @update:value="$emit('update:history-query', $event)"
       >
         <template #prefix><Search :size="15" /></template>
       </n-input>
+      <n-radio-group
+        :value="historyScope"
+        size="small"
+        class="history-scope-control"
+        aria-label="任务历史时间范围"
+        @update:value="$emit('update:history-scope', $event)"
+      >
+        <n-radio-button value="today">今天</n-radio-button>
+        <n-radio-button value="all">所有</n-radio-button>
+      </n-radio-group>
     </div>
 
     <div ref="historyListRef" class="task-stack history-stack">
@@ -41,12 +51,14 @@ const props = defineProps({
   filteredHistory: { type: Array, default: () => [] },
   selectedTaskId: { type: String, default: "" },
   historyQuery: { type: String, default: "" },
+  historyScope: { type: String, default: "today" },
   scrollRequest: { type: Number, default: 0 },
 });
 
 defineEmits([
   "select-task",
   "update:history-query",
+  "update:history-scope",
   "reuse",
   "refresh-task",
   "retry",

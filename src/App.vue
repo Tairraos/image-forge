@@ -14,9 +14,11 @@
           :filtered-history="filteredHistory"
           :selected-task-id="selectedTaskId"
           :history-query="historyQuery"
+          :history-scope="historyScope"
           :scroll-request="historyScrollRequest"
           @select-task="selectedTaskId = $event"
           @update:history-query="historyQuery = $event"
+          @update:history-scope="historyScope = $event"
           @reuse="reuseTask"
           @refresh-task="refreshTask"
           @retry="retryTask"
@@ -290,6 +292,8 @@ const selectedTaskId = ref("");
 const historyScrollRequest = ref(0);
 const submitting = ref(false);
 const historyQuery = ref("");
+const historyScope = ref("today");
+const todayKey = ref(localDateKey(new Date()));
 const templateQuery = ref("");
 const skillQuery = ref("");
 const templateReferenceQuery = ref("");
@@ -373,6 +377,7 @@ const workspaceStyle = computed(() => ({
 
 let pollTimer = 0;
 let skillRunTimer = 0;
+let todayRolloverTimer = 0;
 let removeScrollbarVisibility = null;
 let unlistenDragDrop = null;
 let unlistenSkillPlanner = null;
@@ -418,7 +423,9 @@ const historyTimeline = computed(() => {
 
 const filteredHistory = computed(() => {
   const query = historyQuery.value.trim().toLowerCase();
-  const items = historyTimeline.value;
+  const items = historyScope.value === "today"
+    ? historyTimeline.value.filter((task) => localDateKey(taskTime(task)) === todayKey.value)
+    : historyTimeline.value;
   if (!query) return items;
   return items.filter((task) =>
     [task.id, task.prompt, task.providerName, task.model]
@@ -485,11 +492,13 @@ onMounted(async () => {
   await refreshAll();
   historyScrollRequest.value += 1;
   pollTimer = window.setInterval(refreshQueueOnly, 1600);
+  scheduleTodayRollover();
 });
 
 onUnmounted(() => {
   window.clearInterval(pollTimer);
   window.clearInterval(skillRunTimer);
+  window.clearTimeout(todayRolloverTimer);
   unlistenDragDrop?.();
   unlistenSkillPlanner?.();
   unlistenTemplateFill?.();
@@ -1704,6 +1713,25 @@ function modelOptionLabel(provider) {
 
 function taskTime(task) {
   return task.createdAt || task.updatedAt || task.completedAt || "";
+}
+
+function localDateKey(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+function scheduleTodayRollover() {
+  window.clearTimeout(todayRolloverTimer);
+  const now = new Date();
+  const nextDay = new Date(now);
+  nextDay.setHours(24, 0, 0, 0);
+  todayRolloverTimer = window.setTimeout(() => {
+    todayKey.value = localDateKey(new Date());
+    scheduleTodayRollover();
+  }, Math.max(1000, nextDay.getTime() - now.getTime()));
 }
 
 // 根据设置、历史成功任务和当前列表，保证模型选择始终可用。

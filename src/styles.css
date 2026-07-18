@@ -667,7 +667,20 @@ button:disabled {
 }
 
 .history-toolbar {
-  display: block;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.history-scope-control {
+  flex: none;
+  white-space: nowrap;
+}
+
+.history-scope-control .n-radio-button {
+  min-width: 44px;
+  text-align: center;
 }
 
 .task-card {
