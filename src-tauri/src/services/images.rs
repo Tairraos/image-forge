@@ -156,46 +156,93 @@ async fn call_grok_images(
     request: &GenerateRequest,
 ) -> Result<Vec<ApiImageResult>, String> {
     let base_url = normalize_base_url(&provider.base_url)?;
+    let model = provider.image_model.trim();
+    if model.is_empty() {
+        return Err("Grok 模型不能为空".into());
+    }
     let prompt =
         image_prompt_for_transport(&request.prompt, &request.ratio, &request.prompt_fidelity);
     let references = reference_data_urls(request, 3)?;
-    let (url, payload, label) = if references.is_empty() {
-        (
-            format!("{base_url}/images/generations"),
-            json!({
-                "model": provider.image_model,
-                "prompt": prompt,
-                "n": request.count,
-                "aspect_ratio": request.ratio,
-                "resolution": grok_resolution(&request.resolution),
-                "response_format": "b64_json",
-            }),
+    if references.is_empty() {
+        let payload = json!({
+            "model": model,
+            "prompt": prompt,
+            "n": request.count,
+            "aspect_ratio": request.ratio,
+            "resolution": grok_resolution(&request.resolution),
+            "response_format": "b64_json",
+        });
+        return send_json_images(
+            client,
+            provider,
+            &format!("{base_url}/images/generations"),
+            &payload,
             "Grok 图片生成",
+            request,
+        )
+        .await;
+    }
+
+    let (image_key, image_value) = grok_edit_image_input(references);
+    let mut payload = Map::new();
+    payload.insert("model".into(), json!(model));
+    payload.insert("prompt".into(), json!(prompt));
+    payload.insert(image_key.into(), image_value);
+    payload.insert("aspect_ratio".into(), json!(request.ratio));
+    payload.insert(
+        "resolution".into(),
+        json!(grok_resolution(&request.resolution)),
+    );
+    payload.insert("response_format".into(), json!("b64_json"));
+    send_grok_edit_images(
+        client,
+        provider,
+        &format!("{base_url}/images/edits"),
+        &Value::Object(payload),
+        request,
+    )
+    .await
+}
+
+fn grok_edit_image_input(references: Vec<String>) -> (&'static str, Value) {
+    let images = references
+        .into_iter()
+        .map(|url| json!({ "url": url, "type": "image_url" }))
+        .collect::<Vec<_>>();
+    if images.len() == 1 {
+        (
+            "image",
+            images.into_iter().next().unwrap_or_else(|| Value::Null),
         )
     } else {
-        let images = references
-            .into_iter()
-            .map(|url| json!({ "url": url, "type": "image_url" }))
-            .collect::<Vec<_>>();
-        let image = if images.len() == 1 {
-            images[0].clone()
-        } else {
-            Value::Array(images)
-        };
-        (
-            format!("{base_url}/images/edits"),
-            json!({
-                "model": provider.image_model,
-                "prompt": prompt,
-                "image": image,
-                "aspect_ratio": request.ratio,
-                "resolution": grok_resolution(&request.resolution),
-                "response_format": "b64_json",
-            }),
-            "Grok 图片编辑",
-        )
-    };
-    send_json_images(client, provider, &url, &payload, label, request).await
+        ("images", Value::Array(images))
+    }
+}
+
+async fn send_grok_edit_images(
+    client: &Client,
+    provider: &ApiProvider,
+    url: &str,
+    payload: &Value,
+    request: &GenerateRequest,
+) -> Result<Vec<ApiImageResult>, String> {
+    let response = client
+        .post(url)
+        .bearer_auth(provider.api_key.trim())
+        .header(ACCEPT, "application/json")
+        .json(payload)
+        .send()
+        .await
+        .map_err(|error| format_request_error("Grok 图片编辑", error))?;
+    let body = checked_body(response, "Grok 图片编辑").await?;
+    parse_images_response_with_error_handler(
+        client,
+        &provider.api_key,
+        &body,
+        request,
+        Some(format_grok_edit_error),
+    )
+    .await
 }
 
 async fn call_seedream_images(
@@ -351,9 +398,22 @@ async fn parse_images_response(
     body: &[u8],
     request: &GenerateRequest,
 ) -> Result<Vec<ApiImageResult>, String> {
+    parse_images_response_with_error_handler(client, api_key, body, request, None).await
+}
+
+async fn parse_images_response_with_error_handler(
+    client: &Client,
+    api_key: &str,
+    body: &[u8],
+    request: &GenerateRequest,
+    error_handler: Option<fn(&Value) -> Option<String>>,
+) -> Result<Vec<ApiImageResult>, String> {
     let value: Value = serde_json::from_slice(body)
         .map_err(|error| format!("Images API 返回了无效 JSON: {error}"))?;
     if let Some(error) = value.get("error") {
+        if let Some(message) = error_handler.and_then(|handler| handler(error)) {
+            return Err(message);
+        }
         return Err(format_api_error("Images API", error));
     }
     let data = value
@@ -507,6 +567,39 @@ async fn checked_body(response: reqwest::Response, label: &str) -> Result<Vec<u8
     Ok(body)
 }
 
+fn format_grok_edit_error(error: &Value) -> Option<String> {
+    let object = error.as_object()?;
+    let message = object
+        .get("message")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let error_type = object
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let param = object
+        .get("param")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let field_required = message.to_ascii_lowercase().contains("field required");
+    if error_type == "invalid_request_error" && field_required && param == "model" {
+        return Some(
+            "当前 Grok API 源不支持带参考图的 xAI 图片编辑协议。它很可能只支持纯文本生图，不支持参考图编辑；请改用支持 Grok 图片编辑的 API 源，或移除参考图后重试。"
+                .into(),
+        );
+    }
+    if error_type == "invalid_request_error"
+        && field_required
+        && matches!(param, "image" | "images")
+    {
+        return Some(
+            "当前 Grok API 源未正确接受参考图编辑请求。请先尝试只保留一张参考图；如果仍失败，说明该源大概率不支持 Grok 图片编辑，只支持纯文本生图。"
+                .into(),
+        );
+    }
+    None
+}
+
 fn add_image_part(
     form: multipart::Form,
     field: &'static str,
@@ -657,8 +750,11 @@ fn add_optional_text_part(
 #[cfg(test)]
 mod tests {
     use base64::{engine::general_purpose, Engine as _};
+    use serde_json::json;
 
-    use super::{gemini_base_url, parse_gemini_response};
+    use super::{
+        format_grok_edit_error, gemini_base_url, grok_edit_image_input, parse_gemini_response,
+    };
     use crate::models::GenerateRequest;
 
     #[test]
@@ -679,5 +775,31 @@ mod tests {
         assert_eq!(outputs.len(), 1);
         assert_eq!(outputs[0].bytes, b"image-bytes");
         assert_eq!(outputs[0].output_format, "png");
+    }
+
+    #[test]
+    fn grok_multi_image_edit_uses_images_field() {
+        let (key, value) = grok_edit_image_input(vec!["a".into(), "b".into()]);
+        assert_eq!(key, "images");
+        assert_eq!(
+            value,
+            json!([
+                { "url": "a", "type": "image_url" },
+                { "url": "b", "type": "image_url" }
+            ])
+        );
+    }
+
+    #[test]
+    fn grok_edit_missing_model_error_is_rewritten_as_capability_hint() {
+        let message = format_grok_edit_error(&json!({
+            "message": "Field required",
+            "type": "invalid_request_error",
+            "param": "model",
+            "code": "invalid_value"
+        }))
+        .unwrap();
+        assert!(message.contains("不支持带参考图"));
+        assert!(message.contains("只支持纯文本生图"));
     }
 }
