@@ -290,6 +290,7 @@ button:disabled {
   gap: 0;
   min-height: 0;
   overflow: hidden;
+  --shadow-soft: none;
 }
 
 .queue-column,
