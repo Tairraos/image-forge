@@ -13,13 +13,6 @@ pub fn run() {
     tauri::Builder::default()
         .manage(RuntimeState::new())
         .plugin(tauri_plugin_dialog::init())
-        .setup(|app| {
-            let handle = app.handle().clone();
-            if let Ok(data_dir) = store::ensure_data_dir(&handle) {
-                let _ = services::queue::recover_stale_running(&handle, &data_dir);
-            }
-            Ok(())
-        })
         .invoke_handler(tauri::generate_handler![
             commands::about_info,
             commands::copy_image_to_clipboard,

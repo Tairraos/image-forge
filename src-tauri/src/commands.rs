@@ -13,7 +13,7 @@ use crate::{
     models::{
         AboutInfo, ApiProvider, AppState, GenerateRequest, PromptTemplate, QueueSnapshot,
         ReferencePreview, Settings, SkillConversationMessage, SkillEntry, SkillFetchResult,
-        SkillPlanResult, SkillPlannerEvent, SkillImagePlan, SkillPlannerQuestion, TaskRecord,
+        SkillImagePlan, SkillPlanResult, SkillPlannerEvent, SkillPlannerQuestion, TaskRecord,
         TemplateFillEvent, TemplateImportResult,
     },
     services::{
@@ -23,8 +23,12 @@ use crate::{
         },
         images::reference_preview,
         provider_bundle::{export_providers_json, read_providers_json},
-        queue::{build_queue_snapshot, ensure_queue_worker, recover_stale_running},
-        references::{persist_reference_paths, prune_unreferenced_files},
+        queue::{
+            build_queue_snapshot, emit_queue_updated, ensure_queue_worker, recover_stale_running,
+        },
+        references::{
+            persist_reference_paths, prune_unreferenced_files, prune_unreferenced_files_with_data,
+        },
         skill::fetch_skill_markdown as fetch_skill_markdown_from_url,
         template_bundle::{export_templates_archive, import_templates_archive},
     },
@@ -70,18 +74,22 @@ fn record_result<T>(
 /// 加载前端启动所需的完整应用状态，并恢复异常退出遗留的运行中任务。
 pub(crate) fn load_app_state(app: AppHandle) -> Result<AppState, String> {
     let data_dir = ensure_data_dir(&app)?;
-    recover_stale_running(&app, &data_dir)?;
-    prune_unreferenced_files(&data_dir)?;
     let settings = read_settings(&data_dir)?;
     let mut history = read_history(&data_dir)?;
+    let templates = read_templates(&data_dir)?;
+    recover_stale_running(&app, &data_dir, Some(&mut history))?;
     if refresh_history_output_sizes(&mut history) {
         write_history(&data_dir, &history)?;
+    }
+    prune_unreferenced_files_with_data(&data_dir, &history, &templates)?;
+    if settings.auto_start_queue {
+        ensure_queue_worker(&app);
     }
     Ok(AppState {
         settings,
         history: history.clone(),
         queue: build_queue_snapshot(&app, &data_dir, history)?,
-        templates: read_templates(&data_dir)?,
+        templates,
         skills: read_skills(&data_dir)?,
         data_dir: data_dir.to_string_lossy().into_owned(),
     })
@@ -164,7 +172,7 @@ pub(crate) fn enqueue_generation(
 ) -> Result<TaskRecord, String> {
     let data_dir = ensure_data_dir(&app)?;
     let settings = read_settings(&data_dir)?;
-    let record = enqueue_generation_request(&data_dir, &settings, request)?;
+    let record = enqueue_generation_request(&app, &data_dir, &settings, request)?;
     ensure_queue_worker(&app);
     Ok(record)
 }
@@ -182,13 +190,16 @@ pub(crate) fn enqueue_generation_batch(
     let settings = read_settings(&data_dir)?;
     let mut records = Vec::with_capacity(requests.len());
     for request in requests {
-        records.push(enqueue_generation_request(&data_dir, &settings, request)?);
+        records.push(enqueue_generation_request(
+            &app, &data_dir, &settings, request,
+        )?);
     }
     ensure_queue_worker(&app);
     Ok(records)
 }
 
 fn enqueue_generation_request(
+    app: &AppHandle,
     data_dir: &Path,
     settings: &Settings,
     request: GenerateRequest,
@@ -225,6 +236,7 @@ fn enqueue_generation_request(
     write_json(&request_path(data_dir, &id), &request)?;
     upsert_history(data_dir, record.clone())?;
     enqueue_task(data_dir, &id)?;
+    let _ = emit_queue_updated(app, data_dir);
     Ok(record)
 }
 
@@ -257,6 +269,7 @@ pub(crate) fn retry_task(app: AppHandle, task_id: String) -> Result<TaskRecord, 
     write_history(&data_dir, &history)?;
     enqueue_task(&data_dir, &task_id)?;
     ensure_queue_worker(&app);
+    let _ = emit_queue_updated(&app, &data_dir);
     Ok(next)
 }
 
@@ -301,6 +314,7 @@ pub(crate) fn delete_task(app: AppHandle, task_id: String) -> Result<(), String>
     if !defer_reference_cleanup {
         prune_unreferenced_files(&data_dir)?;
     }
+    let _ = emit_queue_updated(&app, &data_dir);
     Ok(())
 }
 
@@ -337,7 +351,10 @@ fn delete_output_files_for_task(record: &TaskRecord) -> Result<(), String> {
 
 #[tauri::command]
 /// 根据本地图片路径生成参考图预览信息。
-pub(crate) fn reference_from_path(_app: AppHandle, path: String) -> Result<ReferencePreview, String> {
+pub(crate) fn reference_from_path(
+    _app: AppHandle,
+    path: String,
+) -> Result<ReferencePreview, String> {
     let params = format!("path={path}");
     let result = reference_preview(Path::new(&path));
     record_result("读取图片文件", &params, None, &result);
@@ -776,7 +793,8 @@ pub(crate) async fn plan_skill_generation(
     let conversation = normalize_skill_conversation(conversation);
     let routed_skill = route_skill_content(&skill.content, &prompt, &conversation);
     let system_prompt = build_skill_planner_system_prompt(&skill.name, &routed_skill);
-    let user_content = build_skill_planner_user_content(&prompt, &conversation, has_reference_images);
+    let user_content =
+        build_skill_planner_user_content(&prompt, &conversation, has_reference_images);
     let request_summary = format!(
         "skill_id={} skill_name={} prompt_len={} conversation_turns={}",
         skill.id,
@@ -791,15 +809,17 @@ pub(crate) async fn plan_skill_generation(
         &user_content,
         request_summary,
         Some(&runtime_state),
-        |event| emit_skill_planner_event(
-            &app,
-            &session_id,
-            event.phase,
-            event.mode,
-            event.chunk,
-            event.message,
-            event.elapsed_ms,
-        ),
+        |event| {
+            emit_skill_planner_event(
+                &app,
+                &session_id,
+                event.phase,
+                event.mode,
+                event.chunk,
+                event.message,
+                event.elapsed_ms,
+            )
+        },
     )
     .await
     .map_err(|error| {
@@ -1157,10 +1177,7 @@ fn split_skill_sections(skill_content: &str) -> Vec<(String, String)> {
     sections
 }
 
-fn build_skill_query(
-    prompt: &str,
-    conversation: &[SkillConversationMessage],
-) -> HashSet<String> {
+fn build_skill_query(prompt: &str, conversation: &[SkillConversationMessage]) -> HashSet<String> {
     let mut terms = HashSet::new();
     collect_query_terms(prompt, &mut terms);
     for message in conversation {
@@ -1235,7 +1252,10 @@ fn extract_json_body(text: &str) -> Option<&str> {
     }
 }
 
-fn finalize_skill_plan_result(result: &mut SkillPlanResult, skill_name: &str) -> Result<(), String> {
+fn finalize_skill_plan_result(
+    result: &mut SkillPlanResult,
+    skill_name: &str,
+) -> Result<(), String> {
     result.skill_name = skill_name.trim().to_string();
     result.status = normalize_skill_status(&result.status, &result.questions, &result.images);
     result.message = result.message.trim().to_string();
@@ -1243,13 +1263,15 @@ fn finalize_skill_plan_result(result: &mut SkillPlanResult, skill_name: &str) ->
         "deep" => "deep".into(),
         _ => "normal".into(),
     };
-    result.prompt_fidelity = normalize_prompt_fidelity_choice(
-        &result.prompt_fidelity,
-        &result.prompt_depth,
-    );
+    result.prompt_fidelity =
+        normalize_prompt_fidelity_choice(&result.prompt_fidelity, &result.prompt_depth);
     result.reference_image_usage = match result.reference_image_usage.trim() {
         "use" | "optional" | "not_needed" => result.reference_image_usage.trim().to_string(),
-        _ => return Err("Skill 必须明确说明是否需要配合参考图（use / optional / not_needed）".into()),
+        _ => {
+            return Err(
+                "Skill 必须明确说明是否需要配合参考图（use / optional / not_needed）".into(),
+            )
+        }
     };
     result.questions = result
         .questions
@@ -1281,7 +1303,11 @@ fn finalize_skill_plan_result(result: &mut SkillPlanResult, skill_name: &str) ->
 
     if result.message.is_empty() {
         result.message = if result.status == "ready" {
-            format!("Skill「{}」已生成 {} 条图片任务", result.skill_name, result.images.len())
+            format!(
+                "Skill「{}」已生成 {} 条图片任务",
+                result.skill_name,
+                result.images.len()
+            )
         } else {
             format!("Skill「{}」需要补充信息", result.skill_name)
         };

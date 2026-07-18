@@ -7,7 +7,7 @@ use std::{
 use sha2::{Digest, Sha256};
 
 use crate::{
-    models::GenerateRequest,
+    models::{GenerateRequest, PromptTemplate, TaskRecord},
     state::record_operation,
     store::{read_history, read_json, read_templates},
     utils::image_mime_type,
@@ -119,19 +119,29 @@ fn existing_reference_path(references_dir: &Path, hash: &str) -> Result<Option<P
 }
 
 pub(crate) fn prune_unreferenced_files(data_dir: &Path) -> Result<(), String> {
+    let history = read_history(data_dir)?;
+    let templates = read_templates(data_dir)?;
+    prune_unreferenced_files_with_data(data_dir, &history, &templates)
+}
+
+pub(crate) fn prune_unreferenced_files_with_data(
+    data_dir: &Path,
+    history: &[TaskRecord],
+    templates: &[PromptTemplate],
+) -> Result<(), String> {
     let references_dir = data_dir.join("references");
     if !references_dir.is_dir() {
         return Ok(());
     }
 
     let mut used = HashSet::new();
-    for record in read_history(data_dir)? {
+    for record in history {
         extend_used_paths(&mut used, &record.reference_paths);
     }
-    for template in read_templates(data_dir)? {
+    for template in templates {
         extend_used_paths(&mut used, &template.reference_paths);
         if !template.effect_image_path.trim().is_empty() {
-            used.insert(PathBuf::from(template.effect_image_path));
+            used.insert(PathBuf::from(template.effect_image_path.trim()));
         }
     }
     let requests_dir = data_dir.join("requests");
@@ -157,7 +167,10 @@ pub(crate) fn prune_unreferenced_files(data_dir: &Path) -> Result<(), String> {
         let path = entry
             .map_err(|error| format!("读取参考图资源失败: {error}"))?
             .path();
-        if path.is_file() && !used.contains(&path) {
+        if !path.is_file() || !should_prune_reference_file(&path) {
+            continue;
+        }
+        if !used.contains(&path) {
             if let Err(error) = trash::delete(&path) {
                 let message = format!(
                     "将未引用参考图移到回收站失败（{}）: {error}",
@@ -190,6 +203,23 @@ fn extend_used_paths(used: &mut HashSet<PathBuf>, paths: &[String]) {
     }
 }
 
+fn should_prune_reference_file(path: &Path) -> bool {
+    let Some(file_name) = path.file_name().and_then(|value| value.to_str()) else {
+        return false;
+    };
+    if file_name.starts_with('.') {
+        return false;
+    }
+    path.extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|extension| {
+            matches!(
+                extension.to_ascii_lowercase().as_str(),
+                "png" | "jpg" | "jpeg" | "webp" | "gif"
+            )
+        })
+}
+
 fn extension_for_mime(mime_type: &str) -> &'static str {
     match mime_type {
         "image/jpeg" => "jpg",
@@ -205,5 +235,20 @@ fn normalize_extension(extension: &str) -> &'static str {
         "webp" => "webp",
         "gif" => "gif",
         _ => "png",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::should_prune_reference_file;
+
+    #[test]
+    fn only_image_assets_in_reference_dir_are_pruned() {
+        assert!(should_prune_reference_file(Path::new("/tmp/demo.png")));
+        assert!(should_prune_reference_file(Path::new("/tmp/demo.jpeg")));
+        assert!(!should_prune_reference_file(Path::new("/tmp/.DS_Store")));
+        assert!(!should_prune_reference_file(Path::new("/tmp/readme.md")));
     }
 }

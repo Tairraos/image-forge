@@ -1,6 +1,6 @@
 use std::{collections::HashMap, path::Path, time::Duration};
 
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::{
     models::{ApiProvider, GenerateRequest, QueueSnapshot, TaskRecord},
@@ -15,8 +15,19 @@ use crate::{
     utils::{http_client_with_proxy, utc_now, REQUEST_TIMEOUT_SECONDS},
 };
 
+const QUEUE_UPDATED_EVENT: &str = "queue-updated";
+
 /// 确保全局只有一个后台队列 worker 在运行。
 pub(crate) fn ensure_queue_worker(app: &AppHandle) {
+    let Ok(data_dir) = ensure_data_dir(app) else {
+        return;
+    };
+    if read_queue(&data_dir)
+        .map(|queue| queue.waiting.is_empty())
+        .unwrap_or(true)
+    {
+        return;
+    }
     let state = app.state::<RuntimeState>();
     let Ok(mut active) = state.worker_active.lock() else {
         return;
@@ -25,12 +36,11 @@ pub(crate) fn ensure_queue_worker(app: &AppHandle) {
         return;
     }
     *active = true;
+    emit_queue_updated_for_app(app);
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         worker_loop(app.clone()).await;
-        if let Ok(mut active) = app.state::<RuntimeState>().worker_active.lock() {
-            *active = false;
-        }
+        set_worker_active(&app, false);
         if let Ok(data_dir) = ensure_data_dir(&app) {
             if read_queue(&data_dir)
                 .map(|queue| !queue.waiting.is_empty())
@@ -80,7 +90,11 @@ pub(crate) fn build_queue_snapshot(
 }
 
 /// 应用重启后把遗留的 running 任务恢复到 waiting，避免队列卡死。
-pub(crate) fn recover_stale_running(app: &AppHandle, data_dir: &Path) -> Result<(), String> {
+pub(crate) fn recover_stale_running(
+    app: &AppHandle,
+    data_dir: &Path,
+    history: Option<&mut Vec<TaskRecord>>,
+) -> Result<bool, String> {
     let worker_active = app
         .state::<RuntimeState>()
         .worker_active
@@ -88,11 +102,11 @@ pub(crate) fn recover_stale_running(app: &AppHandle, data_dir: &Path) -> Result<
         .map(|active| *active)
         .unwrap_or(false);
     if worker_active {
-        return Ok(());
+        return Ok(false);
     }
     let mut queue = read_queue(data_dir)?;
     if queue.running.is_empty() {
-        return Ok(());
+        return Ok(false);
     }
     let stale: Vec<String> = queue
         .running
@@ -100,19 +114,74 @@ pub(crate) fn recover_stale_running(app: &AppHandle, data_dir: &Path) -> Result<
         .map(|run| run.task_id.clone())
         .collect();
     queue.running.clear();
-    for task_id in stale {
+    for task_id in &stale {
         if !queue.waiting.contains(&task_id) {
             queue.waiting.insert(0, task_id.clone());
         }
-        if let Some(mut record) = history_record(data_dir, &task_id)? {
+    }
+    let changed_history = match history {
+        Some(history) => {
+            let changed_history = mark_stale_records_queued(history, &stale);
+            if changed_history {
+                write_history(data_dir, history)?;
+            }
+            changed_history
+        }
+        None => {
+            let mut history = read_history(data_dir)?;
+            let changed_history = mark_stale_records_queued(&mut history, &stale);
+            if changed_history {
+                write_history(data_dir, &history)?;
+            }
+            changed_history
+        }
+    };
+    write_queue(data_dir, &queue)?;
+    Ok(changed_history || !stale.is_empty())
+}
+
+pub(crate) fn emit_queue_updated(app: &AppHandle, data_dir: &Path) -> Result<(), String> {
+    let history = read_history(data_dir)?;
+    let snapshot = build_queue_snapshot(app, data_dir, history)?;
+    app.emit(QUEUE_UPDATED_EVENT, snapshot)
+        .map_err(|error| format!("发送队列更新事件失败: {error}"))
+}
+
+fn emit_queue_updated_for_app(app: &AppHandle) {
+    let Ok(data_dir) = ensure_data_dir(app) else {
+        return;
+    };
+    let _ = emit_queue_updated(app, &data_dir);
+}
+
+fn set_worker_active(app: &AppHandle, next: bool) {
+    let changed = if let Ok(mut active) = app.state::<RuntimeState>().worker_active.lock() {
+        if *active == next {
+            false
+        } else {
+            *active = next;
+            true
+        }
+    } else {
+        false
+    };
+    if changed {
+        emit_queue_updated_for_app(app);
+    }
+}
+
+fn mark_stale_records_queued(history: &mut [TaskRecord], task_ids: &[String]) -> bool {
+    let mut changed = false;
+    for task_id in task_ids {
+        if let Some(record) = history.iter_mut().find(|item| item.id == *task_id) {
             if record.status == "running" || record.status == "cancelling" {
                 record.status = "queued".into();
                 record.updated_at = utc_now();
-                upsert_task_history(app, data_dir, record)?;
+                changed = true;
             }
         }
     }
-    write_queue(data_dir, &queue)
+    changed
 }
 
 /// 循环启动可运行任务，直到等待和运行队列都清空。
@@ -139,7 +208,7 @@ async fn worker_loop(app: AppHandle) {
 /// 从队列中取出一条可运行任务，并在独立异步任务中执行。
 fn start_next_runnable_task(app: &AppHandle) -> Result<bool, String> {
     let data_dir = ensure_data_dir(app)?;
-    recover_stale_running(app, &data_dir)?;
+    recover_stale_running(app, &data_dir, None)?;
     let settings = read_settings(&data_dir)?;
     let Some((task_id, provider)) = pop_next_runnable(&data_dir, &settings)? else {
         return Ok(false);
@@ -162,6 +231,7 @@ fn start_next_runnable_task(app: &AppHandle) -> Result<bool, String> {
                 record.completed_at = Some(utc_now());
                 let _ = upsert_task_history(&app, &data_dir, record);
                 let _ = clear_running_task(&data_dir, &task_id);
+                let _ = emit_queue_updated(&app, &data_dir);
             }
         }
     });
@@ -188,6 +258,7 @@ async fn run_task(app: AppHandle, task_id: String, provider: ApiProvider) -> Res
         finish_deleted_task(&app, &data_dir, &task_id)?;
         return Ok(());
     }
+    let _ = emit_queue_updated(&app, &data_dir);
 
     if is_deleted(&app, &task_id) {
         finish_deleted_task(&app, &data_dir, &task_id)?;
@@ -197,6 +268,7 @@ async fn run_task(app: AppHandle, task_id: String, provider: ApiProvider) -> Res
     if is_cancel_requested(&app, &task_id) {
         mark_cancelled(&app, &data_dir, &task_id)?;
         clear_running_task(&data_dir, &task_id)?;
+        let _ = emit_queue_updated(&app, &data_dir);
         return Ok(());
     }
 
@@ -249,6 +321,7 @@ async fn run_task(app: AppHandle, task_id: String, provider: ApiProvider) -> Res
     if is_cancel_requested(&app, &task_id) {
         mark_cancelled(&app, &data_dir, &task_id)?;
         clear_running_task(&data_dir, &task_id)?;
+        let _ = emit_queue_updated(&app, &data_dir);
         return Ok(());
     }
 
@@ -300,6 +373,7 @@ async fn run_task(app: AppHandle, task_id: String, provider: ApiProvider) -> Res
                 return Ok(());
             }
             clear_running_task(&data_dir, &task_id)?;
+            let _ = emit_queue_updated(&app, &data_dir);
             Ok(())
         }
         Err(error) => {
@@ -321,6 +395,7 @@ async fn run_task(app: AppHandle, task_id: String, provider: ApiProvider) -> Res
                 }
                 enqueue_task(&data_dir, &task_id)?;
                 ensure_queue_worker(&app);
+                let _ = emit_queue_updated(&app, &data_dir);
                 Ok(())
             } else {
                 record.status = "failed".into();
@@ -329,6 +404,8 @@ async fn run_task(app: AppHandle, task_id: String, provider: ApiProvider) -> Res
                 record.updated_at = utc_now();
                 if !upsert_task_history(&app, &data_dir, record)? {
                     finish_deleted_task(&app, &data_dir, &task_id)?;
+                } else {
+                    let _ = emit_queue_updated(&app, &data_dir);
                 }
                 Ok(())
             }
@@ -384,6 +461,7 @@ fn finish_deleted_task(app: &AppHandle, data_dir: &Path, task_id: &str) -> Resul
         tasks.remove(task_id);
     }
     prune_unreferenced_files(data_dir)?;
+    let _ = emit_queue_updated(app, data_dir);
     Ok(())
 }
 

@@ -348,6 +348,7 @@ const notice = reactive({
   resolve: null,
 });
 const effectViewer = reactive({ show: false, path: "", title: "" });
+const ACTIVE_QUEUE_POLL_INTERVAL = 5000;
 
 const templateDraft = reactive(emptyTemplate());
 const templateEditorMode = ref("edit");
@@ -380,8 +381,11 @@ let skillRunTimer = 0;
 let todayRolloverTimer = 0;
 let removeScrollbarVisibility = null;
 let unlistenDragDrop = null;
+let unlistenQueueUpdated = null;
 let unlistenSkillPlanner = null;
 let unlistenTemplateFill = null;
+let queueRefreshInFlight = false;
+let queueRefreshQueued = false;
 
 const imageProviders = computed(() =>
   settings.value.providers.filter((provider) => provider.modelType !== "chat"),
@@ -480,6 +484,11 @@ onMounted(async () => {
     // 浏览器预览没有 Tauri 拖放事件，保留 HTML5 drop 作为兼容路径。
   }
   try {
+    unlistenQueueUpdated = await listenEvent("queue-updated", handleQueueUpdatedEvent);
+  } catch {
+    // 预览环境可能没有事件通道。
+  }
+  try {
     unlistenSkillPlanner = await listenEvent("skill-planner", handleSkillPlannerEvent);
   } catch {
     // 预览环境可能没有事件通道。
@@ -491,7 +500,6 @@ onMounted(async () => {
   }
   await refreshAll();
   historyScrollRequest.value += 1;
-  pollTimer = window.setInterval(refreshQueueOnly, 1600);
   scheduleTodayRollover();
 });
 
@@ -500,6 +508,7 @@ onUnmounted(() => {
   window.clearInterval(skillRunTimer);
   window.clearTimeout(todayRolloverTimer);
   unlistenDragDrop?.();
+  unlistenQueueUpdated?.();
   unlistenSkillPlanner?.();
   unlistenTemplateFill?.();
   removeScrollbarVisibility?.();
@@ -516,14 +525,54 @@ async function refreshAll() {
   }
 }
 
-// 定时轻量刷新队列快照，让历史列表同步运行状态。
-async function refreshQueueOnly() {
+// 只在队列活跃期间保留兜底轮询，平时由后端事件驱动刷新。
+async function refreshQueueOnly({ silent = true } = {}) {
+  if (queueRefreshInFlight) {
+    queueRefreshQueued = true;
+    return null;
+  }
+  queueRefreshInFlight = true;
   try {
     const snapshot = await invoke("queue_snapshot");
     applyQueue(snapshot);
-  } catch {
-    // 轮询失败保持静默，用户主动操作时再展示错误。
+    return snapshot;
+  } catch (error) {
+    if (!silent) setStatus(String(error), "error");
+    return null;
   }
+  finally {
+    queueRefreshInFlight = false;
+    if (queueRefreshQueued) {
+      queueRefreshQueued = false;
+      void refreshQueueOnly();
+    }
+  }
+}
+
+function handleQueueUpdatedEvent(event) {
+  const snapshot = event?.payload;
+  if (snapshot) {
+    applyQueue(snapshot);
+    return;
+  }
+  void refreshQueueOnly();
+}
+
+function syncQueuePolling() {
+  window.clearInterval(pollTimer);
+  pollTimer = 0;
+  if (!isQueueActive()) return;
+  pollTimer = window.setInterval(() => {
+    void refreshQueueOnly();
+  }, ACTIVE_QUEUE_POLL_INTERVAL);
+}
+
+function isQueueActive(snapshot = queue) {
+  return Boolean(
+    (snapshot.waiting?.length || 0)
+    || (snapshot.running?.length || 0)
+    || snapshot.workerActive,
+  );
 }
 
 // 拖拽左右分隔条时，只调整相邻 panel 宽度并保留中间预览区最小空间。
@@ -578,6 +627,7 @@ function applyQueue(snapshot) {
   if (snapshot.recent) {
     history.value = snapshot.recent;
   }
+  syncQueuePolling();
   ensureSelectedTask();
 }
 
@@ -896,17 +946,13 @@ async function reuseTask(task) {
 
 // 手动刷新单个任务的状态，主要用于正在运行的历史项。
 async function refreshTask(task) {
-  try {
-    const snapshot = await invoke("queue_snapshot");
-    applyQueue(snapshot);
-    const refreshed = historyTimeline.value.find((item) => item.id === task.id);
-    setStatus(
-      refreshed ? `任务状态：${statusLabel(refreshed.status)}` : "任务已不在历史记录中",
-      refreshed ? "ok" : "busy",
-    );
-  } catch (error) {
-    setStatus(String(error), "error");
-  }
+  const snapshot = await refreshQueueOnly({ silent: false });
+  if (!snapshot) return;
+  const refreshed = historyTimeline.value.find((item) => item.id === task.id);
+  setStatus(
+    refreshed ? `任务状态：${statusLabel(refreshed.status)}` : "任务已不在历史记录中",
+    refreshed ? "ok" : "busy",
+  );
 }
 
 // 把失败任务重新放回队列，沿用原始请求文件。
