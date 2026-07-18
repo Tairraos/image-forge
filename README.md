@@ -221,3 +221,7 @@ pnpm run prerelease -- <next-version>
 
 - 初始化 Tauri 版 Image Forge，建立 Vue 3 + Naive UI 前端与 Rust 后端。
 - 实现 API 源管理、生图队列、历史、结果预览和提示词模板基础能力。
+
+
+### 感谢
+本项目参考了以下开源项目的设计理念：https://github.com/kadevin/ilab-gpt-conjure
