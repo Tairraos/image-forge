@@ -2399,17 +2399,26 @@ button:disabled {
 }
 
 .skill-run-modal .n-card {
+  display: flex;
+  flex-direction: column;
   max-height: calc(100vh - 48px);
 }
 
+.skill-run-modal .n-card__header,
+.skill-run-modal .n-card__footer {
+  flex: 0 0 auto;
+}
+
 .skill-run-modal .n-card__content {
+  flex: 1 1 auto;
   min-height: 0;
-  overflow: auto;
+  overflow-y: auto;
 }
 
 .skill-run-layout {
   display: grid;
   gap: 12px;
+  min-height: 0;
 }
 
 .skill-run-summary,
@@ -2480,6 +2489,11 @@ button:disabled {
   justify-content: flex-end;
   gap: 8px;
   width: 100%;
+}
+
+.skill-run-questions,
+.skill-run-preview {
+  min-height: 0;
 }
 
 @media (max-width: 1320px) {
