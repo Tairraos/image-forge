@@ -28,14 +28,9 @@ pub(crate) fn ensure_queue_worker(app: &AppHandle) {
     {
         return;
     }
-    let state = app.state::<RuntimeState>();
-    let Ok(mut active) = state.worker_active.lock() else {
-        return;
-    };
-    if *active {
+    if !mark_worker_active_if_idle(&app.state::<RuntimeState>()) {
         return;
     }
-    *active = true;
     emit_queue_updated_for_app(app);
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
@@ -50,6 +45,17 @@ pub(crate) fn ensure_queue_worker(app: &AppHandle) {
             }
         }
     });
+}
+
+fn mark_worker_active_if_idle(state: &RuntimeState) -> bool {
+    let Ok(mut active) = state.worker_active.lock() else {
+        return false;
+    };
+    if *active {
+        return false;
+    }
+    *active = true;
+    true
 }
 
 /// 根据队列 JSON 和历史记录组装前端展示所需的队列快照。
@@ -167,6 +173,21 @@ fn set_worker_active(app: &AppHandle, next: bool) {
     };
     if changed {
         emit_queue_updated_for_app(app);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::mark_worker_active_if_idle;
+    use crate::state::RuntimeState;
+
+    #[test]
+    fn worker_slot_can_only_be_claimed_once_until_reset() {
+        let state = RuntimeState::new();
+        let first = mark_worker_active_if_idle(&state);
+        assert!(first);
+        let second = mark_worker_active_if_idle(&state);
+        assert!(!second);
     }
 }
 
