@@ -586,10 +586,10 @@ function startPanelResize(target, event) {
     const resultMin = 430;
     if (target === "queue") {
       const max = Math.max(260, total - panelSizes.composer - resultMin);
-      panelSizes.queue = clamp(startWidth + moveEvent.clientX - startX, 260, Math.min(500, max));
+      panelSizes.queue = clamp(startWidth + moveEvent.clientX - startX, 280, Math.min(500, max));
     } else {
       const max = Math.max(360, total - panelSizes.queue - resultMin);
-      panelSizes.composer = clamp(startWidth - (moveEvent.clientX - startX), 360, Math.min(560, max));
+      panelSizes.composer = clamp(startWidth - (moveEvent.clientX - startX), 400, Math.min(560, max));
     }
   };
 

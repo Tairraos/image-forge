@@ -309,7 +309,7 @@ button:disabled {
 .result-column {
   display: grid;
   grid-template-rows: auto 1fr;
-  padding: 12px;
+  padding: 8px;
 }
 
 .queue-column {
@@ -321,7 +321,7 @@ button:disabled {
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
   gap: 10px;
-  padding: 12px;
+  padding: 8px;
 }
 
 .panel-resizer {
