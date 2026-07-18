@@ -1147,15 +1147,46 @@ button:disabled {
 
 .about-meta {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 8px;
+  justify-items: center;
+  gap: 18px;
+  padding: 8px 0 4px;
 }
 
-.about-meta p {
+.about-logo {
+  width: 220px;
+  height: 42px;
+  object-fit: contain;
+}
+
+.about-details {
+  display: grid;
+  width: min(360px, 100%);
+  gap: 10px;
+  margin: 0;
+}
+
+.about-details div {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 18px;
+}
+
+.about-details dt,
+.about-details dd {
   margin: 0;
   color: var(--text);
   font-size: 13px;
   line-height: 1.6;
+}
+
+.about-details dt {
+  color: var(--muted);
+  text-align: right;
+}
+
+.about-details dd {
+  font-weight: 700;
 }
 
 .runtime-log-input textarea {
