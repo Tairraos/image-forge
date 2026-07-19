@@ -8,7 +8,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use crate::{
-    models::{CleanupCandidate, GenerateRequest, PromptTemplate, TaskRecord},
+    models::{CleanupCandidate, PromptTemplate, TaskRecord},
     state::record_operation,
     store::{read_history, read_json, read_queue, read_templates},
     utils::image_mime_type,
@@ -304,30 +304,14 @@ pub(crate) fn prune_unreferenced_files_with_data(
         return Ok(());
     }
 
-    let mut used = HashSet::new();
+    let mut used = collect_referenced_files(data_dir)?;
     for record in history {
         extend_used_paths(&mut used, &record.reference_paths);
     }
     for template in templates {
         extend_used_paths(&mut used, &template.reference_paths);
         if !template.effect_image_path.trim().is_empty() {
-            used.insert(PathBuf::from(template.effect_image_path.trim()));
-        }
-    }
-    let requests_dir = data_dir.join("requests");
-    if requests_dir.is_dir() {
-        for entry in
-            fs::read_dir(&requests_dir).map_err(|error| format!("读取任务请求目录失败: {error}"))?
-        {
-            let path = entry
-                .map_err(|error| format!("读取任务请求文件失败: {error}"))?
-                .path();
-            if path.extension().and_then(|value| value.to_str()) != Some("json") {
-                continue;
-            }
-            if let Ok(request) = read_json::<GenerateRequest>(&path) {
-                extend_used_paths(&mut used, &request.reference_paths);
-            }
+            insert_used_path(&mut used, Path::new(template.effect_image_path.trim()));
         }
     }
 
@@ -340,7 +324,8 @@ pub(crate) fn prune_unreferenced_files_with_data(
         if !path.is_file() || !should_prune_reference_file(&path) {
             continue;
         }
-        if !used.contains(&path) {
+        let canonical = fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+        if !used.contains(&canonical) {
             if let Err(error) = trash::delete(&path) {
                 let message = format!(
                     "将未引用参考图移到回收站失败（{}）: {error}",
@@ -369,8 +354,12 @@ pub(crate) fn prune_unreferenced_files_with_data(
 
 fn extend_used_paths(used: &mut HashSet<PathBuf>, paths: &[String]) {
     for path in paths {
-        used.insert(PathBuf::from(path));
+        insert_used_path(used, Path::new(path));
     }
+}
+
+fn insert_used_path(used: &mut HashSet<PathBuf>, path: &Path) {
+    used.insert(fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()));
 }
 
 fn should_prune_reference_file(path: &Path) -> bool {
@@ -414,7 +403,9 @@ mod tests {
 
     use uuid::Uuid;
 
-    use super::{scan_orphan_files, should_prune_reference_file};
+    use super::{
+        prune_unreferenced_files_with_data, scan_orphan_files, should_prune_reference_file,
+    };
 
     #[test]
     fn only_image_assets_in_reference_dir_are_pruned() {
@@ -459,6 +450,33 @@ mod tests {
         assert!(paths.contains("requests/orphan.json"));
         assert!(!paths.contains("outputs/kept.png"));
         assert!(!paths.contains("requests/task-1.json"));
+        let _ = trash::delete(&root);
+    }
+
+    #[test]
+    fn automatic_prune_keeps_agent_session_attachments() {
+        let root = std::env::temp_dir().join(format!("image-forge-agent-ref-{}", Uuid::new_v4()));
+        let references = root.join("references");
+        let sessions = root.join("agent").join("sessions");
+        fs::create_dir_all(&references).unwrap();
+        fs::create_dir_all(&sessions).unwrap();
+        let kept = references.join("agent.png");
+        let orphan = references.join("orphan.png");
+        fs::write(&kept, b"agent").unwrap();
+        fs::write(&orphan, b"orphan").unwrap();
+        fs::write(
+            sessions.join("session.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "messages": [{ "attachments": [{ "path": kept.to_string_lossy() }] }]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        prune_unreferenced_files_with_data(&root, &[], &[]).unwrap();
+
+        assert!(kept.exists());
+        assert!(!orphan.exists());
         let _ = trash::delete(&root);
     }
 }
