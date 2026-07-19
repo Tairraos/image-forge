@@ -494,6 +494,7 @@ pub(crate) fn install_local_skill(
     data_dir: &Path,
     source: &Path,
     replace: bool,
+    source_url: Option<&str>,
 ) -> Result<(SkillEntry, SkillAuditResult), String> {
     let root = if source.is_file() {
         source.parent().ok_or("无法确定 Skill 包目录")?
@@ -538,7 +539,7 @@ pub(crate) fn install_local_skill(
     let skill = SkillEntry {
         id,
         name: manifest.name.clone(),
-        source_url: String::new(),
+        source_url: source_url.unwrap_or_default().trim().to_string(),
         notes: String::new(),
         content: fs::read_to_string(destination.join("SKILL.md")).unwrap_or_default(),
         directory,
@@ -560,19 +561,8 @@ pub(crate) async fn install_skill_source(
     let source = source.trim();
     if source.starts_with("http://") || source.starts_with("https://") {
         if let Some(source_dir) = download_github_skill_package(data_dir, source).await? {
-            let result =
-                install_local_skill(data_dir, &source_dir, replace).map(|(mut skill, audit)| {
-                    skill.source_url = source.to_string();
-                    (skill, audit)
-                });
+            let result = install_local_skill(data_dir, &source_dir, replace, Some(source));
             move_to_trash_if_exists(&source_dir);
-            if let Ok((skill, _)) = &result {
-                let mut skills = read_skills(data_dir)?;
-                if let Some(entry) = skills.iter_mut().find(|entry| entry.id == skill.id) {
-                    entry.source_url = skill.source_url.clone();
-                }
-                write_skill_index(data_dir, &skills)?;
-            }
             return result;
         }
         let fetched = fetch_skill_markdown(source).await?;
@@ -582,22 +572,11 @@ pub(crate) async fn install_skill_source(
             .map_err(|error| format!("创建 Skill 下载目录失败: {error}"))?;
         fs::write(source_dir.join("SKILL.md"), fetched.content)
             .map_err(|error| format!("写入下载的 Skill 失败: {error}"))?;
-        let result =
-            install_local_skill(data_dir, &source_dir, replace).map(|(mut skill, audit)| {
-                skill.source_url = fetched.source_url;
-                (skill, audit)
-            });
+        let result = install_local_skill(data_dir, &source_dir, replace, Some(&fetched.source_url));
         move_to_trash_if_exists(&source_dir);
-        if let Ok((skill, _)) = &result {
-            let mut skills = read_skills(data_dir)?;
-            if let Some(entry) = skills.iter_mut().find(|entry| entry.id == skill.id) {
-                entry.source_url = skill.source_url.clone();
-            }
-            write_skill_index(data_dir, &skills)?;
-        }
         return result;
     }
-    install_local_skill(data_dir, Path::new(source), replace)
+    install_local_skill(data_dir, Path::new(source), replace, None)
 }
 
 async fn download_github_skill_package(
@@ -991,10 +970,10 @@ mod tests {
         fs::create_dir_all(data_dir.join("skills")).unwrap();
         fs::create_dir_all(data_dir.join(".staging")).unwrap();
         fs::write(data_dir.join("skills.json"), "[]").unwrap();
-        let (skill, _) = install_local_skill(&data_dir, &source, false).unwrap();
+        let (skill, _) = install_local_skill(&data_dir, &source, false, None).unwrap();
         let installed = data_dir.join("skills").join(&skill.directory);
         assert!(read_verified_manifest(&installed).is_ok());
-        let error = install_local_skill(&data_dir, &source, false).unwrap_err();
+        let error = install_local_skill(&data_dir, &source, false, None).unwrap_err();
         assert!(error.contains("CONFIRM_REPLACE_SKILL"));
         recycle(&source);
         recycle(&data_dir);
@@ -1010,7 +989,7 @@ mod tests {
         fs::create_dir_all(data_dir.join("skills")).unwrap();
         fs::create_dir_all(data_dir.join(".staging")).unwrap();
         fs::write(data_dir.join("skills.json"), "[]").unwrap();
-        let (installed, _) = install_local_skill(&data_dir, &source, false).unwrap();
+        let (installed, _) = install_local_skill(&data_dir, &source, false, None).unwrap();
         let rejected = SkillEntry {
             id: installed.id.clone(),
             name: installed.name.clone(),
