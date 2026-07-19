@@ -24,7 +24,16 @@
     />
     <footer>
       <div class="agent-composer-reference-actions">
-        <n-button size="small" :disabled="busy" @click="$emit('add-reference')">添加参考图</n-button>
+        <ClipboardImageMenu v-slot="{ open }" @paste="$emit('paste-reference', $event)">
+          <n-button
+            size="small"
+            :disabled="busy"
+            @click="$emit('add-reference')"
+            @contextmenu="open"
+          >
+            添加参考图
+          </n-button>
+        </ClipboardImageMenu>
         <n-checkbox v-if="attachments.length" v-model:checked="useReferences" :disabled="busy">
           本轮使用参考图
         </n-checkbox>
@@ -37,6 +46,7 @@
 
 <script setup>
 import { ref } from "vue";
+import ClipboardImageMenu from "./ClipboardImageMenu.vue";
 import { extractDroppedFilePaths } from "../lib/referenceFiles";
 
 const props = defineProps({
