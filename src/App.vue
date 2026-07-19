@@ -84,6 +84,8 @@
         :busy="agentBusy"
         :stream-text="agentStreamText"
         :attachments="agentAttachments"
+        :skills="skills"
+        :selected-skill-id="agentSkillId"
         @create="createAgentConversation"
         @select="selectAgentConversation"
         @send="sendAgentConversationMessage"
@@ -91,6 +93,8 @@
         @add-reference="addAgentReferenceImages"
         @remove-attachment="removeAgentAttachment"
         @update:provider-id="agentProviderId = $event"
+        @install-skill="installAgentSkill"
+        @use-skill="selectAgentSkill"
       />
 
       <footer class="status-bar">
@@ -289,6 +293,7 @@ const agentProviderId = ref("");
 const agentBusy = ref(false);
 const agentStreamText = ref("");
 const agentAttachments = ref([]);
+const agentSkillId = ref("");
 const settings = ref(defaultSettings());
 const history = ref([]);
 const queue = reactive({ waiting: [], running: [], recent: [], workerActive: false, updatedAt: "" });
@@ -577,16 +582,35 @@ async function sendAgentConversationMessage(content) {
     const session = await invoke("send_agent_message", {
       sessionId: currentAgentSessionId.value,
       providerId: agentProviderId.value,
+      skillId: agentSkillId.value,
       content,
       attachments: agentAttachments.value.map(({ dataUrl, ...attachment }) => attachment),
     });
     agentSessions.value = [session, ...agentSessions.value.filter((item) => item.id !== session.id)];
     agentAttachments.value = [];
+    agentSkillId.value = "";
   } catch (error) {
     setStatus(String(error), "error");
   } finally {
     agentBusy.value = false;
     agentStreamText.value = "";
+  }
+}
+
+async function selectAgentSkill(skill) {
+  agentSkillId.value = skill?.id || "";
+  if (skill?.name) setStatus(`已选择 Skill：${skill.name}`, "ok");
+}
+
+async function installAgentSkill() {
+  try {
+    const selected = await openDialog({ directory: true, multiple: false });
+    if (!selected || Array.isArray(selected)) return;
+    await invoke("install_skill", { path: selected });
+    await refreshAll();
+    setStatus("Skill 安装完成", "ok");
+  } catch (error) {
+    setStatus(String(error), "error");
   }
 }
 

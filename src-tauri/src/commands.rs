@@ -104,6 +104,7 @@ pub(crate) async fn send_agent_message(
     app: AppHandle,
     session_id: String,
     provider_id: String,
+    skill_id: String,
     content: String,
     attachments: Vec<AgentAttachment>,
 ) -> Result<AgentSession, String> {
@@ -137,7 +138,7 @@ pub(crate) async fn send_agent_message(
         })
         .ok_or("还没有配置对话模型")?
         .clone();
-    let context = current
+    let mut context = current
         .messages
         .iter()
         .rev()
@@ -149,6 +150,14 @@ pub(crate) async fn send_agent_message(
         .map(|message| format!("{}: {}", message.role, message.content))
         .collect::<Vec<_>>()
         .join("\n");
+    if !skill_id.trim().is_empty() {
+        let skill_context = use_skill(app.clone(), skill_id.clone())?;
+        context.push_str(&format!("\n\n<skill name=\"{}\">\n{}\n", skill_context.name, skill_context.content));
+        for reference in skill_context.references {
+            context.push_str(&format!("\n<skill_reference>\n{}\n</skill_reference>\n", reference));
+        }
+        context.push_str("</skill>");
+    }
     let session_for_event = session_id.clone();
     let app_for_event = app.clone();
     let output = agent_response(

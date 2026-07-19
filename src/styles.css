@@ -2655,7 +2655,8 @@ button:disabled {
 }
 
 .agent-session-list,
-.agent-message-list {
+.agent-message-list,
+.agent-skill-list {
   overflow: auto;
 }
 
@@ -2688,6 +2689,46 @@ button:disabled {
 .agent-chat-head span {
   color: var(--muted);
   font-size: 12px;
+}
+
+.agent-skill-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 22px;
+}
+
+.agent-skill-list {
+  display: grid;
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.agent-skill-item {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.agent-skill-item.active,
+.agent-skill-item:hover {
+  border-color: var(--line-strong);
+  background: var(--primary-soft);
+}
+
+.agent-skill-item small,
+.agent-no-skills {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .agent-chat {
