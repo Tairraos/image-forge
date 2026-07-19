@@ -613,7 +613,7 @@ async function installAgentSkill() {
   try {
     const selected = await openDialog({ directory: true, multiple: false });
     if (!selected || Array.isArray(selected)) return;
-    await invoke("install_skill", { path: selected });
+    await invoke("install_skill", { source: selected, replace: false });
     await refreshAll();
     setStatus("Skill 安装完成", "ok");
   } catch (error) {

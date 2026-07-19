@@ -35,7 +35,7 @@ use crate::{
             prune_unreferenced_files_with_data, scan_orphan_files,
         },
         skill::fetch_skill_markdown as fetch_skill_markdown_from_url,
-        skill_installer::{audit_skill_directory, install_local_skill},
+        skill_installer::{audit_skill_directory, install_skill_source, read_verified_manifest},
         template_bundle::{export_templates_archive, import_templates_archive},
     },
     state::{record_operation, runtime_logs_text, RuntimeState},
@@ -479,13 +479,18 @@ pub(crate) fn audit_skill_package(
 }
 
 #[tauri::command]
-pub(crate) fn install_skill(app: AppHandle, path: String) -> Result<SkillEntry, String> {
+pub(crate) async fn install_skill(
+    app: AppHandle,
+    source: String,
+    replace: bool,
+) -> Result<SkillEntry, String> {
     let data_dir = ensure_data_dir(&app)?;
-    let root = PathBuf::from(path.trim());
-    let result = install_local_skill(&data_dir, &root).map(|(skill, _)| skill);
+    let result = install_skill_source(&data_dir, &source, replace)
+        .await
+        .map(|(skill, _)| skill);
     record_result(
         "安装 Skill",
-        format!("path={}", root.display()).as_str(),
+        format!("source={source}").as_str(),
         None,
         &result,
     );
@@ -505,7 +510,7 @@ pub(crate) fn use_skill(app: AppHandle, skill_id: String) -> Result<AgentSkillCo
     if !audit.allowed {
         return Err(format!("Skill 审查失败：{}", audit.reasons.join("；")));
     }
-    let manifest = audit.manifest.ok_or("Skill manifest 缺失")?;
+    let manifest = read_verified_manifest(&package_dir)?;
     let mut references = Vec::new();
     let references_dir = package_dir.join("references");
     if references_dir.is_dir() {
