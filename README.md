@@ -7,7 +7,7 @@
 ![Image Forge 1.0.1 运行界面](docs/image-forge-running.png)
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-2.0.0-9B7BEE?style=flat-square">
+  <img alt="version" src="https://img.shields.io/badge/version-1.0.18-9B7BEE?style=flat-square">
   <img alt="platform desktop" src="https://img.shields.io/badge/platform-desktop-111827?style=flat-square">
   <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white">
   <img alt="Vue" src="https://img.shields.io/badge/Vue-3-42B883?style=flat-square&logo=vuedotjs&logoColor=white">
@@ -54,13 +54,6 @@ docs/technical-design.md
 ## 版本记录
 
 版本记录只保留影响产品能力、数据兼容或开发流程的里程碑，零散的样式微调和内部重构不再单独列出。
-
-### v2.0.0
-
-- 新增 Agent 工作区与持久化会话，支持流式对话、参考图附件、停止请求和任务组跳转。
-- Skill 安装增加确定性安全门，拒绝脚本、系统命令、符号链接、未知能力和不支持文件；Skill 与 references 只能由 Agent 受控读取。
-- Agent 支持受限 JSON 绘图计划，按逐图参考图策略创建任务组，并复用生图 API 源并发队列。
-- 绘画模式移除 `@skill` 补全、引用弹窗和 Skill 规划逻辑，普通 `@` 文本按原样提交。
 
 ### v1.0.18
 
