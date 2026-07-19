@@ -348,9 +348,25 @@ pub(crate) fn cancel_agent_turn(app: AppHandle, session_id: String) -> Result<bo
 
 fn agent_system_prompt(context: &str) -> String {
     format!(
-        "你是 Image Forge 本地 Agent。普通聊天直接回答；需要 Skill 或绘图时必须调用已注册工具。禁止声称执行终端、脚本、任意文件读写、任意 HTTP、浏览器、数据库或插件。调用 use_skill 后，如果缺信息必须返回 schemaVersion=1 的 assistant envelope，status=needs_input 并在 questions 中提出最多 3 个问题；Skill 无法执行时返回 status=rejected 和原因；信息完整时返回 status=ready 及逐图 plans，或调用 create_image_tasks。每个 plan 必须明确 resolution、ratio、quality、promptFidelity、referencePolicy 和 referenceIds。参考图只有 ID 和元数据；不支持视觉的模型不能假装看到了图片内容。\n\n当前会话上下文：\n{}",
+        "你是 Image Forge 本地 Agent。普通聊天直接回答；需要 Skill 或绘图时必须调用已注册工具。禁止声称执行终端、脚本、任意文件读写、任意 HTTP、浏览器、数据库或插件。调用 use_skill 后，如果缺信息必须返回 schemaVersion=1 的 assistant envelope，status=needs_input 并在 questions 中提出最多 3 个问题；Skill 无法执行时返回 status=rejected 和原因；信息完整时返回 status=ready 及逐图 plans，或调用 create_image_tasks。每个 plan 必须明确 resolution、ratio、quality、promptFidelity、referencePolicy 和 referenceIds；referencePolicy=optional 时如果 referenceIds 为空，默认沿用当前附图。参考图只有 ID 和元数据；不支持视觉的模型不能假装看到了图片内容。\n\n当前会话上下文：\n{}",
         context.trim()
     )
+}
+
+fn agent_reference_paths(session: &AgentSession) -> Vec<String> {
+    let mut paths = Vec::new();
+    let mut seen = HashSet::new();
+    for path in session
+        .messages
+        .iter()
+        .flat_map(|message| message.attachments.iter())
+        .map(|attachment| attachment.path.clone())
+    {
+        if seen.insert(path.clone()) {
+            paths.push(path);
+        }
+    }
+    paths
 }
 
 fn agent_chat_provider(
@@ -762,6 +778,7 @@ fn create_agent_image_tasks_in_data_dir(
         .flat_map(|message| message.attachments.iter())
         .map(|attachment| (attachment.id.clone(), attachment.path.clone()))
         .collect::<std::collections::HashMap<_, _>>();
+    let default_reference_paths = agent_reference_paths(&agent_session);
     let task_group_id = Uuid::new_v4().to_string();
     let mut prepared = Vec::with_capacity(plans.len());
     for plan in plans {
@@ -785,6 +802,8 @@ fn create_agent_image_tasks_in_data_dir(
             prompt: plan.prompt,
             reference_paths: if policy == "none" {
                 Vec::new()
+            } else if plan.reference_ids.is_empty() && policy == "optional" {
+                default_reference_paths.clone()
             } else {
                 plan.reference_ids
                     .iter()
@@ -2021,6 +2040,23 @@ mod tests {
             .unwrap();
         assert_eq!(summary.id, group.id);
         assert_eq!(summary.task_ids, vec![task.id.clone()]);
+        recycle(&data_dir);
+    }
+
+    #[test]
+    fn agent_image_tasks_optional_defaults_to_current_attachments() {
+        let (data_dir, agent_session, _reference_id) = agent_task_data_dir("agent-image-optional");
+        let group = create_agent_image_tasks_in_data_dir(
+            &data_dir,
+            agent_session.id.clone(),
+            "skill-camera".into(),
+            vec![agent_plan("默认沿用参考图", "optional", &[])],
+        )
+        .unwrap();
+
+        let task = &group.tasks[0];
+        assert_eq!(task.reference_paths.len(), 1);
+        assert!(Path::new(&task.reference_paths[0]).starts_with(data_dir.join("references")));
         recycle(&data_dir);
     }
 
