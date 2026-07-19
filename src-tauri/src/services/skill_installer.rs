@@ -66,20 +66,9 @@ pub(crate) fn audit_skill_directory(root: &Path) -> Result<SkillAuditResult, Str
         &mut total_size,
         &mut reference_count,
         &mut reasons,
+        &mut warnings,
     )?;
-    let lower = content.to_ascii_lowercase();
-    for term in DANGEROUS_TERMS {
-        if contains_capability_term(&lower, term) {
-            reasons.push(format!(
-                "SKILL.md 声明或要求 `{term}` 能力，当前 Agent 不提供系统命令执行"
-            ));
-        }
-    }
-    for link in markdown_links(&content) {
-        if link.starts_with("http://") || link.starts_with("https://") {
-            warnings.push(format!("正文包含外部链接 `{link}`，执行时不会自动访问"));
-        }
-    }
+    scan_markdown_content("SKILL.md", &content, &mut reasons, &mut warnings);
 
     let name = extract_name(&content);
     let sections = content
@@ -195,6 +184,7 @@ fn inspect_tree(
     total_size: &mut u64,
     reference_count: &mut usize,
     reasons: &mut Vec<String>,
+    warnings: &mut Vec<String>,
 ) -> Result<(), String> {
     for entry in fs::read_dir(path).map_err(|error| format!("扫描 Skill 包失败: {error}"))? {
         let entry = entry.map_err(|error| format!("读取 Skill 包条目失败: {error}"))?;
@@ -229,7 +219,14 @@ fn inspect_tree(
                 reasons.push(format!("发现不允许的脚本目录: {}", relative.display()));
                 continue;
             }
-            inspect_tree(root, &current, total_size, reference_count, reasons)?;
+            inspect_tree(
+                root,
+                &current,
+                total_size,
+                reference_count,
+                reasons,
+                warnings,
+            )?;
             continue;
         }
         *total_size = total_size.saturating_add(metadata.len());
@@ -257,12 +254,12 @@ fn inspect_tree(
             *reference_count += 1;
             match fs::read_to_string(&current) {
                 Ok(text) => {
-                    let lower = text.to_ascii_lowercase();
-                    for ext in SCRIPT_EXTENSIONS {
-                        if lower.contains(&format!(".{ext}")) {
-                            reasons.push(format!("{} 包含脚本文件引用 .{ext}", relative.display()));
-                        }
-                    }
+                    scan_markdown_content(
+                        relative.to_string_lossy().as_ref(),
+                        &text,
+                        reasons,
+                        warnings,
+                    );
                 }
                 Err(_) => reasons.push(format!("Markdown 不是 UTF-8：{}", relative.display())),
             }
@@ -278,6 +275,32 @@ fn inspect_tree(
 fn contains_capability_term(text: &str, term: &str) -> bool {
     text.split(|ch: char| !ch.is_ascii_alphanumeric() && ch != '_')
         .any(|word| word == term)
+}
+
+fn scan_markdown_content(
+    label: &str,
+    content: &str,
+    reasons: &mut Vec<String>,
+    warnings: &mut Vec<String>,
+) {
+    let lower = content.to_ascii_lowercase();
+    for term in DANGEROUS_TERMS {
+        if contains_capability_term(&lower, term) {
+            reasons.push(format!(
+                "{label} 声明或要求 `{term}` 能力，当前 Agent 不提供系统命令执行"
+            ));
+        }
+    }
+    for ext in SCRIPT_EXTENSIONS {
+        if lower.contains(&format!(".{ext}")) {
+            reasons.push(format!("{label} 包含脚本文件引用 .{ext}"));
+        }
+    }
+    for link in markdown_links(content) {
+        if link.starts_with("http://") || link.starts_with("https://") {
+            warnings.push(format!("{label} 包含外部链接 `{link}`，执行时不会自动访问"));
+        }
+    }
 }
 
 fn markdown_links(content: &str) -> Vec<String> {
@@ -957,6 +980,29 @@ mod tests {
             .reasons
             .iter()
             .any(|reason| reason.contains("terminal")));
+        recycle(&root);
+    }
+
+    #[test]
+    fn audit_rejects_dangerous_reference_markdown() {
+        let root = fixture(
+            "unsafe-reference",
+            "---\nname: 参考文档危险 Skill\n---\n# 参考文档危险 Skill",
+        );
+        fs::create_dir_all(root.join("references")).unwrap();
+        fs::write(
+            root.join("references").join("guide.md"),
+            "# guide\n请用 python 执行 scripts/render.py 并调用 exec",
+        )
+        .unwrap();
+        let audit = audit_skill_directory(&root).unwrap();
+        assert!(!audit.allowed);
+        assert!(audit
+            .reasons
+            .iter()
+            .any(|reason| reason.contains("references/guide.md")));
+        assert!(audit.reasons.iter().any(|reason| reason.contains("python")));
+        assert!(audit.reasons.iter().any(|reason| reason.contains("exec")));
         recycle(&root);
     }
 
