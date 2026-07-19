@@ -45,8 +45,8 @@ use crate::{
         normalize_request, normalize_settings, normalize_template, params_from_request,
         provider_for_request, read_history, read_json, read_queue, read_settings, read_skills,
         read_templates, refresh_history_output_sizes, request_path, skills_dir, templates_path,
-        upsert_history, write_generation_batch, write_history, write_history_queue_transaction,
-        write_json, write_queue, write_settings, write_skill_index,
+        write_generation_batch, write_history, write_history_queue_transaction, write_json,
+        write_queue, write_settings, write_skill_index,
     },
     utils::utc_now,
 };
@@ -781,8 +781,8 @@ fn create_agent_image_tasks_in_data_dir(
         .collect::<std::collections::HashMap<_, _>>();
     let default_reference_paths = agent_reference_paths(&agent_session);
     let task_group_id = Uuid::new_v4().to_string();
-    let mut prepared = Vec::with_capacity(plans.len());
-    for plan in plans {
+    let mut planned_requests = Vec::with_capacity(plans.len());
+    for mut plan in plans {
         let policy = match plan.reference_policy.trim() {
             "use" | "optional" | "none" => plan.reference_policy.trim().to_string(),
             "" => "optional".into(),
@@ -794,7 +794,7 @@ fn create_agent_image_tasks_in_data_dir(
         if policy == "none" && !plan.reference_ids.is_empty() {
             return Err("referencePolicy=none 时不能指定参考图".into());
         }
-        let mut request = GenerateRequest {
+        let request = GenerateRequest {
             provider_id: Some(if plan.provider_id.trim().is_empty() {
                 settings.active_image_provider_id.clone()
             } else {
@@ -838,49 +838,35 @@ fn create_agent_image_tasks_in_data_dir(
             },
             ..GenerateRequest::default()
         };
-        request = normalize_request(request)?;
-        let provider = provider_for_request(&settings, request.provider_id.as_deref())?;
-        if provider.api_key.trim().is_empty() {
-            return Err(format!("API 源「{}」还没有填写 API Key", provider.name));
-        }
-        request.provider_id = Some(provider.id.clone());
-        request.reference_paths = persist_reference_paths(data_dir, &request.reference_paths)?;
-        let normalized_plan = AgentImagePlan {
-            title: if plan.title.trim().is_empty() {
-                "图片".into()
-            } else {
-                plan.title.trim().to_string()
-            },
-            prompt: request.prompt.clone(),
-            provider_id: provider.id.clone(),
-            resolution: request.resolution.clone(),
-            ratio: request.ratio.clone(),
-            quality: request.quality.clone(),
-            prompt_fidelity: request.prompt_fidelity.clone(),
-            reference_policy: policy,
-            reference_ids: plan.reference_ids,
+        plan.title = if plan.title.trim().is_empty() {
+            "图片".into()
+        } else {
+            plan.title.trim().to_string()
         };
-        prepared.push((normalized_plan, request, provider));
+        plan.reference_policy = policy;
+        planned_requests.push((plan, request));
     }
+    let (plans, requests): (Vec<_>, Vec<_>) = planned_requests.into_iter().unzip();
+    let mut prepared = prepare_generation_batch(
+        data_dir,
+        &settings,
+        requests,
+        Some((&session_id, &task_group_id, &skill_id)),
+    )?;
     let now = utc_now();
-    let mut request_files = Vec::with_capacity(prepared.len());
-    let mut tasks = Vec::with_capacity(prepared.len());
     let mut titles = Vec::with_capacity(prepared.len());
-    for (plan, request, provider) in prepared {
-        let id = Uuid::new_v4().to_string();
-        let mut record = task_record_from_request(
-            id.clone(),
-            &request,
-            &provider,
-            Some((&session_id, &task_group_id, &skill_id)),
-        );
-        record.skill_content_hash = skill_content_hash.clone();
+    for (mut plan, task) in plans.into_iter().zip(&mut prepared) {
+        plan.prompt = task.request.prompt.clone();
+        plan.provider_id = task.record.provider_id.clone();
+        plan.resolution = task.request.resolution.clone();
+        plan.ratio = task.request.ratio.clone();
+        plan.quality = task.request.quality.clone();
+        plan.prompt_fidelity = task.request.prompt_fidelity.clone();
         titles.push(plan.title.clone());
-        record.agent_plan = Some(plan);
-        request_files.push((id, request));
-        tasks.push(record);
+        task.record.skill_content_hash = skill_content_hash.clone();
+        task.record.agent_plan = Some(plan);
     }
-    write_generation_batch(data_dir, &request_files, &tasks)?;
+    let tasks = commit_generation_batch(data_dir, &prepared)?;
     let mut agent_session = session(data_dir, &session_id)?;
     if !agent_session.task_group_ids.contains(&task_group_id) {
         agent_session.task_group_ids.push(task_group_id.clone());
@@ -1232,9 +1218,11 @@ pub(crate) fn enqueue_generation(
 ) -> Result<TaskRecord, String> {
     let data_dir = ensure_data_dir(&app)?;
     let settings = read_settings(&data_dir)?;
-    let record = enqueue_generation_request(&app, &data_dir, &settings, request, None)?;
+    let prepared = prepare_generation_batch(&data_dir, &settings, vec![request], None)?;
+    let mut records = commit_generation_batch(&data_dir, &prepared)?;
+    let _ = emit_queue_updated(&app, &data_dir);
     ensure_queue_worker(&app);
-    Ok(record)
+    records.pop().ok_or_else(|| "生图任务准备失败".into())
 }
 
 #[tauri::command]
@@ -1243,44 +1231,65 @@ pub(crate) fn enqueue_generation_batch(
     app: AppHandle,
     requests: Vec<GenerateRequest>,
 ) -> Result<Vec<TaskRecord>, String> {
-    if requests.is_empty() {
-        return Err("没有可加入队列的任务".into());
-    }
     let data_dir = ensure_data_dir(&app)?;
     let settings = read_settings(&data_dir)?;
-    let mut records = Vec::with_capacity(requests.len());
-    for request in requests {
-        records.push(enqueue_generation_request(
-            &app, &data_dir, &settings, request, None,
-        )?);
-    }
+    let prepared = prepare_generation_batch(&data_dir, &settings, requests, None)?;
+    let records = commit_generation_batch(&data_dir, &prepared)?;
+    let _ = emit_queue_updated(&app, &data_dir);
     ensure_queue_worker(&app);
     Ok(records)
 }
 
-fn enqueue_generation_request(
-    app: &AppHandle,
+struct PreparedGenerationTask {
+    id: String,
+    request: GenerateRequest,
+    record: TaskRecord,
+}
+
+fn prepare_generation_batch(
     data_dir: &Path,
     settings: &Settings,
-    request: GenerateRequest,
+    requests: Vec<GenerateRequest>,
     agent_origin: Option<(&str, &str, &str)>,
-) -> Result<TaskRecord, String> {
-    let mut request = normalize_request(request)?;
-    let provider = provider_for_request(settings, request.provider_id.as_deref())?;
-    request.provider_id = Some(provider.id.clone());
-    if provider.api_key.trim().is_empty() {
-        return Err(format!("API 源「{}」还没有填写 API Key", provider.name));
+) -> Result<Vec<PreparedGenerationTask>, String> {
+    if requests.is_empty() {
+        return Err("没有可加入队列的任务".into());
     }
-    request.reference_paths = persist_reference_paths(data_dir, &request.reference_paths)?;
+    requests
+        .into_iter()
+        .map(|request| {
+            let mut request = normalize_request(request)?;
+            let provider = provider_for_request(settings, request.provider_id.as_deref())?;
+            if provider.api_key.trim().is_empty() {
+                return Err(format!("API 源「{}」还没有填写 API Key", provider.name));
+            }
+            request.provider_id = Some(provider.id.clone());
+            request.reference_paths = persist_reference_paths(data_dir, &request.reference_paths)?;
+            let id = Uuid::new_v4().to_string();
+            let record = task_record_from_request(id.clone(), &request, &provider, agent_origin);
+            Ok(PreparedGenerationTask {
+                id,
+                request,
+                record,
+            })
+        })
+        .collect()
+}
 
-    let id = Uuid::new_v4().to_string();
-    let record = task_record_from_request(id.clone(), &request, &provider, agent_origin);
-
-    write_json(&request_path(data_dir, &id), &request)?;
-    upsert_history(data_dir, record.clone())?;
-    enqueue_task(data_dir, &id)?;
-    let _ = emit_queue_updated(app, data_dir);
-    Ok(record)
+fn commit_generation_batch(
+    data_dir: &Path,
+    prepared: &[PreparedGenerationTask],
+) -> Result<Vec<TaskRecord>, String> {
+    let requests = prepared
+        .iter()
+        .map(|task| (task.id.clone(), task.request.clone()))
+        .collect::<Vec<_>>();
+    let records = prepared
+        .iter()
+        .map(|task| task.record.clone())
+        .collect::<Vec<_>>();
+    write_generation_batch(data_dir, &requests, &records)?;
+    Ok(records)
 }
 
 fn task_record_from_request(
@@ -2128,6 +2137,24 @@ mod tests {
             summary.prompt_summaries,
             vec!["一张完整的测试图片提示词".to_string()]
         );
+        recycle(&data_dir);
+    }
+
+    #[test]
+    fn manual_batch_rejects_invalid_request_before_writing_any_task() {
+        let (data_dir, _, _) = agent_task_data_dir("manual-batch-atomic");
+        let settings = read_settings(&data_dir).unwrap();
+        let requests = vec![
+            GenerateRequest {
+                prompt: "第一张图".into(),
+                ..GenerateRequest::default()
+            },
+            GenerateRequest::default(),
+        ];
+
+        assert!(prepare_generation_batch(&data_dir, &settings, requests, None).is_err());
+        assert!(read_history(&data_dir).unwrap().is_empty());
+        assert!(read_queue(&data_dir).unwrap().waiting.is_empty());
         recycle(&data_dir);
     }
 

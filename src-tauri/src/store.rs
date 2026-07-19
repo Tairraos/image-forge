@@ -1279,6 +1279,61 @@ mod transaction_tests {
     }
 
     #[test]
+    fn queue_skips_provider_at_concurrency_limit() {
+        let root = temp_root("provider-concurrency");
+        let provider = |id: &str, concurrency| ApiProvider {
+            id: id.into(),
+            name: id.into(),
+            model_type: "image-gpt".into(),
+            base_url: "https://example.com/v1".into(),
+            api_key: "key".into(),
+            proxy_url: String::new(),
+            image_model: "gpt-image-1".into(),
+            images_concurrency: concurrency,
+            enabled: true,
+            notes: String::new(),
+        };
+        let settings = Settings {
+            providers: vec![provider("provider-a", 1), provider("provider-b", 2)],
+            ..Settings::default()
+        };
+        for (task_id, provider_id) in [
+            ("task-a-waiting", "provider-a"),
+            ("task-b-waiting", "provider-b"),
+        ] {
+            write_json(
+                &request_path(&root, task_id),
+                &GenerateRequest {
+                    provider_id: Some(provider_id.into()),
+                    prompt: task_id.into(),
+                    ..GenerateRequest::default()
+                },
+            )
+            .unwrap();
+        }
+        write_queue(
+            &root,
+            &QueueState {
+                waiting: vec!["task-a-waiting".into(), "task-b-waiting".into()],
+                running: vec![QueueRun {
+                    task_id: "task-a-running".into(),
+                    provider_id: "provider-a".into(),
+                    provider_name: "provider-a".into(),
+                    started_at: utc_now(),
+                }],
+                updated_at: utc_now(),
+            },
+        )
+        .unwrap();
+
+        let (task_id, provider) = pop_next_runnable(&root, &settings).unwrap().unwrap();
+        assert_eq!(task_id, "task-b-waiting");
+        assert_eq!(provider.id, "provider-b");
+        assert_eq!(read_queue(&root).unwrap().waiting, vec!["task-a-waiting"]);
+        recycle(&root);
+    }
+
+    #[test]
     fn legacy_skill_index_migrates_content_to_package() {
         let root = temp_root("legacy-skill-index");
         fs::write(
