@@ -128,3 +128,101 @@ fn title_from_message(content: &str) -> String {
         shortened
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::*;
+
+    #[test]
+    fn recover_sessions_marks_running_sessions_as_interrupted() {
+        let data_dir = temp_data_dir("recover-sessions");
+        let mut session = create_session(&data_dir, "chat-provider").unwrap();
+        session.schema_version = 0;
+        session.status = "running".into();
+        session.messages.push(AgentMessage {
+            id: Uuid::new_v4().to_string(),
+            role: "assistant".into(),
+            status: "running".into(),
+            content: "处理中".into(),
+            attachments: Vec::new(),
+            tool_call: None,
+            questions: Vec::new(),
+            skill_id: String::new(),
+            skill_content_hash: String::new(),
+            task_group: None,
+            error: String::new(),
+            created_at: utc_now(),
+        });
+        write_agent_session(&data_dir, &session).unwrap();
+
+        let recovered = recover_sessions(&data_dir).unwrap();
+        assert_eq!(recovered.len(), 1);
+        assert_eq!(recovered[0].schema_version, 1);
+        assert_eq!(recovered[0].status, "interrupted");
+        assert_eq!(recovered[0].messages.len(), 1);
+
+        let reread = read_agent_session(&data_dir, &session.id).unwrap();
+        assert_eq!(reread.status, "interrupted");
+        recycle(&data_dir);
+    }
+
+    #[test]
+    fn prepare_context_keeps_recent_messages_and_builds_summary() {
+        let data_dir = temp_data_dir("prepare-context");
+        let mut session = AgentSession {
+            schema_version: 1,
+            id: Uuid::new_v4().to_string(),
+            title: String::new(),
+            model_provider_id: String::new(),
+            messages: (0..30)
+                .map(|index| AgentMessage {
+                    id: Uuid::new_v4().to_string(),
+                    role: if index % 2 == 0 {
+                        "user".into()
+                    } else {
+                        "assistant".into()
+                    },
+                    status: String::new(),
+                    content: format!("第 {index} 条消息"),
+                    attachments: Vec::new(),
+                    tool_call: None,
+                    questions: Vec::new(),
+                    skill_id: String::new(),
+                    skill_content_hash: String::new(),
+                    task_group: None,
+                    error: String::new(),
+                    created_at: utc_now(),
+                })
+                .collect(),
+            summary: String::new(),
+            status: "idle".into(),
+            task_group_ids: Vec::new(),
+            created_at: utc_now(),
+            updated_at: utc_now(),
+        };
+
+        let context = prepare_context(&mut session);
+        assert_eq!(context.len(), 24);
+        assert!(!session.summary.is_empty());
+        assert!(session.summary.contains("user: 第 0 条消息"));
+        recycle(&data_dir);
+    }
+
+    fn temp_data_dir(name: &str) -> PathBuf {
+        let root = std::env::current_dir()
+            .unwrap()
+            .join("target")
+            .join("agent-store-tests")
+            .join(format!("{name}-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    fn recycle(path: &Path) {
+        if path.exists() {
+            trash::delete(path).unwrap();
+        }
+    }
+}
