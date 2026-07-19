@@ -7,6 +7,18 @@
     @drop.prevent="dropFiles"
   >
     <div class="agent-composer-body">
+      <n-input
+        v-model:value="draft"
+        type="textarea"
+        :autosize="{ minRows: 2, maxRows: 5 }"
+        placeholder="输入消息；可粘贴或拖入参考图"
+        :disabled="busy"
+        @paste="$emit('paste-reference', $event)"
+        @keydown="handleKeydown"
+      />
+    </div>
+    <footer>
+      <div class="agent-composer-actions">
       <div class="reference-strip agent-reference-strip">
         <div v-for="attachment in attachments" :key="attachment.id" class="reference-tile">
           <img :src="attachment.dataUrl" :alt="attachment.fileName" />
@@ -34,24 +46,19 @@
           </button>
         </ClipboardImageMenu>
       </div>
-      <n-input
-        v-model:value="draft"
-        type="textarea"
-        :autosize="{ minRows: 2, maxRows: 5 }"
-        placeholder="输入消息；可粘贴或拖入参考图"
-        :disabled="busy"
-        @paste="$emit('paste-reference', $event)"
-        @keydown="handleKeydown"
-      />
-    </div>
-    <footer>
-      <div v-if="attachments.length" class="agent-composer-reference-actions">
-        <n-checkbox v-model:checked="useReferences" :disabled="busy">
-          本轮使用参考图
+        <n-checkbox v-model:checked="drawThisTurn" :disabled="busy">
+          本轮进行绘画
         </n-checkbox>
       </div>
       <n-button v-if="busy" size="small" type="error" secondary @click="$emit('stop')">停止</n-button>
-      <n-button v-else size="small" type="primary" :disabled="!draft.trim() || !providerId" @click="send">发送</n-button>
+      <n-button
+        v-else
+        class="agent-send-button"
+        size="small"
+        type="primary"
+        :disabled="!draft.trim() || (drawThisTurn ? !imageProviderId : !providerId)"
+        @click="send"
+      >发送</n-button>
     </footer>
   </div>
 </template>
@@ -64,19 +71,22 @@ import { extractDroppedFilePaths } from "../lib/referenceFiles";
 
 const props = defineProps({
   providerId: { type: String, default: "" },
+  imageProviderId: { type: String, default: "" },
   busy: Boolean,
   attachments: { type: Array, default: () => [] },
 });
 const emit = defineEmits(["send", "stop", "add-reference", "paste-reference", "drop-reference", "remove-attachment"]);
 const draft = ref("");
 const dragActive = ref(false);
-const useReferences = ref(true);
+const drawThisTurn = ref(false);
 
 function send() {
   const content = draft.value.trim();
-  if (!content || props.busy || !props.providerId) return;
-  emit("send", { content, useReferences: useReferences.value });
+  const providerId = drawThisTurn.value ? props.imageProviderId : props.providerId;
+  if (!content || props.busy || !providerId) return;
+  emit("send", { content, drawThisTurn: drawThisTurn.value });
   draft.value = "";
+  drawThisTurn.value = false;
 }
 
 function handleKeydown(event) {

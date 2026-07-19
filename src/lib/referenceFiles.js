@@ -18,6 +18,11 @@ export function extractDroppedFilePaths(dataTransfer) {
   ]);
 }
 
+export function clipboardHasImage(clipboardData) {
+  return Array.from(clipboardData?.items || []).some((item) => item.type.startsWith("image/"))
+    || Array.from(clipboardData?.files || []).some((file) => file.type.startsWith("image/"));
+}
+
 function readClipboardData(clipboardData, type) {
   try {
     return clipboardData.getData?.(type) || "";

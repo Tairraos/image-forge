@@ -771,6 +771,79 @@ pub(crate) fn create_agent_image_tasks(
     Ok(group)
 }
 
+#[tauri::command]
+pub(crate) fn create_agent_direct_image_task(
+    app: AppHandle,
+    session_id: String,
+    content: String,
+    attachments: Vec<AgentAttachment>,
+    plan: AgentImagePlan,
+) -> Result<AgentTaskGroup, String> {
+    let data_dir = ensure_data_dir(&app)?;
+    let result = create_agent_direct_image_task_in_data_dir(
+        &data_dir,
+        session_id,
+        content,
+        attachments,
+        plan,
+    );
+    if result.is_ok() {
+        let _ = emit_queue_updated(&app, &data_dir);
+        ensure_queue_worker(&app);
+    }
+    record_result("Agent 直接绘画", "", None, &result);
+    result
+}
+
+fn create_agent_direct_image_task_in_data_dir(
+    data_dir: &Path,
+    session_id: String,
+    content: String,
+    attachments: Vec<AgentAttachment>,
+    mut plan: AgentImagePlan,
+) -> Result<AgentTaskGroup, String> {
+    let content = content.trim();
+    if content.is_empty() {
+        return Err("消息不能为空".into());
+    }
+    if attachments
+        .iter()
+        .any(|attachment| attachment.id.trim().is_empty())
+    {
+        return Err("参考图 ID 不能为空".into());
+    }
+    plan.prompt = content.to_string();
+    plan.reference_policy = if attachments.is_empty() {
+        "none"
+    } else {
+        "use"
+    }
+    .into();
+    plan.reference_ids = attachments
+        .iter()
+        .map(|attachment| attachment.id.clone())
+        .collect();
+    append_message(
+        data_dir,
+        &session_id,
+        AgentMessage {
+            id: Uuid::new_v4().to_string(),
+            role: "user".into(),
+            status: "user".into(),
+            content: content.to_string(),
+            attachments,
+            tool_call: None,
+            questions: Vec::new(),
+            skill_id: String::new(),
+            skill_content_hash: String::new(),
+            task_group: None,
+            error: String::new(),
+            created_at: utc_now(),
+        },
+    )?;
+    create_agent_image_tasks_in_data_dir(data_dir, session_id, String::new(), vec![plan])
+}
+
 fn create_agent_image_tasks_in_data_dir(
     data_dir: &Path,
     session_id: String,
@@ -2190,6 +2263,39 @@ mod tests {
         let task = &group.tasks[0];
         assert_eq!(task.reference_paths.len(), 1);
         assert!(Path::new(&task.reference_paths[0]).starts_with(data_dir.join("references")));
+        recycle(&data_dir);
+    }
+
+    #[test]
+    fn agent_direct_image_task_saves_message_and_uses_current_attachments() {
+        let (data_dir, agent_session, reference_id) = agent_task_data_dir("agent-direct-image");
+        let attachment = agent_session.messages[0].attachments[0].clone();
+        let group = create_agent_direct_image_task_in_data_dir(
+            &data_dir,
+            agent_session.id.clone(),
+            "直接画一张海报".into(),
+            vec![attachment],
+            agent_plan("直接绘画", "none", &[]),
+        )
+        .unwrap();
+
+        assert_eq!(group.tasks.len(), 1);
+        assert_eq!(group.tasks[0].origin, "agent");
+        assert_eq!(group.tasks[0].reference_paths.len(), 1);
+        assert_eq!(
+            group.tasks[0].agent_plan.as_ref().unwrap().reference_ids,
+            vec![reference_id]
+        );
+        let saved = session(&data_dir, &agent_session.id).unwrap();
+        assert!(saved.messages.iter().any(|message| {
+            message.role == "user"
+                && message.content == "直接画一张海报"
+                && message.attachments.len() == 1
+        }));
+        assert!(saved
+            .messages
+            .iter()
+            .any(|message| message.task_group.is_some()));
         recycle(&data_dir);
     }
 

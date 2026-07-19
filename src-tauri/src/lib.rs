@@ -18,6 +18,7 @@ pub fn run() {
             commands::audit_skill_package,
             commands::copy_image_to_clipboard,
             commands::create_agent_session,
+            commands::create_agent_direct_image_task,
             commands::create_agent_image_tasks,
             commands::cancel_agent_task_group,
             commands::get_task_status,

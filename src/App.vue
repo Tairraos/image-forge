@@ -60,13 +60,12 @@
         :messages="currentAgentMessages"
         :provider-options="chatProviderOptions"
         :provider-id="agentProviderId"
+        :image-provider-id="activeProvider?.id || ''"
         :busy="agentBusy"
         :stream-text="agentStreamText"
         :tool-status-text="agentToolStatus"
         :answers="agentAnswers"
         :attachments="agentAttachments"
-        :skills="skills"
-        :selected-skill-id="agentSkillId"
         @create="createAgentConversation"
         @select="selectAgentConversation"
         @send="sendAgentConversationMessage"
@@ -74,8 +73,6 @@
         @add-reference="addAgentReferenceImages"
         @remove-attachment="removeAgentAttachment"
         @update:provider-id="agentProviderId = $event"
-        @install-skill="installAgentSkill"
-        @use-skill="selectAgentSkill"
         @open-task-group="openAgentTaskGroup"
         @cancel-task-group="cancelAgentTaskGroup"
         @retry-task-group="retryAgentTaskGroup"
@@ -264,7 +261,7 @@ import {
   emptyTemplate,
   normalizeSettingsForUi,
 } from "./lib/models";
-import { extractClipboardFilePaths, extractDroppedFilePaths } from "./lib/referenceFiles";
+import { clipboardHasImage, extractClipboardFilePaths, extractDroppedFilePaths } from "./lib/referenceFiles";
 import { installAutoHideScrollbars } from "./lib/scrollbarVisibility";
 import {
   DEFAULT_PROMPT_MODE,
@@ -286,7 +283,6 @@ const agentStreamText = ref("");
 const agentToolStatus = ref("");
 const agentAnswers = ref({});
 const agentAttachments = ref([]);
-const agentSkillId = ref("");
 const settings = ref(defaultSettings());
 const history = ref([]);
 const queue = reactive({ waiting: [], running: [], recent: [], workerActive: false, updatedAt: "" });
@@ -567,7 +563,7 @@ async function refreshAgentSessions() {
       currentAgentSessionId.value = agentSessions.value[0].id;
       agentProviderId.value = agentSessions.value[0].modelProviderId || form.chatProviderId;
     }
-    if (!agentSessions.value.length && agentProviderId.value) await createAgentConversation();
+    if (!agentSessions.value.length) await createAgentConversation();
     if (currentAgentSessionId.value) {
       await refreshAgentTaskGroups();
       syncAgentTaskGroupPolling();
@@ -581,12 +577,8 @@ async function refreshAgentSessions() {
 
 async function createAgentConversation() {
   if (!agentProviderId.value) agentProviderId.value = form.chatProviderId;
-  if (!agentProviderId.value) {
-    await showNotice("缺少对话模型", "请先在 API 源中配置对话模型");
-    return;
-  }
   try {
-    const session = await invoke("create_agent_session", { providerId: agentProviderId.value });
+    const session = await invoke("create_agent_session", { providerId: agentProviderId.value || "" });
     agentSessions.value = [session, ...agentSessions.value.filter((item) => item.id !== session.id)];
     currentAgentSessionId.value = session.id;
   } catch (error) {
@@ -624,24 +616,25 @@ async function deleteAgentConversation(sessionId) {
 
 async function sendAgentConversationMessage(payload) {
   const content = typeof payload === "string" ? payload : payload?.content || "";
-  const useReferences = typeof payload === "string" ? true : payload?.useReferences !== false;
+  const drawThisTurn = typeof payload !== "string" && Boolean(payload?.drawThisTurn);
   if (!currentAgentSessionId.value) await createAgentConversation();
   if (!currentAgentSessionId.value) return;
+  if (drawThisTurn) {
+    await createAgentDrawingTask(content);
+    return;
+  }
   agentBusy.value = true;
   agentStreamText.value = "";
   try {
     const session = await invoke("send_agent_message", {
       sessionId: currentAgentSessionId.value,
       providerId: agentProviderId.value,
-      skillId: agentSkillId.value,
-      content: useReferences ? content : `${content}\n\n<reference_policy>本轮不使用当前附图。</reference_policy>`,
-      attachments: useReferences
-        ? agentAttachments.value.map(({ dataUrl, ...attachment }) => attachment)
-        : [],
+      skillId: "",
+      content,
+      attachments: agentAttachments.value.map(({ dataUrl, ...attachment }) => attachment),
     });
     agentSessions.value = [session, ...agentSessions.value.filter((item) => item.id !== session.id)];
-    if (useReferences) agentAttachments.value = [];
-    agentSkillId.value = "";
+    agentAttachments.value = [];
     await refreshAgentTaskGroups();
     syncAgentTaskGroupPolling();
   } catch (error) {
@@ -656,27 +649,40 @@ async function sendAgentConversationMessage(payload) {
   }
 }
 
-async function selectAgentSkill(skill) {
-  agentSkillId.value = skill?.id || "";
-  if (skill?.name) setStatus(`已选择 Skill：${skill.name}`, "ok");
-}
-
-async function installAgentSkill() {
+async function createAgentDrawingTask(content) {
+  if (!activeProvider.value?.apiKey) {
+    setStatus("请先在 API 源里填写生图模型 API Key", "error");
+    showApiDialog.value = true;
+    return;
+  }
+  const attachments = agentAttachments.value.map(({ dataUrl, ...attachment }) => attachment);
+  agentBusy.value = true;
   try {
-    const selected = await openDialog({ directory: true, multiple: false });
-    if (!selected || Array.isArray(selected)) return;
-    try {
-      await invoke("install_skill", { source: selected, replace: false });
-    } catch (error) {
-      if (!String(error).includes("CONFIRM_REPLACE_SKILL")) throw error;
-      const confirmed = await requestConfirmation("覆盖安装 Skill", "同名 Skill 已存在，确认把旧版本移入回收站并安装新版本？");
-      if (!confirmed) return;
-      await invoke("install_skill", { source: selected, replace: true });
-    }
-    await refreshAll();
-    setStatus("Skill 安装完成", "ok");
+    await invoke("create_agent_direct_image_task", {
+      sessionId: currentAgentSessionId.value,
+      content,
+      attachments,
+      plan: {
+        title: content.split(/\r?\n/, 1)[0].slice(0, 32) || "直接绘画",
+        prompt: content,
+        providerId: activeProvider.value.id,
+        resolution: form.resolution,
+        ratio: form.ratio,
+        quality: form.quality,
+        promptFidelity: form.promptMode,
+        referencePolicy: attachments.length ? "use" : "none",
+        referenceIds: attachments.map((attachment) => attachment.id),
+      },
+    });
+    agentAttachments.value = [];
+    await refreshQueueOnly();
+    await selectAgentConversation(currentAgentSessionId.value);
+    setStatus("绘画任务已加入队列", "ok");
   } catch (error) {
     setStatus(String(error), "error");
+    await selectAgentConversation(currentAgentSessionId.value);
+  } finally {
+    agentBusy.value = false;
   }
 }
 
@@ -718,8 +724,9 @@ async function addAgentReferencePaths(paths) {
 
 async function pasteAgentReferenceImage(event) {
   const paths = extractClipboardFilePaths(event?.clipboardData);
+  const containsImage = paths.length > 0 || clipboardHasImage(event?.clipboardData);
+  if (containsImage) event?.preventDefault?.();
   if (paths.length) {
-    event.preventDefault();
     await addAgentReferencePaths(paths);
     return;
   }
@@ -733,7 +740,6 @@ async function pasteAgentReferenceImage(event) {
         mimeType: preview.mimeType,
         dataUrl: preview.dataUrl,
       });
-      event?.preventDefault?.();
     }
   } catch {
     // 普通文本粘贴不处理。
@@ -803,7 +809,7 @@ function retryAgentMessage(message) {
     .reverse()
     .find((item) => item.role === "user");
   if (previousUser?.content) {
-    void sendAgentConversationMessage({ content: previousUser.content, useReferences: false });
+    void sendAgentConversationMessage({ content: previousUser.content, drawThisTurn: false });
   }
 }
 

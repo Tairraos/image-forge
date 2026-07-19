@@ -2,7 +2,7 @@
   <div ref="listRef" class="agent-message-list">
     <div v-if="!messages.length" class="agent-empty">
       <strong>开始一段对话</strong>
-      <span>可以直接聊天，也可以要求 Agent 使用已安装 Skill 或创建绘图任务。</span>
+      <span>直接聊天，或勾选“本轮进行绘画”把提示词送到绘画模型。</span>
     </div>
     <article
       v-for="message in messages"
@@ -11,7 +11,12 @@
       :data-role="message.role"
     >
       <div class="agent-message-role">{{ roleLabel(message.role) }}</div>
-      <div v-if="message.content" class="agent-message-body">{{ message.content }}</div>
+      <div
+        v-if="message.content && message.role === 'assistant'"
+        class="agent-message-body agent-message-markdown"
+        v-html="renderMarkdown(message.content)"
+      ></div>
+      <div v-else-if="message.content" class="agent-message-body">{{ message.content }}</div>
       <div v-if="message.toolCall" class="agent-tool-card" :data-status="message.toolCall.status">
         <strong>{{ message.toolCall.name }}</strong>
         <span>{{ toolStatus(message.toolCall) }}</span>
@@ -66,12 +71,16 @@
     </article>
     <article v-if="busy || streamText || toolStatusText" class="agent-message" data-role="assistant">
       <div class="agent-message-role">Agent</div>
-      <div class="agent-message-body">{{ streamText || toolStatusText || "正在思考..." }}</div>
+      <div
+        class="agent-message-body agent-message-markdown"
+        v-html="renderMarkdown(streamText || toolStatusText || '正在思考...')"
+      ></div>
     </article>
   </div>
 </template>
 
 <script setup>
+import MarkdownIt from "markdown-it";
 import { nextTick, ref, watch } from "vue";
 
 const props = defineProps({
@@ -84,6 +93,7 @@ const props = defineProps({
 defineEmits(["open-task-group", "cancel-task-group", "retry-task-group", "retry", "update-answer", "answer-questions"]);
 
 const listRef = ref(null);
+const markdown = new MarkdownIt({ html: false, breaks: true, linkify: true });
 
 watch(
   () => [props.messages.length, props.busy, props.streamText, props.toolStatusText],
@@ -106,6 +116,10 @@ function roleLabel(role) {
   if (role === "user") return "你";
   if (role === "tool") return "工具";
   return "Agent";
+}
+
+function renderMarkdown(content) {
+  return markdown.render(content || "");
 }
 
 function toolStatus(call) {

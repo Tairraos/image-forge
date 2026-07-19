@@ -2436,7 +2436,11 @@ button:disabled {
 }
 
 .agent-sidebar {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
   border-right: 1px solid var(--line);
   padding: 14px;
 }
@@ -2450,16 +2454,17 @@ button:disabled {
   gap: 10px;
 }
 
-.agent-composer-reference-actions {
+.agent-composer-actions {
   display: flex;
+  flex: 1;
   align-items: center;
   gap: 10px;
   min-width: 0;
+  overflow: hidden;
 }
 
 .agent-session-list,
-.agent-message-list,
-.agent-skill-list {
+.agent-message-list {
   overflow: auto;
 }
 
@@ -2488,50 +2493,9 @@ button:disabled {
   background: var(--primary-soft);
 }
 
-.agent-session-item small,
-.agent-chat-head span {
+.agent-session-item small {
   color: var(--muted);
   font-size: 12px;
-}
-
-.agent-skill-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 22px;
-}
-
-.agent-skill-list {
-  display: grid;
-  gap: 5px;
-  margin-top: 8px;
-}
-
-.agent-skill-item {
-  display: grid;
-  gap: 2px;
-  width: 100%;
-  padding: 7px 9px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.agent-skill-item.active,
-.agent-skill-item:hover {
-  border-color: var(--line-strong);
-  background: var(--primary-soft);
-}
-
-.agent-skill-item small,
-.agent-no-skills {
-  overflow: hidden;
-  color: var(--muted);
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .agent-chat {
@@ -2593,10 +2557,50 @@ button:disabled {
 
 .agent-message-body {
   padding: 10px 13px;
-  white-space: pre-wrap;
   line-height: 1.6;
   border-radius: 8px;
   background: var(--surface-muted);
+}
+
+.agent-message-body:not(.agent-message-markdown) {
+  white-space: pre-wrap;
+}
+
+.agent-message-markdown > :first-child {
+  margin-top: 0;
+}
+
+.agent-message-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.agent-message-markdown pre {
+  overflow-x: auto;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: #2d2638;
+  color: #f8f5ff;
+}
+
+.agent-message-markdown code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.agent-message-markdown :not(pre) > code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: rgba(124, 92, 232, 0.12);
+}
+
+.agent-message-markdown blockquote {
+  margin-inline: 0;
+  padding-left: 12px;
+  border-left: 3px solid var(--primary);
+  color: var(--muted);
+}
+
+.agent-message-markdown a {
+  color: var(--primary);
 }
 
 .agent-tool-card,
@@ -2695,11 +2699,19 @@ button:disabled {
 
 .agent-composer footer {
   margin-top: 8px;
+  min-width: 0;
 }
 
 .agent-reference-strip {
+  flex: 1;
+  min-width: 72px;
   justify-content: flex-start;
-  margin-bottom: 8px;
+  margin: 0;
+}
+
+.agent-composer-actions .n-checkbox,
+.agent-send-button {
+  flex: none;
 }
 
 @media (max-width: 900px) {
@@ -2762,11 +2774,10 @@ button:disabled {
   }
 
   .agent-sidebar {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto minmax(0, 1fr);
-    gap: 8px 14px;
-    max-height: 220px;
+    gap: 8px;
+    max-height: 180px;
     overflow: auto;
     border-right: 0;
     border-bottom: 1px solid var(--line);
@@ -2774,24 +2785,10 @@ button:disabled {
   }
 
   .agent-sidebar-head {
-    grid-column: 1;
     grid-row: 1;
   }
 
   .agent-session-list {
-    grid-column: 1;
-    grid-row: 2;
-    margin-top: 0;
-  }
-
-  .agent-skill-head {
-    grid-column: 2;
-    grid-row: 1;
-    margin-top: 0;
-  }
-
-  .agent-skill-list {
-    grid-column: 2;
     grid-row: 2;
     margin-top: 0;
   }
@@ -2816,21 +2813,16 @@ button:disabled {
 
 @media (max-width: 560px) {
   .agent-sidebar {
-    grid-template-columns: 1fr;
-    max-height: 260px;
+    max-height: 180px;
   }
 
   .agent-sidebar-head,
-  .agent-session-list,
-  .agent-skill-head,
-  .agent-skill-list {
+  .agent-session-list {
     grid-column: 1;
     grid-row: auto;
   }
 
-  .agent-composer footer,
-  .agent-composer-reference-actions {
-    align-items: stretch;
-    flex-direction: column;
+  .agent-composer-actions {
+    gap: 6px;
   }
 }

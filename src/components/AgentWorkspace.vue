@@ -25,31 +25,12 @@
           @click="$emit('delete-session', currentSession.id)"
         >删除当前对话</n-button>
       </div>
-      <div class="agent-skill-head">
-        <strong>Skill</strong>
-        <n-button size="tiny" tertiary @click="$emit('install-skill')">安装</n-button>
-      </div>
-      <div class="agent-skill-list">
-        <button
-          v-for="skill in skills"
-          :key="skill.id"
-          type="button"
-          class="agent-skill-item"
-          :class="{ active: skill.id === selectedSkillId }"
-          @click="$emit('use-skill', skill)"
-        >
-          <span>{{ skill.name }}</span>
-          <small>{{ skill.notes || skill.sourceUrl || "本地 Skill" }}</small>
-        </button>
-        <small v-if="!skills.length" class="agent-no-skills">尚未安装 Skill</small>
-      </div>
     </aside>
 
     <div class="agent-chat">
       <header class="agent-chat-head">
         <div>
           <strong>{{ currentSession?.title || "Agent" }}</strong>
-          <span>普通聊天、Skill 与绘图任务</span>
         </div>
         <n-select
           :value="providerId"
@@ -75,6 +56,7 @@
       />
       <AgentComposer
         :provider-id="providerId"
+        :image-provider-id="imageProviderId"
         :busy="busy"
         :attachments="attachments"
         @send="$emit('send', $event)"
@@ -98,17 +80,15 @@ defineProps({
   messages: { type: Array, default: () => [] },
   providerOptions: { type: Array, default: () => [] },
   providerId: { type: String, default: "" },
+  imageProviderId: { type: String, default: "" },
   busy: Boolean,
   streamText: { type: String, default: "" },
   attachments: { type: Array, default: () => [] },
-  skills: { type: Array, default: () => [] },
-  selectedSkillId: { type: String, default: "" },
   toolStatusText: { type: String, default: "" },
   answers: { type: Object, default: () => ({}) },
 });
 const emit = defineEmits([
   "create", "select", "send", "stop", "add-reference", "remove-attachment", "update:provider-id",
-  "install-skill", "use-skill",
   "open-task-group", "cancel-task-group", "retry-task-group", "retry", "paste-reference", "drop-reference", "update-answer", "answer-questions",
   "delete-session",
 ]);
