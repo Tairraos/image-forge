@@ -168,14 +168,46 @@ fn validate_envelope(envelope: &AgentEnvelope) -> Result<(), String> {
     match envelope {
         AgentEnvelope::Assistant {
             schema_version,
+            status,
             message,
             questions,
+            plans,
+            skill_id,
+            skill_content_hash: _,
         } => {
             validate_schema_version(*schema_version)?;
-            if message.trim().is_empty() && questions.is_empty() {
-                return Err("assistant envelope 必须包含消息或问题".into());
+            if questions.len() > 3 {
+                return Err("assistant questions 最多 3 个".into());
             }
-            Ok(())
+            for (index, question) in questions.iter().enumerate() {
+                if question.key.trim().is_empty() || question.label.trim().is_empty() {
+                    return Err(format!("questions[{index}] 必须包含 key 和 label"));
+                }
+            }
+            match status.as_str() {
+                "chat"
+                    if !message.trim().is_empty() && questions.is_empty() && plans.is_empty() =>
+                {
+                    Ok(())
+                }
+                "needs_input" if !questions.is_empty() && plans.is_empty() => Ok(()),
+                "rejected"
+                    if !message.trim().is_empty() && questions.is_empty() && plans.is_empty() =>
+                {
+                    Ok(())
+                }
+                "ready" if questions.is_empty() && !plans.is_empty() => {
+                    let arguments = json!({ "skillId": skill_id, "plans": plans });
+                    validate_tool_arguments(TOOL_CREATE_IMAGE_TASKS, &arguments)
+                }
+                "chat" => Err("status=chat 必须只有非空 message".into()),
+                "needs_input" => {
+                    Err("status=needs_input 必须有 1-3 个 questions 且不能包含 plans".into())
+                }
+                "ready" => Err("status=ready 必须包含 plans 且不能包含 questions".into()),
+                "rejected" => Err("status=rejected 必须只有非空拒绝原因".into()),
+                _ => Err(format!("未知 assistant status：{status}")),
+            }
         }
         AgentEnvelope::ToolCall {
             schema_version,
@@ -295,5 +327,41 @@ mod tests {
             parse_fallback_envelope(r#"{"schemaVersion":2,"type":"assistant","message":"hello"}"#)
                 .unwrap_err();
         assert!(error.contains("schemaVersion"));
+    }
+
+    #[test]
+    fn structured_skill_states_enforce_questions_and_complete_plans() {
+        let needs_input = parse_fallback_envelope(
+            r#"{"schemaVersion":1,"type":"assistant","status":"needs_input","message":"还需要信息","questions":[{"key":"style","label":"想要什么风格？","required":true}],"plans":[]}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            needs_input,
+            crate::models::AgentEnvelope::Assistant { status, .. } if status == "needs_input"
+        ));
+
+        let rejected = parse_fallback_envelope(
+            r#"{"schemaVersion":1,"type":"assistant","status":"rejected","message":"当前能力无法执行","questions":[],"plans":[]}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            rejected,
+            crate::models::AgentEnvelope::Assistant { status, .. } if status == "rejected"
+        ));
+
+        let ready = parse_fallback_envelope(
+            r#"{"schemaVersion":1,"type":"assistant","status":"ready","message":"计划完成","questions":[],"plans":[{"title":"图一","prompt":"完整提示词","resolution":"standard","ratio":"1:1","quality":"auto","promptFidelity":"original","referencePolicy":"none","referenceIds":[]}]}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            ready,
+            crate::models::AgentEnvelope::Assistant { status, .. } if status == "ready"
+        ));
+
+        let error = parse_fallback_envelope(
+            r#"{"schemaVersion":1,"type":"assistant","status":"ready","message":"计划完成","questions":[],"plans":[]}"#,
+        )
+        .unwrap_err();
+        assert!(error.contains("status=ready"));
     }
 }

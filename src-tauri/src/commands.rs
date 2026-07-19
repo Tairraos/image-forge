@@ -132,10 +132,13 @@ pub(crate) async fn send_agent_message(
     let user = AgentMessage {
         id: Uuid::new_v4().to_string(),
         role: "user".into(),
+        status: "user".into(),
         content: content.trim().to_string(),
         attachments,
         tool_call: None,
         questions: Vec::new(),
+        skill_id: String::new(),
+        skill_content_hash: String::new(),
         task_group: None,
         error: String::new(),
         created_at: utc_now(),
@@ -164,11 +167,16 @@ pub(crate) async fn send_agent_message(
     } else {
         format!("历史摘要：\n{}", current.summary)
     };
+    let mut selected_skill_hash = String::new();
     if !skill_id.trim().is_empty() {
         let skill_context = use_skill(app.clone(), skill_id.clone())?;
+        selected_skill_hash = skill_context.manifest.content_hash.clone();
         context.push_str(&format!(
-            "\n\n<skill name=\"{}\">\n{}\n",
-            skill_context.name, skill_context.content
+            "\n\n<skill id=\"{}\" name=\"{}\" content_hash=\"{}\">\n{}\n",
+            skill_context.skill_id,
+            skill_context.name,
+            skill_context.manifest.content_hash,
+            skill_context.content
         ));
         for reference in skill_context.references {
             context.push_str(&format!(
@@ -236,7 +244,13 @@ pub(crate) async fn send_agent_message(
         tasks.remove(&session_id);
     }
     let result = match output {
-        Ok(output) => {
+        Ok(mut output) => {
+            if output.skill_id.trim().is_empty() && !skill_id.trim().is_empty() {
+                output.skill_id = skill_id.clone();
+            }
+            if output.skill_content_hash.trim().is_empty() && !selected_skill_hash.is_empty() {
+                output.skill_content_hash = selected_skill_hash.clone();
+            }
             for tool_call in output.tool_calls {
                 let content = serde_json::to_string(&serde_json::json!({
                     "result": tool_call.result,
@@ -249,10 +263,13 @@ pub(crate) async fn send_agent_message(
                     AgentMessage {
                         id: Uuid::new_v4().to_string(),
                         role: "tool".into(),
+                        status: "tool".into(),
                         content,
                         attachments: Vec::new(),
                         tool_call: Some(tool_call),
                         questions: Vec::new(),
+                        skill_id: String::new(),
+                        skill_content_hash: String::new(),
                         task_group: None,
                         error: String::new(),
                         created_at: utc_now(),
@@ -265,10 +282,13 @@ pub(crate) async fn send_agent_message(
                 AgentMessage {
                     id: Uuid::new_v4().to_string(),
                     role: "assistant".into(),
+                    status: output.status.clone(),
                     content: output.text,
                     attachments: Vec::new(),
                     tool_call: None,
-                    questions: Vec::new(),
+                    questions: output.questions,
+                    skill_id: output.skill_id,
+                    skill_content_hash: output.skill_content_hash,
                     task_group: None,
                     error: String::new(),
                     created_at: utc_now(),
@@ -288,10 +308,13 @@ pub(crate) async fn send_agent_message(
                 failed.messages.push(AgentMessage {
                     id: Uuid::new_v4().to_string(),
                     role: "assistant".into(),
+                    status: "error".into(),
                     content: "本轮 Agent 对话未完成".into(),
                     attachments: Vec::new(),
                     tool_call: None,
                     questions: Vec::new(),
+                    skill_id: String::new(),
+                    skill_content_hash: String::new(),
                     task_group: None,
                     error: error.clone(),
                     created_at: utc_now(),
@@ -335,7 +358,7 @@ pub(crate) fn cancel_agent_turn(app: AppHandle, session_id: String) -> Result<bo
 
 fn agent_system_prompt(context: &str) -> String {
     format!(
-        "你是 Image Forge 本地 Agent。普通聊天直接回答；需要 Skill 或绘图时必须调用已注册工具。禁止声称执行终端、脚本、任意文件读写、任意 HTTP、浏览器、数据库或插件。信息不足时返回 schemaVersion=1 的 assistant envelope，并在 questions 中提出最多 3 个简短问题。只有提示词、参数和参考图策略完整时才能调用 create_image_tasks。参考图策略必须逐图明确为 use、optional 或 none。\n\n当前会话上下文：\n{}",
+        "你是 Image Forge 本地 Agent。普通聊天直接回答；需要 Skill 或绘图时必须调用已注册工具。禁止声称执行终端、脚本、任意文件读写、任意 HTTP、浏览器、数据库或插件。调用 use_skill 后，如果缺信息必须返回 schemaVersion=1 的 assistant envelope，status=needs_input 并在 questions 中提出最多 3 个问题；Skill 无法执行时返回 status=rejected 和原因；信息完整时返回 status=ready 及逐图 plans，或调用 create_image_tasks。每个 plan 必须明确 resolution、ratio、quality、promptFidelity、referencePolicy 和 referenceIds。参考图只有 ID 和元数据；不支持视觉的模型不能假装看到了图片内容。\n\n当前会话上下文：\n{}",
         context.trim()
     )
 }
@@ -376,7 +399,7 @@ fn agent_message_to_chat_value(message: &AgentMessage) -> serde_json::Value {
             })
         })
         .collect::<Vec<_>>();
-    let content = if attachment_metadata.is_empty() {
+    let mut content = if attachment_metadata.is_empty() {
         message.content.clone()
     } else {
         format!(
@@ -385,6 +408,13 @@ fn agent_message_to_chat_value(message: &AgentMessage) -> serde_json::Value {
             serde_json::to_string(&attachment_metadata).unwrap_or_default()
         )
     };
+    if message.role == "assistant" && !message.questions.is_empty() {
+        content.push_str(&format!(
+            "\n\n<agent_questions status=\"{}\">{}</agent_questions>",
+            message.status,
+            serde_json::to_string(&message.questions).unwrap_or_default()
+        ));
+    }
     serde_json::json!({
         "role": message.role,
         "content": content,
@@ -697,10 +727,13 @@ pub(crate) fn create_agent_image_tasks(
     agent_session.messages.push(AgentMessage {
         id: Uuid::new_v4().to_string(),
         role: "tool".into(),
+        status: "task_group".into(),
         content: format!("已创建 {} 个绘图任务", tasks.len()),
         attachments: Vec::new(),
         tool_call: None,
         questions: Vec::new(),
+        skill_id: skill_id.clone(),
+        skill_content_hash: String::new(),
         task_group: Some(crate::models::AgentTaskGroupSummary {
             id: task_group_id.clone(),
             task_ids: tasks.iter().map(|task| task.id.clone()).collect(),

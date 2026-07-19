@@ -318,33 +318,74 @@ where
     .await
 }
 
-pub(crate) async fn agent_response<F>(
+pub(crate) async fn agent_fallback_response<F>(
     provider: &ApiProvider,
-    context: &str,
-    user_content: &str,
+    messages: &[Value],
+    tools: &[Value],
+    repair: Option<(&str, &str)>,
     runtime_state: Option<&RuntimeState>,
     on_event: F,
-) -> Result<ChatCompletionOutput, String>
+) -> Result<String, String>
 where
     F: FnMut(ChatProgressEventData),
 {
-    let system = format!(
-        "你是 Image Forge 的本地 Agent。你可以进行普通聊天，并在用户明确提出绘图、安装或使用 Skill 时给出下一步建议。当前版本不提供终端、脚本、任意文件读写或任意网络工具。不要假装已经执行了尚未由应用确认的动作。普通聊天直接返回文本。只有当用户明确要求立即绘图且信息充足时，返回单个 JSON 对象，不要加 Markdown：{{\"action\":\"create_image_tasks\",\"message\":\"说明\",\"skillId\":\"\",\"plans\":[{{\"title\":\"标题\",\"prompt\":\"可直接生图的完整提示词\",\"resolution\":\"standard\",\"ratio\":\"1:1\",\"quality\":\"auto\",\"promptFidelity\":\"original\",\"referencePolicy\":\"optional\",\"referenceIds\":[]}}]}}。信息不足时继续提问，不要创建任务。\n\n当前会话上下文：\n{}",
-        context.trim()
+    let envelope_schema = concat!(
+        "只能输出一个 JSON 对象，不要使用 Markdown。对象必须是下列三类之一：\n",
+        "1. assistant: {\"schemaVersion\":1,\"type\":\"assistant\",\"status\":\"chat|needs_input|ready|rejected\",\"message\":\"中文说明\",\"questions\":[],\"plans\":[],\"skillId\":\"\",\"skillContentHash\":\"\"}\n",
+        "2. tool_call: {\"schemaVersion\":1,\"type\":\"tool_call\",\"id\":\"call-id\",\"name\":\"工具名\",\"arguments\":{}}\n",
+        "3. tool_result 只由应用生成，你不得主动返回。\n",
+        "needs_input 必须有 1-3 个 questions 且没有 plans；ready 必须有完整 plans 且没有 questions；rejected 只能说明拒绝原因。",
+        "每个 plan 必须包含 title、prompt、resolution、ratio、quality、promptFidelity、referencePolicy 和 referenceIds。"
     );
+    let (system, user_content, event_prefix, operation_label) = if let Some((invalid, error)) =
+        repair
+    {
+        (
+            format!(
+                "你只负责修复 JSON 结构，不得重新规划、增删图片或改变原意。根据校验错误把原始返回修成合法 envelope。{envelope_schema}"
+            ),
+            format!(
+                "<validation_error>{}</validation_error>\n<invalid_output>{}</invalid_output>\n<tools>{}</tools>",
+                error,
+                invalid,
+                serde_json::to_string(tools).unwrap_or_default()
+            ),
+            "agent_repair.service",
+            "Agent 结构修复",
+        )
+    } else {
+        (
+            format!(
+                "你是 Image Forge 本地 Agent 的受限 JSON 协议适配器。根据完整会话决定直接回复、追问、拒绝、生成图片计划或调用一个工具。禁止终端、脚本、任意文件读写、任意 HTTP、浏览器、数据库和插件。参考图只有资源 ID 和元数据；你不能假装看到了图片内容。{envelope_schema}"
+            ),
+            format!(
+                "<conversation>{}</conversation>\n<tools>{}</tools>",
+                serde_json::to_string(messages).unwrap_or_default(),
+                serde_json::to_string(tools).unwrap_or_default()
+            ),
+            "agent_fallback.service",
+            "Agent JSON 降级",
+        )
+    };
     complete_chat_prompt_internal(
         provider,
         &system,
-        user_content,
-        "agent_chat.service",
-        "Agent 对话",
-        format!("message_len={}", user_content.chars().count()),
+        &user_content,
+        event_prefix,
+        operation_label,
+        format!(
+            "messages={} tools={} repair={}",
+            messages.len(),
+            tools.len(),
+            repair.is_some()
+        ),
         runtime_state,
-        true,
+        false,
         CHAT_COMPLETION_TIMEOUT_SECONDS,
         on_event,
     )
     .await
+    .map(|output| output.text)
 }
 
 async fn complete_chat_prompt_internal<F>(

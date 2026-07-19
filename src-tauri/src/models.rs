@@ -364,6 +364,8 @@ pub struct AgentMessage {
     pub id: String,
     pub role: String,
     #[serde(default)]
+    pub status: String,
+    #[serde(default)]
     pub content: String,
     #[serde(default)]
     pub attachments: Vec<AgentAttachment>,
@@ -371,6 +373,10 @@ pub struct AgentMessage {
     pub tool_call: Option<AgentToolCall>,
     #[serde(default)]
     pub questions: Vec<AgentQuestion>,
+    #[serde(default)]
+    pub skill_id: String,
+    #[serde(default)]
+    pub skill_content_hash: String,
     #[serde(default)]
     pub task_group: Option<AgentTaskGroupSummary>,
     #[serde(default)]
@@ -424,10 +430,18 @@ pub enum AgentEnvelope {
     Assistant {
         #[serde(rename = "schemaVersion", default = "default_agent_schema_version")]
         schema_version: u32,
+        #[serde(default = "default_agent_assistant_status")]
+        status: String,
         #[serde(default)]
         message: String,
         #[serde(default)]
         questions: Vec<AgentQuestion>,
+        #[serde(default)]
+        plans: Vec<AgentImagePlan>,
+        #[serde(default)]
+        skill_id: String,
+        #[serde(default)]
+        skill_content_hash: String,
     },
     #[serde(rename = "tool_call")]
     ToolCall {
@@ -454,6 +468,10 @@ pub enum AgentEnvelope {
 
 fn default_agent_schema_version() -> u32 {
     1
+}
+
+fn default_agent_assistant_status() -> String {
+    "chat".into()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
