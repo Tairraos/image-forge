@@ -1,6 +1,6 @@
 use serde_json::{json, Value};
 
-use crate::models::AgentEnvelope;
+use crate::models::{AgentEnvelope, AGENT_SCHEMA_VERSION};
 
 pub(crate) const TOOL_LIST_SKILLS: &str = "list_skills";
 pub(crate) const TOOL_INSTALL_SKILL: &str = "install_skill";
@@ -288,7 +288,7 @@ fn validate_envelope(envelope: &AgentEnvelope) -> Result<(), String> {
 }
 
 fn validate_schema_version(value: u32) -> Result<(), String> {
-    if value == 1 {
+    if value == AGENT_SCHEMA_VERSION {
         Ok(())
     } else {
         Err(format!("不支持的 Agent schemaVersion：{value}"))

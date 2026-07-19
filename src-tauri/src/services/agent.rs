@@ -4,7 +4,7 @@ use serde_json::{json, Value};
 
 use crate::{
     models::ApiProvider,
-    models::{AgentEnvelope, AgentQuestion, AgentToolCall},
+    models::{AgentEnvelope, AgentQuestion, AgentToolCall, AGENT_SCHEMA_VERSION},
     services::{
         agent_tools::{parse_fallback_envelope, tool_definitions, validate_tool_arguments},
         chat::{
@@ -143,6 +143,7 @@ where
                 "content": serde_json::to_string(&tool_result_payload).unwrap_or_default(),
             }));
             completed_tool_calls.push(AgentToolCall {
+                schema_version: AGENT_SCHEMA_VERSION,
                 id: call.id.clone(),
                 name: call.name.clone(),
                 arguments: arguments.clone(),

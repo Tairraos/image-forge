@@ -564,8 +564,8 @@ async function refreshAgentSessions() {
     } else {
       syncAgentTaskGroupPolling();
     }
-  } catch {
-    // Agent 会话在旧版本数据目录或浏览器预览中可能暂不可用。
+  } catch (error) {
+    setStatus(String(error), "error");
   }
 }
 

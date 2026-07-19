@@ -3,7 +3,7 @@ use std::path::Path;
 use uuid::Uuid;
 
 use crate::{
-    models::{AgentMessage, AgentSession},
+    models::{AgentMessage, AgentSession, AGENT_SCHEMA_VERSION},
     store::{agent_session_path, list_agent_sessions, read_agent_session, write_agent_session},
     utils::utc_now,
 };
@@ -11,7 +11,7 @@ use crate::{
 pub(crate) fn create_session(data_dir: &Path, provider_id: &str) -> Result<AgentSession, String> {
     let now = utc_now();
     let session = AgentSession {
-        schema_version: 1,
+        schema_version: AGENT_SCHEMA_VERSION,
         id: Uuid::new_v4().to_string(),
         title: "新对话".into(),
         model_provider_id: provider_id.trim().to_string(),
@@ -100,17 +100,56 @@ pub(crate) fn prepare_context(session: &mut AgentSession) -> Vec<AgentMessage> {
 
 pub(crate) fn recover_sessions(data_dir: &Path) -> Result<Vec<AgentSession>, String> {
     let mut values = sessions(data_dir)?;
+
+    for session in &values {
+        validate_schema_version("会话", session.schema_version)?;
+        for message in &session.messages {
+            if let Some(tool_call) = &message.tool_call {
+                validate_schema_version("Tool Call", tool_call.schema_version)?;
+            }
+            if let Some(task_group) = &message.task_group {
+                validate_schema_version("任务组", task_group.schema_version)?;
+            }
+        }
+    }
+
     for session in &mut values {
+        let mut changed = false;
         if session.schema_version == 0 {
-            session.schema_version = 1;
+            session.schema_version = AGENT_SCHEMA_VERSION;
+            changed = true;
+        }
+        for message in &mut session.messages {
+            if let Some(tool_call) = &mut message.tool_call {
+                if tool_call.schema_version == 0 {
+                    tool_call.schema_version = AGENT_SCHEMA_VERSION;
+                    changed = true;
+                }
+            }
+            if let Some(task_group) = &mut message.task_group {
+                if task_group.schema_version == 0 {
+                    task_group.schema_version = AGENT_SCHEMA_VERSION;
+                    changed = true;
+                }
+            }
         }
         if matches!(session.status.as_str(), "running" | "tool_running") {
             session.status = "interrupted".into();
             session.updated_at = utc_now();
+            changed = true;
+        }
+        if changed {
             write_agent_session(data_dir, session)?;
         }
     }
     Ok(values)
+}
+
+fn validate_schema_version(kind: &str, version: u32) -> Result<(), String> {
+    if version > AGENT_SCHEMA_VERSION {
+        return Err(format!("不支持的 Agent {kind} schemaVersion：{version}"));
+    }
+    Ok(())
 }
 
 fn validate_session_id(value: &str) -> Result<(), String> {
@@ -169,10 +208,54 @@ mod tests {
     }
 
     #[test]
+    fn recover_sessions_rejects_future_nested_schema_without_overwriting_file() {
+        let data_dir = temp_data_dir("recover-future-schema");
+        let mut session = create_session(&data_dir, "chat-provider").unwrap();
+        session.messages.push(AgentMessage {
+            id: Uuid::new_v4().to_string(),
+            role: "assistant".into(),
+            status: "completed".into(),
+            content: String::new(),
+            attachments: Vec::new(),
+            tool_call: Some(crate::models::AgentToolCall {
+                schema_version: AGENT_SCHEMA_VERSION + 1,
+                id: "future-call".into(),
+                name: "future_tool".into(),
+                arguments: serde_json::Value::Null,
+                result: None,
+                error: None,
+                status: "completed".into(),
+                created_at: utc_now(),
+                completed_at: None,
+            }),
+            questions: Vec::new(),
+            skill_id: String::new(),
+            skill_content_hash: String::new(),
+            task_group: None,
+            error: String::new(),
+            created_at: utc_now(),
+        });
+        write_agent_session(&data_dir, &session).unwrap();
+
+        let error = recover_sessions(&data_dir).unwrap_err();
+        assert!(error.contains("Tool Call"));
+        let reread = read_agent_session(&data_dir, &session.id).unwrap();
+        assert_eq!(
+            reread.messages[0]
+                .tool_call
+                .as_ref()
+                .unwrap()
+                .schema_version,
+            2
+        );
+        recycle(&data_dir);
+    }
+
+    #[test]
     fn prepare_context_keeps_recent_messages_and_builds_summary() {
         let data_dir = temp_data_dir("prepare-context");
         let mut session = AgentSession {
-            schema_version: 1,
+            schema_version: AGENT_SCHEMA_VERSION,
             id: Uuid::new_v4().to_string(),
             title: String::new(),
             model_provider_id: String::new(),

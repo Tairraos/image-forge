@@ -882,6 +882,7 @@ fn create_agent_image_tasks_in_data_dir(
         skill_id: skill_id.clone(),
         skill_content_hash: String::new(),
         task_group: Some(crate::models::AgentTaskGroupSummary {
+            schema_version: crate::models::AGENT_SCHEMA_VERSION,
             id: task_group_id.clone(),
             task_ids: tasks.iter().map(|task| task.id.clone()).collect(),
             titles,
@@ -896,6 +897,7 @@ fn create_agent_image_tasks_in_data_dir(
     });
     let _ = save_session(data_dir, agent_session)?;
     Ok(AgentTaskGroup {
+        schema_version: crate::models::AGENT_SCHEMA_VERSION,
         id: task_group_id,
         session_id,
         skill_id,

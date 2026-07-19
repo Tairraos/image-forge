@@ -1009,9 +1009,9 @@ pub(crate) fn list_agent_sessions(
         if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
             continue;
         }
-        if let Ok(session) = read_json::<crate::models::AgentSession>(&entry.path()) {
-            sessions.push(session);
-        }
+        let path = entry.path();
+        let session = read_json::<crate::models::AgentSession>(&path)?;
+        sessions.push(session);
     }
     sessions.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
     Ok(sessions)

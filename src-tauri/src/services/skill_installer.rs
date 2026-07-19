@@ -11,7 +11,7 @@ use url::Url;
 
 use crate::{
     defaults::APP_USER_AGENT,
-    models::{SkillAuditResult, SkillEntry, SkillManifest},
+    models::{SkillAuditResult, SkillEntry, SkillManifest, AGENT_SCHEMA_VERSION},
     services::skill::fetch_skill_markdown,
     store::{read_skills, skill_directory_name, skills_dir, write_skill_index},
     utils::utc_now,
@@ -93,7 +93,7 @@ pub(crate) fn audit_skill_directory(root: &Path) -> Result<SkillAuditResult, Str
     let output_capability =
         frontmatter_scalar(&content, "outputCapability").unwrap_or_else(|| "image_plan".into());
     let manifest = SkillManifest {
-        schema_version: 1,
+        schema_version: AGENT_SCHEMA_VERSION,
         content_hash: hash,
         name,
         capabilities,
@@ -133,7 +133,7 @@ pub(crate) fn read_verified_manifest(root: &Path) -> Result<SkillManifest, Strin
     let bytes = fs::read(&path).map_err(|error| format!("读取 Skill manifest 失败: {error}"))?;
     let manifest: SkillManifest = serde_json::from_slice(&bytes)
         .map_err(|error| format!("解析 Skill manifest 失败: {error}"))?;
-    if manifest.schema_version != 1 {
+    if manifest.schema_version != AGENT_SCHEMA_VERSION {
         return Err(format!(
             "不支持的 Skill manifest 版本：{}",
             manifest.schema_version

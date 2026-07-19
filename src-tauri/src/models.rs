@@ -9,6 +9,8 @@ use crate::defaults::{
 };
 use crate::utils::utc_now;
 
+pub(crate) const AGENT_SCHEMA_VERSION: u32 = 1;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AboutInfo {
@@ -303,7 +305,9 @@ pub struct AppState {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentAttachment {
+    #[serde(default)]
     pub id: String,
+    #[serde(default)]
     pub path: String,
     #[serde(default)]
     pub file_name: String,
@@ -318,7 +322,11 @@ pub struct AgentAttachment {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentToolCall {
+    #[serde(default = "default_agent_schema_version")]
+    pub schema_version: u32,
+    #[serde(default)]
     pub id: String,
+    #[serde(default)]
     pub name: String,
     #[serde(default)]
     pub arguments: Value,
@@ -328,6 +336,7 @@ pub struct AgentToolCall {
     pub error: Option<String>,
     #[serde(default)]
     pub status: String,
+    #[serde(default)]
     pub created_at: String,
     #[serde(default)]
     pub completed_at: Option<String>,
@@ -349,6 +358,9 @@ pub struct AgentQuestion {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentTaskGroupSummary {
+    #[serde(default = "default_agent_schema_version")]
+    pub schema_version: u32,
+    #[serde(default)]
     pub id: String,
     #[serde(default)]
     pub task_ids: Vec<String>,
@@ -363,7 +375,9 @@ pub struct AgentTaskGroupSummary {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentMessage {
+    #[serde(default)]
     pub id: String,
+    #[serde(default)]
     pub role: String,
     #[serde(default)]
     pub status: String,
@@ -383,6 +397,7 @@ pub struct AgentMessage {
     pub task_group: Option<AgentTaskGroupSummary>,
     #[serde(default)]
     pub error: String,
+    #[serde(default)]
     pub created_at: String,
 }
 
@@ -391,6 +406,7 @@ pub struct AgentMessage {
 pub struct AgentSession {
     #[serde(default = "default_agent_schema_version")]
     pub schema_version: u32,
+    #[serde(default)]
     pub id: String,
     #[serde(default)]
     pub title: String,
@@ -404,7 +420,9 @@ pub struct AgentSession {
     pub status: String,
     #[serde(default)]
     pub task_group_ids: Vec<String>,
+    #[serde(default)]
     pub created_at: String,
+    #[serde(default)]
     pub updated_at: String,
 }
 
@@ -469,7 +487,7 @@ pub enum AgentEnvelope {
 }
 
 fn default_agent_schema_version() -> u32 {
-    1
+    AGENT_SCHEMA_VERSION
 }
 
 fn default_agent_assistant_status() -> String {
@@ -479,8 +497,11 @@ fn default_agent_assistant_status() -> String {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SkillManifest {
+    #[serde(default = "default_agent_schema_version")]
     pub schema_version: u32,
+    #[serde(default)]
     pub content_hash: String,
+    #[serde(default)]
     pub name: String,
     #[serde(default)]
     pub capabilities: Vec<String>,
@@ -540,11 +561,17 @@ pub struct AgentImagePlan {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentTaskGroup {
+    #[serde(default = "default_agent_schema_version")]
+    pub schema_version: u32,
+    #[serde(default)]
     pub id: String,
+    #[serde(default)]
     pub session_id: String,
     #[serde(default)]
     pub skill_id: String,
+    #[serde(default)]
     pub tasks: Vec<TaskRecord>,
+    #[serde(default)]
     pub created_at: String,
 }
 
