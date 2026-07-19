@@ -14,6 +14,12 @@
           <n-descriptions-item v-if="task.origin === 'agent' && task.skillId" label="Skill">
             {{ task.skillId }}
           </n-descriptions-item>
+          <n-descriptions-item v-if="task.origin === 'agent' && task.skillContentHash" label="Skill 哈希">
+            <code :title="task.skillContentHash">{{ shortHash(task.skillContentHash) }}</code>
+          </n-descriptions-item>
+          <n-descriptions-item v-if="task.origin === 'agent' && task.agentPlan" label="参考策略">
+            {{ referencePolicyLabel(task.agentPlan.referencePolicy) }}
+          </n-descriptions-item>
           <n-descriptions-item label="提示词模式">{{ task.params?.promptFidelity }}</n-descriptions-item>
           <n-descriptions-item label="分辨率">{{ task.params?.resolution }}</n-descriptions-item>
           <n-descriptions-item label="比例">{{ task.params?.ratio }}</n-descriptions-item>
@@ -55,5 +61,14 @@ function reuseTask() {
   if (!props.task) return;
   emit("reuse", props.task);
   show.value = false;
+}
+
+function referencePolicyLabel(policy) {
+  return { use: "使用指定参考图", optional: "可选参考图", none: "不使用参考图" }[policy] || policy || "未记录";
+}
+
+function shortHash(value) {
+  const text = String(value || "");
+  return text.length > 16 ? `${text.slice(0, 16)}...` : text;
 }
 </script>

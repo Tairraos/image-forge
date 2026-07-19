@@ -360,6 +360,8 @@ pub(crate) fn fallback_failed_record(task_id: &str, error: &str) -> TaskRecord {
         agent_session_id: String::new(),
         task_group_id: String::new(),
         skill_id: String::new(),
+        skill_content_hash: String::new(),
+        agent_plan: None,
     }
 }
 

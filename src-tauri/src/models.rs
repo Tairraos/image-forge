@@ -235,6 +235,10 @@ pub struct TaskRecord {
     pub task_group_id: String,
     #[serde(default)]
     pub skill_id: String,
+    #[serde(default)]
+    pub skill_content_hash: String,
+    #[serde(default)]
+    pub agent_plan: Option<AgentImagePlan>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -362,6 +366,8 @@ pub struct AgentTaskGroupSummary {
     pub schema_version: u32,
     #[serde(default)]
     pub id: String,
+    #[serde(default)]
+    pub skill_content_hash: String,
     #[serde(default)]
     pub task_ids: Vec<String>,
     #[serde(default)]
@@ -569,6 +575,8 @@ pub struct AgentTaskGroup {
     pub session_id: String,
     #[serde(default)]
     pub skill_id: String,
+    #[serde(default)]
+    pub skill_content_hash: String,
     #[serde(default)]
     pub tasks: Vec<TaskRecord>,
     #[serde(default)]

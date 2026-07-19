@@ -772,6 +772,7 @@ fn create_agent_image_tasks_in_data_dir(
     }
     let settings = read_settings(data_dir)?;
     let agent_session = session(data_dir, &session_id)?;
+    let skill_content_hash = agent_skill_content_hash(data_dir, &skill_id);
     let attachment_paths = agent_session
         .messages
         .iter()
@@ -783,8 +784,8 @@ fn create_agent_image_tasks_in_data_dir(
     let mut prepared = Vec::with_capacity(plans.len());
     for plan in plans {
         let policy = match plan.reference_policy.trim() {
-            "use" | "optional" | "none" => plan.reference_policy.trim(),
-            "" => "optional",
+            "use" | "optional" | "none" => plan.reference_policy.trim().to_string(),
+            "" => "optional".into(),
             _ => return Err("参考图策略必须是 use、optional 或 none".into()),
         };
         if policy == "use" && plan.reference_ids.is_empty() {
@@ -797,9 +798,9 @@ fn create_agent_image_tasks_in_data_dir(
             provider_id: Some(if plan.provider_id.trim().is_empty() {
                 settings.active_image_provider_id.clone()
             } else {
-                plan.provider_id
+                plan.provider_id.clone()
             }),
-            prompt: plan.prompt,
+            prompt: plan.prompt.clone(),
             reference_paths: if policy == "none" {
                 Vec::new()
             } else if plan.reference_ids.is_empty() && policy == "optional" {
@@ -818,22 +819,22 @@ fn create_agent_image_tasks_in_data_dir(
             resolution: if plan.resolution.trim().is_empty() {
                 "standard".into()
             } else {
-                plan.resolution
+                plan.resolution.clone()
             },
             ratio: if plan.ratio.trim().is_empty() {
                 "1:1".into()
             } else {
-                plan.ratio
+                plan.ratio.clone()
             },
             quality: if plan.quality.trim().is_empty() {
                 "auto".into()
             } else {
-                plan.quality
+                plan.quality.clone()
             },
             prompt_fidelity: if plan.prompt_fidelity.trim().is_empty() {
                 "original".into()
             } else {
-                plan.prompt_fidelity
+                plan.prompt_fidelity.clone()
             },
             ..GenerateRequest::default()
         };
@@ -844,25 +845,38 @@ fn create_agent_image_tasks_in_data_dir(
         }
         request.provider_id = Some(provider.id.clone());
         request.reference_paths = persist_reference_paths(data_dir, &request.reference_paths)?;
-        prepared.push((plan.title, request, provider));
+        let normalized_plan = AgentImagePlan {
+            title: if plan.title.trim().is_empty() {
+                "图片".into()
+            } else {
+                plan.title.trim().to_string()
+            },
+            prompt: request.prompt.clone(),
+            provider_id: provider.id.clone(),
+            resolution: request.resolution.clone(),
+            ratio: request.ratio.clone(),
+            quality: request.quality.clone(),
+            prompt_fidelity: request.prompt_fidelity.clone(),
+            reference_policy: policy,
+            reference_ids: plan.reference_ids,
+        };
+        prepared.push((normalized_plan, request, provider));
     }
     let now = utc_now();
     let mut request_files = Vec::with_capacity(prepared.len());
     let mut tasks = Vec::with_capacity(prepared.len());
     let mut titles = Vec::with_capacity(prepared.len());
-    for (title, request, provider) in prepared {
+    for (plan, request, provider) in prepared {
         let id = Uuid::new_v4().to_string();
-        let record = task_record_from_request(
+        let mut record = task_record_from_request(
             id.clone(),
             &request,
             &provider,
             Some((&session_id, &task_group_id, &skill_id)),
         );
-        titles.push(if title.trim().is_empty() {
-            "图片".into()
-        } else {
-            title
-        });
+        record.skill_content_hash = skill_content_hash.clone();
+        titles.push(plan.title.clone());
+        record.agent_plan = Some(plan);
         request_files.push((id, request));
         tasks.push(record);
     }
@@ -880,10 +894,11 @@ fn create_agent_image_tasks_in_data_dir(
         tool_call: None,
         questions: Vec::new(),
         skill_id: skill_id.clone(),
-        skill_content_hash: String::new(),
+        skill_content_hash: skill_content_hash.clone(),
         task_group: Some(crate::models::AgentTaskGroupSummary {
             schema_version: crate::models::AGENT_SCHEMA_VERSION,
             id: task_group_id.clone(),
+            skill_content_hash: skill_content_hash.clone(),
             task_ids: tasks.iter().map(|task| task.id.clone()).collect(),
             titles,
             prompt_summaries: tasks
@@ -901,9 +916,25 @@ fn create_agent_image_tasks_in_data_dir(
         id: task_group_id,
         session_id,
         skill_id,
+        skill_content_hash,
         tasks,
         created_at: utc_now(),
     })
+}
+
+fn agent_skill_content_hash(data_dir: &Path, skill_id: &str) -> String {
+    if skill_id.trim().is_empty() {
+        return String::new();
+    }
+    let Ok(skills) = read_skills(data_dir) else {
+        return String::new();
+    };
+    let Some(skill) = skills.iter().find(|skill| skill.id == skill_id) else {
+        return String::new();
+    };
+    read_verified_manifest(&skills_dir(data_dir).join(&skill.directory))
+        .map(|manifest| manifest.content_hash)
+        .unwrap_or_default()
 }
 
 fn prompt_summary(prompt: &str) -> String {
@@ -1280,6 +1311,8 @@ fn task_record_from_request(
         agent_session_id: String::new(),
         task_group_id: String::new(),
         skill_id: String::new(),
+        skill_content_hash: String::new(),
+        agent_plan: None,
     };
     if let Some((session_id, task_group_id, skill_id)) = agent_origin {
         record.origin = "agent".into();
@@ -2061,11 +2094,14 @@ mod tests {
 
         assert_eq!(group.tasks.len(), 1);
         assert_eq!(group.skill_id, "skill-camera");
+        assert!(!group.skill_content_hash.is_empty());
         let task = &group.tasks[0];
         assert_eq!(task.origin, "agent");
         assert_eq!(task.agent_session_id, agent_session.id);
         assert_eq!(task.task_group_id, group.id);
         assert_eq!(task.skill_id, "skill-camera");
+        assert_eq!(task.skill_content_hash, group.skill_content_hash);
+        assert_eq!(task.agent_plan.as_ref().unwrap().reference_policy, "use");
         assert_eq!(task.reference_paths.len(), 1);
         assert!(Path::new(&task.reference_paths[0]).starts_with(data_dir.join("references")));
 
@@ -2075,12 +2111,18 @@ mod tests {
         assert_eq!(queue.waiting, vec![task.id.clone()]);
         let saved_session = session(&data_dir, &agent_session.id).unwrap();
         assert!(saved_session.task_group_ids.contains(&group.id));
-        let summary = saved_session
+        let task_group_message = saved_session
             .messages
             .iter()
-            .find_map(|message| message.task_group.as_ref())
+            .find(|message| message.task_group.is_some())
             .unwrap();
+        assert_eq!(
+            task_group_message.skill_content_hash,
+            group.skill_content_hash
+        );
+        let summary = task_group_message.task_group.as_ref().unwrap();
         assert_eq!(summary.id, group.id);
+        assert_eq!(summary.skill_content_hash, group.skill_content_hash);
         assert_eq!(summary.task_ids, vec![task.id.clone()]);
         assert_eq!(
             summary.prompt_summaries,
@@ -2261,6 +2303,26 @@ mod tests {
                 providers: vec![provider],
                 ..Settings::default()
             },
+        )
+        .unwrap();
+
+        let package = data_dir.join("skills").join("camera-director");
+        std::fs::create_dir_all(&package).unwrap();
+        std::fs::write(package.join("SKILL.md"), "# 镜头导演\n\n只生成图片计划").unwrap();
+        write_skill_manifest(&package);
+        write_skill_index(
+            &data_dir,
+            &[SkillEntry {
+                id: "skill-camera".into(),
+                name: "镜头导演".into(),
+                source_url: String::new(),
+                notes: String::new(),
+                content: String::new(),
+                directory: "camera-director".into(),
+                source_path: String::new(),
+                created_at: String::new(),
+                updated_at: String::new(),
+            }],
         )
         .unwrap();
 
