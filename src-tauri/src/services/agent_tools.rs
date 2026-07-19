@@ -70,7 +70,10 @@ pub(crate) fn tool_definitions() -> Vec<Value> {
                                 "referencePolicy": { "enum": ["use", "optional", "none"] },
                                 "referenceIds": { "type": "array", "items": { "type": "string" } }
                             },
-                            "required": ["title", "prompt", "referencePolicy", "referenceIds"],
+                            "required": [
+                                "title", "prompt", "resolution", "ratio", "quality",
+                                "promptFidelity", "referencePolicy", "referenceIds"
+                            ],
                             "additionalProperties": false
                         }
                     }
@@ -152,23 +155,44 @@ pub(crate) fn validate_tool_arguments(name: &str, arguments: &Value) -> Result<(
                         "referenceIds",
                     ],
                 )?;
-                require_non_empty_string(plan.get("prompt"), &format!("plans[{index}].prompt"))?;
-                let policy = plan
-                    .get("referencePolicy")
-                    .and_then(Value::as_str)
-                    .unwrap_or("optional");
-                if !matches!(policy, "use" | "optional" | "none") {
-                    return Err(format!("plans[{index}].referencePolicy 无效"));
-                }
-                let references = plan
+                let label = format!("plans[{index}]");
+                require_non_empty_string(plan.get("title"), &format!("{label}.title"))?;
+                require_non_empty_string(plan.get("prompt"), &format!("{label}.prompt"))?;
+                require_enum(
+                    plan.get("resolution"),
+                    &format!("{label}.resolution"),
+                    &["standard", "2k", "4k"],
+                )?;
+                require_non_empty_string(plan.get("ratio"), &format!("{label}.ratio"))?;
+                require_enum(
+                    plan.get("quality"),
+                    &format!("{label}.quality"),
+                    &["auto", "low", "medium", "high"],
+                )?;
+                require_enum(
+                    plan.get("promptFidelity"),
+                    &format!("{label}.promptFidelity"),
+                    &["original", "strict", "off"],
+                )?;
+                let policy = require_enum(
+                    plan.get("referencePolicy"),
+                    &format!("{label}.referencePolicy"),
+                    &["use", "optional", "none"],
+                )?;
+                let reference_ids = plan
                     .get("referenceIds")
                     .and_then(Value::as_array)
-                    .map(Vec::len)
-                    .unwrap_or(0);
-                if policy == "use" && references == 0 {
+                    .ok_or_else(|| format!("{label}.referenceIds 必须是数组"))?;
+                if reference_ids
+                    .iter()
+                    .any(|value| !non_empty_string(Some(value)))
+                {
+                    return Err(format!("{label}.referenceIds 只能包含非空字符串"));
+                }
+                if policy == "use" && reference_ids.is_empty() {
                     return Err(format!("plans[{index}] 要求使用参考图但没有 referenceIds"));
                 }
-                if policy == "none" && references > 0 {
+                if policy == "none" && !reference_ids.is_empty() {
                     return Err(format!("plans[{index}] 禁止参考图但仍提供了 referenceIds"));
                 }
             }
@@ -290,6 +314,22 @@ fn require_non_empty_string(value: Option<&Value>, field: &str) -> Result<(), St
     }
 }
 
+fn require_enum<'a>(
+    value: Option<&'a Value>,
+    field: &str,
+    allowed: &[&str],
+) -> Result<&'a str, String> {
+    let value = value
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| format!("{field} 不能为空"))?;
+    if allowed.contains(&value) {
+        Ok(value)
+    } else {
+        Err(format!("{field} 无效"))
+    }
+}
+
 fn non_empty_string(value: Option<&Value>) -> bool {
     value
         .and_then(Value::as_str)
@@ -321,6 +361,19 @@ mod tests {
 
     use super::{parse_fallback_envelope, tool_definitions, validate_tool_arguments};
 
+    fn valid_image_plan() -> serde_json::Value {
+        json!({
+            "title": "图一",
+            "prompt": "完整提示词",
+            "resolution": "standard",
+            "ratio": "1:1",
+            "quality": "auto",
+            "promptFidelity": "original",
+            "referencePolicy": "none",
+            "referenceIds": []
+        })
+    }
+
     #[test]
     fn tool_registry_exposes_only_the_five_allowed_tools() {
         let tools = tool_definitions();
@@ -341,23 +394,55 @@ mod tests {
                 "get_task_status"
             ]
         );
+        let required = tools
+            .iter()
+            .find(|tool| tool.pointer("/function/name") == Some(&json!("create_image_tasks")))
+            .and_then(|tool| tool.pointer("/function/parameters/properties/plans/items/required"))
+            .and_then(|value| value.as_array())
+            .unwrap();
+        for field in [
+            "title",
+            "prompt",
+            "resolution",
+            "ratio",
+            "quality",
+            "promptFidelity",
+            "referencePolicy",
+            "referenceIds",
+        ] {
+            assert!(required.iter().any(|value| value == field));
+        }
     }
 
     #[test]
     fn image_plan_validation_enforces_reference_policy() {
-        let error = validate_tool_arguments(
-            "create_image_tasks",
-            &json!({
-                "plans": [{
-                    "title": "图一",
-                    "prompt": "完整提示词",
-                    "referencePolicy": "use",
-                    "referenceIds": []
-                }]
-            }),
-        )
-        .unwrap_err();
+        let mut plan = valid_image_plan();
+        plan["referencePolicy"] = json!("use");
+        let error =
+            validate_tool_arguments("create_image_tasks", &json!({ "plans": [plan] })).unwrap_err();
         assert!(error.contains("没有 referenceIds"));
+    }
+
+    #[test]
+    fn image_plan_validation_rejects_missing_fields_invalid_enums_and_reference_types() {
+        let mut plan = valid_image_plan();
+        plan.as_object_mut().unwrap().remove("resolution");
+        let missing =
+            validate_tool_arguments("create_image_tasks", &json!({ "plans": [plan] })).unwrap_err();
+        assert!(missing.contains("resolution"));
+
+        let mut plan = valid_image_plan();
+        plan["resolution"] = json!("8k");
+        let invalid =
+            validate_tool_arguments("create_image_tasks", &json!({ "plans": [plan] })).unwrap_err();
+        assert!(invalid.contains("resolution 无效"));
+
+        let mut plan = valid_image_plan();
+        plan["referencePolicy"] = json!("optional");
+        plan["referenceIds"] = json!([" "]);
+        let invalid_references =
+            validate_tool_arguments("create_image_tasks", &json!({ "plans": [plan] })).unwrap_err();
+        assert!(invalid_references.contains("referenceIds 只能包含非空字符串"));
     }
 
     #[test]
@@ -373,19 +458,10 @@ mod tests {
         .unwrap_err();
         assert!(error.contains("未知字段"));
 
-        let error = validate_tool_arguments(
-            "create_image_tasks",
-            &json!({
-                "plans": [{
-                    "title": "图一",
-                    "prompt": "完整提示词",
-                    "referencePolicy": "none",
-                    "referenceIds": [],
-                    "unexpected": true
-                }]
-            }),
-        )
-        .unwrap_err();
+        let mut plan = valid_image_plan();
+        plan["unexpected"] = json!(true);
+        let error =
+            validate_tool_arguments("create_image_tasks", &json!({ "plans": [plan] })).unwrap_err();
         assert!(error.contains("未知字段"));
     }
 
