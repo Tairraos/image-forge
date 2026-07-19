@@ -375,9 +375,29 @@ fn agent_message_to_chat_value(message: &AgentMessage) -> serde_json::Value {
             }]
         });
     }
+    let attachment_metadata = message
+        .attachments
+        .iter()
+        .map(|attachment| serde_json::json!({
+            "id": attachment.id,
+            "fileName": attachment.file_name,
+            "mimeType": attachment.mime_type,
+            "width": attachment.width,
+            "height": attachment.height,
+        }))
+        .collect::<Vec<_>>();
+    let content = if attachment_metadata.is_empty() {
+        message.content.clone()
+    } else {
+        format!(
+            "{}\n\n<reference_attachments>{}</reference_attachments>",
+            message.content,
+            serde_json::to_string(&attachment_metadata).unwrap_or_default()
+        )
+    };
     serde_json::json!({
         "role": message.role,
-        "content": message.content,
+        "content": content,
     })
 }
 
@@ -590,6 +610,13 @@ pub(crate) fn create_agent_image_tasks(
     }
     let data_dir = ensure_data_dir(&app)?;
     let settings = read_settings(&data_dir)?;
+    let agent_session = session(&data_dir, &session_id)?;
+    let attachment_paths = agent_session
+        .messages
+        .iter()
+        .flat_map(|message| message.attachments.iter())
+        .map(|attachment| (attachment.id.clone(), attachment.path.clone()))
+        .collect::<std::collections::HashMap<_, _>>();
     let task_group_id = Uuid::new_v4().to_string();
     let mut prepared = Vec::with_capacity(plans.len());
     for plan in plans {
@@ -612,6 +639,14 @@ pub(crate) fn create_agent_image_tasks(
                 Vec::new()
             } else {
                 plan.reference_ids
+                    .iter()
+                    .map(|id| {
+                        attachment_paths
+                            .get(id)
+                            .cloned()
+                            .ok_or_else(|| format!("参考图 ID 不属于当前 Agent 会话：{id}"))
+                    })
+                    .collect::<Result<Vec<_>, String>>()?
             },
             resolution: if plan.resolution.trim().is_empty() {
                 "standard".into()
