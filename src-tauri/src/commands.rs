@@ -279,6 +279,7 @@ async fn normalize_agent_output(
             .to_string(),
         plans,
     )?;
+    let _ = app.emit("agent-task-group", &group);
     let _ = data_dir;
     Ok(format!(
         "已创建 {} 个绘图任务，任务组 ID：{}",

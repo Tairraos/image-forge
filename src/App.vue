@@ -387,6 +387,7 @@ let unlistenDragDrop = null;
 let unlistenQueueUpdated = null;
 let unlistenTemplateFill = null;
 let unlistenAgentProgress = null;
+let unlistenAgentTaskGroup = null;
 let queueRefreshInFlight = false;
 let queueRefreshQueued = false;
 
@@ -505,6 +506,11 @@ onMounted(async () => {
   } catch {
     // 预览环境可能没有事件通道。
   }
+  try {
+    unlistenAgentTaskGroup = await listenEvent("agent-task-group", handleAgentTaskGroupEvent);
+  } catch {
+    // 预览环境可能没有事件通道。
+  }
   await refreshAll();
   await refreshAgentSessions();
   historyScrollRequest.value += 1;
@@ -518,6 +524,7 @@ onUnmounted(() => {
   unlistenQueueUpdated?.();
   unlistenTemplateFill?.();
   unlistenAgentProgress?.();
+  unlistenAgentTaskGroup?.();
   removeScrollbarVisibility?.();
 });
 
@@ -654,6 +661,17 @@ function handleAgentProgressEvent(event) {
   if (payload.sessionId !== currentAgentSessionId.value) return;
   if (payload.phase === "delta") agentStreamText.value += payload.chunk || "";
   if (payload.phase === "error") setStatus(payload.message || "Agent 调用失败", "error");
+}
+
+async function handleAgentTaskGroupEvent(event) {
+  const group = event?.payload;
+  if (!group || group.sessionId !== currentAgentSessionId.value) return;
+  workspaceMode.value = "drawing";
+  const first = group.tasks?.[0];
+  if (first?.id) selectedTaskId.value = first.id;
+  await refreshQueueOnly();
+  historyScrollRequest.value += 1;
+  setStatus(`Agent 已创建 ${group.tasks?.length || 0} 个绘图任务`, "ok");
 }
 
 // 只在队列活跃期间保留兜底轮询，平时由后端事件驱动刷新。

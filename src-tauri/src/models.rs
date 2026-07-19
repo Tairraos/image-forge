@@ -441,7 +441,7 @@ pub struct AgentImagePlan {
     pub reference_ids: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentTaskGroup {
     pub id: String,
