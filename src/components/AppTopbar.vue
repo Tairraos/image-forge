@@ -4,6 +4,11 @@
       <img :src="logoUrl" alt="Image Forge" />
     </div>
 
+    <n-button-group class="mode-switch" size="small">
+      <n-button :type="mode === 'drawing' ? 'primary' : 'default'" @click="$emit('update:mode', 'drawing')">绘画</n-button>
+      <n-button :type="mode === 'agent' ? 'primary' : 'default'" @click="$emit('update:mode', 'agent')">Agent</n-button>
+    </n-button-group>
+
     <div class="topbar-actions">
       <n-button quaternary size="small" @click="$emit('show-api')">
         <template #icon><Settings :size="16" /></template>
@@ -29,5 +34,6 @@
 import { BookOpen, FileText, Info, Settings } from "@lucide/vue";
 import logoUrl from "../assets/title.png";
 
-defineEmits(["show-api", "show-template-manager", "show-skill-manager", "show-about"]);
+defineProps({ mode: { type: String, default: "drawing" } });
+defineEmits(["update:mode", "show-api", "show-template-manager", "show-skill-manager", "show-about"]);
 </script>

@@ -3,13 +3,15 @@
     <n-global-style />
     <main class="app">
       <AppTopbar
+        :mode="workspaceMode"
+        @update:mode="workspaceMode = $event"
         @show-api="showApiDialog = true"
         @show-template-manager="showTemplateManagerDialog = true"
         @show-skill-manager="showSkillManagerDialog = true"
         @show-about="openAbout"
       />
 
-      <section class="workspace" :style="workspaceStyle">
+      <section v-if="workspaceMode === 'drawing'" class="workspace" :style="workspaceStyle">
         <QueuePanel
           :filtered-history="filteredHistory"
           :selected-task-id="selectedTaskId"
@@ -74,6 +76,24 @@
           @drop-reference="handleReferenceDropEvent"
         />
       </section>
+
+      <AgentWorkspace
+        v-else
+        :sessions="agentSessions"
+        :current-session="currentAgentSession"
+        :provider-options="chatProviderOptions"
+        :provider-id="agentProviderId"
+        :busy="agentBusy"
+        :stream-text="agentStreamText"
+        :attachments="agentAttachments"
+        @create="createAgentConversation"
+        @select="selectAgentConversation"
+        @send="sendAgentConversationMessage"
+        @stop="stopAgentConversation"
+        @add-reference="addAgentReferenceImages"
+        @remove-attachment="removeAgentAttachment"
+        @update:provider-id="agentProviderId = $event"
+      />
 
       <footer class="status-bar">
         <span class="status-pill" :data-tone="statusTone">{{ statusText }}</span>
@@ -248,6 +268,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import AppTopbar from "./components/AppTopbar.vue";
+import AgentWorkspace from "./components/AgentWorkspace.vue";
 import ComposerPanel from "./components/ComposerPanel.vue";
 import QueuePanel from "./components/QueuePanel.vue";
 import ResultPanel from "./components/ResultPanel.vue";
@@ -287,6 +308,13 @@ import { invoke, listenDragDrop, listenEvent, openDialog, saveDialog } from "./t
 
 const statusText = ref("启动中");
 const statusTone = ref("busy");
+const workspaceMode = ref("drawing");
+const agentSessions = ref([]);
+const currentAgentSessionId = ref("");
+const agentProviderId = ref("");
+const agentBusy = ref(false);
+const agentStreamText = ref("");
+const agentAttachments = ref([]);
 const settings = ref(defaultSettings());
 const history = ref([]);
 const queue = reactive({ waiting: [], running: [], recent: [], workerActive: false, updatedAt: "" });
@@ -400,6 +428,7 @@ let unlistenDragDrop = null;
 let unlistenQueueUpdated = null;
 let unlistenSkillPlanner = null;
 let unlistenTemplateFill = null;
+let unlistenAgentProgress = null;
 let queueRefreshInFlight = false;
 let queueRefreshQueued = false;
 
@@ -429,6 +458,10 @@ const activeProvider = computed(() =>
   imageProviders.value.find((provider) => provider.id === form.providerId)
   || imageProviders.value.find((provider) => provider.id === settings.value.activeImageProviderId)
   || imageProviders.value[0],
+);
+
+const currentAgentSession = computed(() =>
+  agentSessions.value.find((session) => session.id === currentAgentSessionId.value) || null,
 );
 
 const historyTimeline = computed(() => {
@@ -514,7 +547,13 @@ onMounted(async () => {
   } catch {
     // 预览环境可能没有事件通道。
   }
+  try {
+    unlistenAgentProgress = await listenEvent("agent-progress", handleAgentProgressEvent);
+  } catch {
+    // 预览环境可能没有事件通道。
+  }
   await refreshAll();
+  await refreshAgentSessions();
   historyScrollRequest.value += 1;
   scheduleTodayRollover();
 });
@@ -527,6 +566,7 @@ onUnmounted(() => {
   unlistenQueueUpdated?.();
   unlistenSkillPlanner?.();
   unlistenTemplateFill?.();
+  unlistenAgentProgress?.();
   removeScrollbarVisibility?.();
 });
 
@@ -539,6 +579,104 @@ async function refreshAll() {
   } catch (error) {
     setStatus(String(error), "error");
   }
+}
+
+async function refreshAgentSessions() {
+  try {
+    const list = await invoke("list_agent_sessions");
+    agentSessions.value = Array.isArray(list) ? list : [];
+    if (!currentAgentSessionId.value && agentSessions.value[0]) {
+      currentAgentSessionId.value = agentSessions.value[0].id;
+      agentProviderId.value = agentSessions.value[0].modelProviderId || form.chatProviderId;
+    }
+    if (!agentSessions.value.length && agentProviderId.value) await createAgentConversation();
+  } catch {
+    // Agent 会话在旧版本数据目录或浏览器预览中可能暂不可用。
+  }
+}
+
+async function createAgentConversation() {
+  if (!agentProviderId.value) agentProviderId.value = form.chatProviderId;
+  if (!agentProviderId.value) {
+    await showNotice("缺少对话模型", "请先在 API 源中配置对话模型");
+    return;
+  }
+  try {
+    const session = await invoke("create_agent_session", { providerId: agentProviderId.value });
+    agentSessions.value = [session, ...agentSessions.value.filter((item) => item.id !== session.id)];
+    currentAgentSessionId.value = session.id;
+  } catch (error) {
+    setStatus(String(error), "error");
+  }
+}
+
+async function selectAgentConversation(sessionId) {
+  try {
+    const session = await invoke("get_agent_session", { sessionId });
+    agentSessions.value = [session, ...agentSessions.value.filter((item) => item.id !== session.id)];
+    currentAgentSessionId.value = session.id;
+    agentProviderId.value = session.modelProviderId || agentProviderId.value;
+    agentStreamText.value = "";
+  } catch (error) {
+    setStatus(String(error), "error");
+  }
+}
+
+async function sendAgentConversationMessage(content) {
+  if (!currentAgentSessionId.value) await createAgentConversation();
+  if (!currentAgentSessionId.value) return;
+  agentBusy.value = true;
+  agentStreamText.value = "";
+  try {
+    const session = await invoke("send_agent_message", {
+      sessionId: currentAgentSessionId.value,
+      providerId: agentProviderId.value,
+      content,
+      attachments: agentAttachments.value.map(({ dataUrl, ...attachment }) => attachment),
+    });
+    agentSessions.value = [session, ...agentSessions.value.filter((item) => item.id !== session.id)];
+    agentAttachments.value = [];
+  } catch (error) {
+    setStatus(String(error), "error");
+  } finally {
+    agentBusy.value = false;
+    agentStreamText.value = "";
+  }
+}
+
+function stopAgentConversation() {
+  agentBusy.value = false;
+  agentStreamText.value = "";
+}
+
+async function addAgentReferenceImages() {
+  const selected = await openDialog({ multiple: true, filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "gif"] }] });
+  const paths = Array.isArray(selected) ? selected : selected ? [selected] : [];
+  for (const path of paths) {
+    try {
+      const preview = await invoke("reference_from_path", { path });
+      agentAttachments.value.push({
+        id: preview.path,
+        path: preview.path,
+        fileName: preview.fileName,
+        mimeType: preview.mimeType,
+        dataUrl: preview.dataUrl,
+      });
+    } catch (error) {
+      setStatus(String(error), "error");
+    }
+  }
+}
+
+function removeAgentAttachment(id) {
+  agentAttachments.value = agentAttachments.value.filter((item) => item.id !== id);
+}
+
+function handleAgentProgressEvent(event) {
+  const payload = event?.payload || {};
+  if (payload.sessionId !== currentAgentSessionId.value) return;
+  if (payload.phase === "delta") agentStreamText.value += payload.chunk || "";
+  if (payload.phase === "error") setStatus(payload.message || "Agent 调用失败", "error");
 }
 
 // 只在队列活跃期间保留兜底轮询，平时由后端事件驱动刷新。
