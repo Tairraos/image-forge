@@ -1,6 +1,6 @@
 [package]
 name = "image-forge"
-version = "1.0.31"
+version = "1.0.32"
 description = "Native image generation workbench"
 authors = ["xiaole"]
 edition = "2021"
