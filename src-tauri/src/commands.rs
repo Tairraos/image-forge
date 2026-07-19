@@ -151,17 +151,7 @@ pub(crate) async fn send_agent_message(
     let context_messages = prepare_context(&mut current);
     current = save_session(&data_dir, current)?;
     let settings = read_settings(&data_dir)?;
-    let provider = settings
-        .providers
-        .iter()
-        .find(|provider| provider.id == current.model_provider_id && provider.model_type == "chat")
-        .or_else(|| {
-            settings.providers.iter().find(|provider| {
-                provider.id == settings.active_chat_provider_id && provider.model_type == "chat"
-            })
-        })
-        .ok_or("还没有配置对话模型")?
-        .clone();
+    let provider = agent_chat_provider(&settings, &current.model_provider_id)?;
     let mut context = if current.summary.trim().is_empty() {
         String::new()
     } else {
@@ -361,6 +351,28 @@ fn agent_system_prompt(context: &str) -> String {
         "你是 Image Forge 本地 Agent。普通聊天直接回答；需要 Skill 或绘图时必须调用已注册工具。禁止声称执行终端、脚本、任意文件读写、任意 HTTP、浏览器、数据库或插件。调用 use_skill 后，如果缺信息必须返回 schemaVersion=1 的 assistant envelope，status=needs_input 并在 questions 中提出最多 3 个问题；Skill 无法执行时返回 status=rejected 和原因；信息完整时返回 status=ready 及逐图 plans，或调用 create_image_tasks。每个 plan 必须明确 resolution、ratio、quality、promptFidelity、referencePolicy 和 referenceIds。参考图只有 ID 和元数据；不支持视觉的模型不能假装看到了图片内容。\n\n当前会话上下文：\n{}",
         context.trim()
     )
+}
+
+fn agent_chat_provider(
+    settings: &Settings,
+    preferred_provider_id: &str,
+) -> Result<ApiProvider, String> {
+    let provider = settings
+        .providers
+        .iter()
+        .find(|provider| {
+            provider.id == preferred_provider_id.trim() && provider.model_type == "chat"
+        })
+        .or_else(|| {
+            settings.providers.iter().find(|provider| {
+                provider.id == settings.active_chat_provider_id && provider.model_type == "chat"
+            })
+        })
+        .ok_or("还没有配置对话模型")?;
+    if provider.api_key.trim().is_empty() {
+        return Err(format!("对话模型「{}」还没有填写 API Key", provider.name));
+    }
+    Ok(provider.clone())
 }
 
 fn agent_message_to_chat_value(message: &AgentMessage) -> serde_json::Value {
@@ -2063,6 +2075,52 @@ mod tests {
         assert!(content.contains("\"fileName\":\"reference.png\""));
         assert!(content.contains("\"mimeType\":\"image/png\""));
         assert!(!content.contains("/Users/xiaole/secret/reference.png"));
+    }
+
+    #[test]
+    fn agent_chat_provider_prefers_session_binding_and_checks_api_key() {
+        let provider_a = ApiProvider {
+            id: "chat-a".into(),
+            name: "对话 A".into(),
+            model_type: "chat".into(),
+            base_url: "https://example.com/a".into(),
+            api_key: "key-a".into(),
+            proxy_url: String::new(),
+            image_model: "model-a".into(),
+            images_concurrency: 1,
+            enabled: true,
+            notes: String::new(),
+        };
+        let provider_b = ApiProvider {
+            id: "chat-b".into(),
+            name: "对话 B".into(),
+            model_type: "chat".into(),
+            base_url: "https://example.com/b".into(),
+            api_key: "key-b".into(),
+            proxy_url: String::new(),
+            image_model: "model-b".into(),
+            images_concurrency: 1,
+            enabled: true,
+            notes: String::new(),
+        };
+        let settings = Settings {
+            active_chat_provider_id: provider_b.id.clone(),
+            providers: vec![provider_a.clone(), provider_b.clone()],
+            ..Settings::default()
+        };
+        let selected = agent_chat_provider(&settings, "chat-a").unwrap();
+        assert_eq!(selected.id, provider_a.id);
+
+        let keyless = Settings {
+            active_chat_provider_id: provider_b.id.clone(),
+            providers: vec![ApiProvider {
+                api_key: String::new(),
+                ..provider_b.clone()
+            }],
+            ..Settings::default()
+        };
+        let error = agent_chat_provider(&keyless, "chat-b").unwrap_err();
+        assert!(error.contains("还没有填写 API Key"));
     }
 
     #[test]
