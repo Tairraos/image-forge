@@ -136,62 +136,20 @@ async fn consume_agent_tool_stream(
         buffer.extend_from_slice(&chunk);
         while let Some((index, separator_len)) = find_sse_separator(&buffer) {
             let block = buffer.drain(..index + separator_len).collect::<Vec<_>>();
-            let payload = String::from_utf8_lossy(&block)
-                .lines()
-                .filter_map(|line| line.trim().strip_prefix("data:"))
-                .map(str::trim)
-                .collect::<Vec<_>>()
-                .join("\n");
-            if payload.is_empty() || payload == "[DONE]" {
-                continue;
-            }
-            let value: Value = serde_json::from_str(&payload)
-                .map_err(|error| format!("解析 Agent 流式 JSON 失败: {error}"))?;
-            let Some(delta) = value.pointer("/choices/0/delta") else {
-                continue;
-            };
-            if let Some(content) = delta.get("content").and_then(content_value_to_text) {
-                text.push_str(&content);
-                on_event(ChatProgressEventData {
-                    phase: "delta",
-                    mode: "stream",
-                    chunk: content,
-                    message: String::new(),
-                    tool_call_id: String::new(),
-                    tool_name: String::new(),
-                });
-            }
-            if let Some(items) = delta.get("tool_calls").and_then(Value::as_array) {
-                for item in items {
-                    let index = item.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
-                    let entry = calls.entry(index).or_insert_with(|| AgentModelToolCall {
-                        id: String::new(),
-                        name: String::new(),
-                        arguments: String::new(),
-                    });
-                    if let Some(id) = item.get("id").and_then(Value::as_str) {
-                        entry.id.push_str(id);
-                    }
-                    if let Some(function) = item.get("function").and_then(Value::as_object) {
-                        if let Some(name) = function.get("name").and_then(Value::as_str) {
-                            entry.name.push_str(name);
-                        }
-                        if let Some(arguments) = function.get("arguments").and_then(Value::as_str) {
-                            entry.arguments.push_str(arguments);
-                        }
-                    }
-                    on_event(ChatProgressEventData {
-                        phase: "tool_delta",
-                        mode: "stream",
-                        chunk: String::new(),
-                        message: format!("准备调用 {}", entry.name),
-                        tool_call_id: entry.id.clone(),
-                        tool_name: entry.name.clone(),
-                    });
-                }
+            if consume_agent_tool_stream_block(&block, &mut text, &mut calls, on_event)? {
+                return finish_agent_tool_stream(text, calls, started, runtime_state);
             }
         }
     }
+    finish_agent_tool_stream(text, calls, started, runtime_state)
+}
+
+fn finish_agent_tool_stream(
+    text: String,
+    calls: std::collections::BTreeMap<usize, AgentModelToolCall>,
+    started: Instant,
+    runtime_state: Option<&RuntimeState>,
+) -> Result<AgentModelResponse, String> {
     let tool_calls = calls.into_values().collect::<Vec<_>>();
     record_runtime_log(
         runtime_state,
@@ -211,6 +169,72 @@ async fn consume_agent_tool_stream(
         tool_calls,
         mode: "stream".into(),
     })
+}
+
+fn consume_agent_tool_stream_block(
+    block: &[u8],
+    text: &mut String,
+    calls: &mut std::collections::BTreeMap<usize, AgentModelToolCall>,
+    on_event: &mut impl FnMut(ChatProgressEventData),
+) -> Result<bool, String> {
+    let payload = String::from_utf8_lossy(block)
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("data:"))
+        .map(str::trim)
+        .collect::<Vec<_>>()
+        .join("\n");
+    if payload.is_empty() {
+        return Ok(false);
+    }
+    if payload == "[DONE]" {
+        return Ok(true);
+    }
+    let value: Value = serde_json::from_str(&payload)
+        .map_err(|error| format!("解析 Agent 流式 JSON 失败: {error}"))?;
+    let Some(delta) = value.pointer("/choices/0/delta") else {
+        return Ok(false);
+    };
+    if let Some(content) = delta.get("content").and_then(content_value_to_text) {
+        text.push_str(&content);
+        on_event(ChatProgressEventData {
+            phase: "delta",
+            mode: "stream",
+            chunk: content,
+            message: String::new(),
+            tool_call_id: String::new(),
+            tool_name: String::new(),
+        });
+    }
+    if let Some(items) = delta.get("tool_calls").and_then(Value::as_array) {
+        for item in items {
+            let index = item.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
+            let entry = calls.entry(index).or_insert_with(|| AgentModelToolCall {
+                id: String::new(),
+                name: String::new(),
+                arguments: String::new(),
+            });
+            if let Some(id) = item.get("id").and_then(Value::as_str) {
+                entry.id.push_str(id);
+            }
+            if let Some(function) = item.get("function").and_then(Value::as_object) {
+                if let Some(name) = function.get("name").and_then(Value::as_str) {
+                    entry.name.push_str(name);
+                }
+                if let Some(arguments) = function.get("arguments").and_then(Value::as_str) {
+                    entry.arguments.push_str(arguments);
+                }
+            }
+            on_event(ChatProgressEventData {
+                phase: "tool_delta",
+                mode: "stream",
+                chunk: String::new(),
+                message: format!("准备调用 {}", entry.name),
+                tool_call_id: entry.id.clone(),
+                tool_name: entry.name.clone(),
+            });
+        }
+    }
+    Ok(false)
 }
 
 fn parse_agent_tool_response(
@@ -264,7 +288,12 @@ fn parse_agent_tool_response(
 
 #[cfg(test)]
 mod agent_tool_tests {
-    use super::parse_agent_tool_response;
+    use serde_json::json;
+
+    use super::{
+        consume_agent_tool_stream_block, parse_agent_tool_response, AgentModelToolCall,
+        ChatProgressEventData,
+    };
 
     #[test]
     fn non_stream_tool_call_is_parsed_with_arguments() {
@@ -291,6 +320,66 @@ mod agent_tool_tests {
         .unwrap();
         assert_eq!(response.text, "你好");
         assert!(response.tool_calls.is_empty());
+    }
+
+    #[test]
+    fn stream_tool_call_chunks_are_merged_in_order() {
+        let mut text = String::new();
+        let mut calls = std::collections::BTreeMap::<usize, AgentModelToolCall>::new();
+        let mut events = Vec::new();
+        let mut on_event = |event: ChatProgressEventData| {
+            events.push((event.phase, event.message, event.tool_name));
+        };
+
+        let first = json!({
+            "choices": [{
+                "delta": {
+                    "tool_calls": [{
+                        "index": 0,
+                        "id": "call-",
+                        "function": { "name": "use_skill", "arguments": "{\"skillId\":\"skill-1\",\"task\":\"" }
+                    }]
+                }
+            }]
+        });
+        let second = json!({
+            "choices": [{
+                "delta": {
+                    "tool_calls": [{
+                        "index": 0,
+                        "id": "1",
+                        "function": { "arguments": "画图\"}" }
+                    }],
+                    "content": "继续"
+                }
+            }]
+        });
+
+        consume_agent_tool_stream_block(
+            format!("data: {}\n\n", first).as_bytes(),
+            &mut text,
+            &mut calls,
+            &mut on_event,
+        )
+        .unwrap();
+        consume_agent_tool_stream_block(
+            format!("data: {}\n\n", second).as_bytes(),
+            &mut text,
+            &mut calls,
+            &mut on_event,
+        )
+        .unwrap();
+
+        assert_eq!(text, "继续");
+        let call = calls.get(&0).unwrap();
+        assert_eq!(call.id, "call-1");
+        assert_eq!(call.name, "use_skill");
+        assert_eq!(
+            call.arguments,
+            "{\"skillId\":\"skill-1\",\"task\":\"画图\"}"
+        );
+        assert!(events.iter().any(|event| event.0 == "tool_delta"));
+        assert!(events.iter().any(|event| event.0 == "delta"));
     }
 }
 
