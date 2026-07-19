@@ -11,16 +11,18 @@ use uuid::Uuid;
 use crate::{
     defaults::APP_BUILD_TIME,
     models::{
-        AboutInfo, AgentAttachment, AgentMessage, AgentProgressEvent, AgentSession, ApiProvider, AppState,
-        CleanupCandidate, GenerateRequest, PromptTemplate, QueueSnapshot, ReferencePreview, Settings,
-        AgentSkillContext, SkillAuditResult, SkillConversationMessage, SkillEntry, SkillFetchResult,
-        SkillImagePlan, SkillPlanResult, SkillPlannerEvent, SkillPlannerQuestion, TaskRecord,
-        TemplateFillEvent, TemplateImportResult,
+        AboutInfo, AgentAttachment, AgentImagePlan, AgentMessage, AgentProgressEvent, AgentSession,
+        AgentSkillContext, AgentTaskGroup, ApiProvider, AppState, CleanupCandidate,
+        GenerateRequest, PromptTemplate, QueueSnapshot, ReferencePreview, Settings,
+        SkillAuditResult, SkillConversationMessage, SkillEntry, SkillFetchResult, SkillImagePlan,
+        SkillPlanResult, SkillPlannerEvent, SkillPlannerQuestion, TaskRecord, TemplateFillEvent,
+        TemplateImportResult,
     },
     services::{
+        agent_store::{append_message, create_session, save_session, session, sessions},
         chat::{
-            agent_response, fill_skill_prompt as generate_prompt_from_skill, fill_template_response,
-            plan_skill_response,
+            agent_response, fill_skill_prompt as generate_prompt_from_skill,
+            fill_template_response, plan_skill_response,
         },
         images::reference_preview,
         provider_bundle::{export_providers_json, read_providers_json},
@@ -33,16 +35,15 @@ use crate::{
         },
         skill::fetch_skill_markdown as fetch_skill_markdown_from_url,
         skill_installer::{audit_skill_directory, install_local_skill},
-        agent_store::{append_message, create_session, session, sessions},
         template_bundle::{export_templates_archive, import_templates_archive},
     },
     state::{record_operation, runtime_logs_text, RuntimeState},
     store::{
-        enqueue_task, ensure_data_dir, next_template_id, normalize_request, normalize_settings,
-        normalize_skill, normalize_template, params_from_request, provider_for_request,
-        read_history, read_json, read_queue, read_settings, read_skills, read_templates,
-        refresh_history_output_sizes, request_path, templates_path, upsert_history,
-        is_safe_skill_directory, skill_directory_name, skill_package_path, skills_dir,
+        enqueue_task, ensure_data_dir, is_safe_skill_directory, next_template_id,
+        normalize_request, normalize_settings, normalize_skill, normalize_template,
+        params_from_request, provider_for_request, read_history, read_json, read_queue,
+        read_settings, read_skills, read_templates, refresh_history_output_sizes, request_path,
+        skill_directory_name, skill_package_path, skills_dir, templates_path, upsert_history,
         write_history, write_json, write_queue, write_settings, write_skill_index,
     },
     utils::utc_now,
@@ -64,7 +65,10 @@ pub(crate) fn runtime_logs() -> String {
 }
 
 #[tauri::command]
-pub(crate) fn create_agent_session(app: AppHandle, provider_id: String) -> Result<AgentSession, String> {
+pub(crate) fn create_agent_session(
+    app: AppHandle,
+    provider_id: String,
+) -> Result<AgentSession, String> {
     let data_dir = ensure_data_dir(&app)?;
     let result = create_session(&data_dir, &provider_id);
     record_result("创建 Agent 会话", "", None, &result);
@@ -80,10 +84,18 @@ pub(crate) fn list_agent_sessions(app: AppHandle) -> Result<Vec<AgentSession>, S
 }
 
 #[tauri::command]
-pub(crate) fn get_agent_session(app: AppHandle, session_id: String) -> Result<AgentSession, String> {
+pub(crate) fn get_agent_session(
+    app: AppHandle,
+    session_id: String,
+) -> Result<AgentSession, String> {
     let data_dir = ensure_data_dir(&app)?;
     let result = session(&data_dir, &session_id);
-    record_result("读取 Agent 会话", format!("session_id={session_id}").as_str(), None, &result);
+    record_result(
+        "读取 Agent 会话",
+        format!("session_id={session_id}").as_str(),
+        None,
+        &result,
+    );
     result
 }
 
@@ -100,6 +112,7 @@ pub(crate) async fn send_agent_message(
     if !provider_id.trim().is_empty() {
         current.model_provider_id = provider_id.trim().to_string();
     }
+    save_session(&data_dir, current)?;
     let user = AgentMessage {
         id: Uuid::new_v4().to_string(),
         role: "user".into(),
@@ -117,7 +130,11 @@ pub(crate) async fn send_agent_message(
         .providers
         .iter()
         .find(|provider| provider.id == current.model_provider_id && provider.model_type == "chat")
-        .or_else(|| settings.providers.iter().find(|provider| provider.id == settings.active_chat_provider_id && provider.model_type == "chat"))
+        .or_else(|| {
+            settings.providers.iter().find(|provider| {
+                provider.id == settings.active_chat_provider_id && provider.model_type == "chat"
+            })
+        })
         .ok_or("还没有配置对话模型")?
         .clone();
     let context = current
@@ -161,7 +178,8 @@ pub(crate) async fn send_agent_message(
                 AgentMessage {
                     id: Uuid::new_v4().to_string(),
                     role: "assistant".into(),
-                    content: output.text,
+                    content: normalize_agent_output(&app, &data_dir, &session_id, &output.text)
+                        .await?,
                     attachments: Vec::new(),
                     tool_call: None,
                     created_at: utc_now(),
@@ -171,16 +189,72 @@ pub(crate) async fn send_agent_message(
         }
         Err(error) => Err(error),
     };
-    record_result("Agent 对话", format!("session_id={session_id} model={}", provider.image_model).as_str(), Some(!provider.proxy_url.trim().is_empty()), &result);
+    record_result(
+        "Agent 对话",
+        format!("session_id={session_id} model={}", provider.image_model).as_str(),
+        Some(!provider.proxy_url.trim().is_empty()),
+        &result,
+    );
     result
 }
 
+async fn normalize_agent_output(
+    app: &AppHandle,
+    data_dir: &Path,
+    session_id: &str,
+    text: &str,
+) -> Result<String, String> {
+    let value = serde_json::from_str::<serde_json::Value>(text.trim()).ok();
+    let Some(value) = value else {
+        return Ok(text.to_string());
+    };
+    let action = value
+        .get("action")
+        .and_then(|value| value.as_str())
+        .unwrap_or_default();
+    if action != "create_image_tasks" {
+        return Ok(value
+            .get("message")
+            .and_then(|value| value.as_str())
+            .unwrap_or(text)
+            .to_string());
+    }
+    let plans = serde_json::from_value::<Vec<AgentImagePlan>>(
+        value.get("plans").cloned().unwrap_or_default(),
+    )
+    .map_err(|error| format!("图片计划格式错误: {error}"))?;
+    let group = create_agent_image_tasks(
+        app.clone(),
+        session_id.to_string(),
+        value
+            .get("skillId")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default()
+            .to_string(),
+        plans,
+    )?;
+    let _ = data_dir;
+    Ok(format!(
+        "已创建 {} 个绘图任务，任务组 ID：{}",
+        group.tasks.len(),
+        group.id
+    ))
+}
+
 #[tauri::command]
-pub(crate) fn audit_skill_package(app: AppHandle, path: String) -> Result<SkillAuditResult, String> {
+pub(crate) fn audit_skill_package(
+    app: AppHandle,
+    path: String,
+) -> Result<SkillAuditResult, String> {
     let _ = ensure_data_dir(&app)?;
     let root = PathBuf::from(path.trim());
     let result = audit_skill_directory(&root);
-    record_result("审查 Skill 包", format!("path={}", root.display()).as_str(), None, &result);
+    record_result(
+        "审查 Skill 包",
+        format!("path={}", root.display()).as_str(),
+        None,
+        &result,
+    );
     result
 }
 
@@ -189,7 +263,12 @@ pub(crate) fn install_skill(app: AppHandle, path: String) -> Result<SkillEntry, 
     let data_dir = ensure_data_dir(&app)?;
     let root = PathBuf::from(path.trim());
     let result = install_local_skill(&data_dir, &root).map(|(skill, _)| skill);
-    record_result("安装 Skill", format!("path={}", root.display()).as_str(), None, &result);
+    record_result(
+        "安装 Skill",
+        format!("path={}", root.display()).as_str(),
+        None,
+        &result,
+    );
     result
 }
 
@@ -197,7 +276,10 @@ pub(crate) fn install_skill(app: AppHandle, path: String) -> Result<SkillEntry, 
 pub(crate) fn use_skill(app: AppHandle, skill_id: String) -> Result<AgentSkillContext, String> {
     let data_dir = ensure_data_dir(&app)?;
     let skills = read_skills(&data_dir)?;
-    let skill = skills.iter().find(|item| item.id == skill_id).ok_or("找不到 Skill")?;
+    let skill = skills
+        .iter()
+        .find(|item| item.id == skill_id)
+        .ok_or("找不到 Skill")?;
     let package_dir = skills_dir(&data_dir).join(&skill.directory);
     let audit = audit_skill_directory(&package_dir)?;
     if !audit.allowed {
@@ -207,10 +289,22 @@ pub(crate) fn use_skill(app: AppHandle, skill_id: String) -> Result<AgentSkillCo
     let mut references = Vec::new();
     let references_dir = package_dir.join("references");
     if references_dir.is_dir() {
-        for entry in fs::read_dir(references_dir).map_err(|error| format!("读取 Skill references 失败: {error}"))? {
-            let path = entry.map_err(|error| format!("读取 Skill references 失败: {error}"))?.path();
-            if path.extension().and_then(|value| value.to_str()).map(|value| value.eq_ignore_ascii_case("md")).unwrap_or(false) {
-                references.push(fs::read_to_string(path).map_err(|error| format!("读取 Skill reference 失败: {error}"))?);
+        for entry in fs::read_dir(references_dir)
+            .map_err(|error| format!("读取 Skill references 失败: {error}"))?
+        {
+            let path = entry
+                .map_err(|error| format!("读取 Skill references 失败: {error}"))?
+                .path();
+            if path
+                .extension()
+                .and_then(|value| value.to_str())
+                .map(|value| value.eq_ignore_ascii_case("md"))
+                .unwrap_or(false)
+            {
+                references.push(
+                    fs::read_to_string(path)
+                        .map_err(|error| format!("读取 Skill reference 失败: {error}"))?,
+                );
             }
         }
     }
@@ -220,6 +314,92 @@ pub(crate) fn use_skill(app: AppHandle, skill_id: String) -> Result<AgentSkillCo
         content: skill.content.clone(),
         manifest,
         references,
+    })
+}
+
+#[tauri::command]
+pub(crate) fn create_agent_image_tasks(
+    app: AppHandle,
+    session_id: String,
+    skill_id: String,
+    plans: Vec<AgentImagePlan>,
+) -> Result<AgentTaskGroup, String> {
+    if plans.is_empty() || plans.len() > 12 {
+        return Err("图片计划数量必须在 1 到 12 之间".into());
+    }
+    let data_dir = ensure_data_dir(&app)?;
+    let settings = read_settings(&data_dir)?;
+    let task_group_id = Uuid::new_v4().to_string();
+    let mut requests = Vec::with_capacity(plans.len());
+    for plan in plans {
+        let policy = match plan.reference_policy.trim() {
+            "use" | "optional" | "none" => plan.reference_policy.trim(),
+            "" => "optional",
+            _ => return Err("参考图策略必须是 use、optional 或 none".into()),
+        };
+        if policy == "use" && plan.reference_ids.is_empty() {
+            return Err("referencePolicy=use 时必须指定参考图".into());
+        }
+        let request = GenerateRequest {
+            provider_id: Some(if plan.provider_id.trim().is_empty() {
+                settings.active_image_provider_id.clone()
+            } else {
+                plan.provider_id
+            }),
+            prompt: plan.prompt,
+            reference_paths: if policy == "none" {
+                Vec::new()
+            } else {
+                plan.reference_ids
+            },
+            resolution: if plan.resolution.trim().is_empty() {
+                "standard".into()
+            } else {
+                plan.resolution
+            },
+            ratio: if plan.ratio.trim().is_empty() {
+                "1:1".into()
+            } else {
+                plan.ratio
+            },
+            quality: if plan.quality.trim().is_empty() {
+                "auto".into()
+            } else {
+                plan.quality
+            },
+            prompt_fidelity: if plan.prompt_fidelity.trim().is_empty() {
+                "original".into()
+            } else {
+                plan.prompt_fidelity
+            },
+            ..GenerateRequest::default()
+        };
+        normalize_request(request.clone())?;
+        provider_for_request(&settings, request.provider_id.as_deref())?;
+        requests.push(request);
+    }
+    let mut tasks = Vec::with_capacity(requests.len());
+    for request in requests {
+        tasks.push(enqueue_generation_request(
+            &app,
+            &data_dir,
+            &settings,
+            request,
+            Some((&session_id, &task_group_id, &skill_id)),
+        )?);
+    }
+    let mut agent_session = session(&data_dir, &session_id)?;
+    if !agent_session.task_group_ids.contains(&task_group_id) {
+        agent_session.task_group_ids.push(task_group_id.clone());
+    }
+    let _ = save_session(&data_dir, agent_session)?;
+    ensure_queue_worker(&app);
+    Ok(AgentTaskGroup {
+        id: task_group_id,
+        session_id,
+        skill_id,
+        tasks,
+        created_at: utc_now(),
     })
 }
 
@@ -382,7 +562,7 @@ pub(crate) fn enqueue_generation(
 ) -> Result<TaskRecord, String> {
     let data_dir = ensure_data_dir(&app)?;
     let settings = read_settings(&data_dir)?;
-    let record = enqueue_generation_request(&app, &data_dir, &settings, request)?;
+    let record = enqueue_generation_request(&app, &data_dir, &settings, request, None)?;
     ensure_queue_worker(&app);
     Ok(record)
 }
@@ -401,7 +581,7 @@ pub(crate) fn enqueue_generation_batch(
     let mut records = Vec::with_capacity(requests.len());
     for request in requests {
         records.push(enqueue_generation_request(
-            &app, &data_dir, &settings, request,
+            &app, &data_dir, &settings, request, None,
         )?);
     }
     ensure_queue_worker(&app);
@@ -413,6 +593,7 @@ fn enqueue_generation_request(
     data_dir: &Path,
     settings: &Settings,
     request: GenerateRequest,
+    agent_origin: Option<(&str, &str, &str)>,
 ) -> Result<TaskRecord, String> {
     let mut request = normalize_request(request)?;
     let provider = provider_for_request(settings, request.provider_id.as_deref())?;
@@ -424,7 +605,7 @@ fn enqueue_generation_request(
 
     let now = utc_now();
     let id = Uuid::new_v4().to_string();
-    let record = TaskRecord {
+    let mut record = TaskRecord {
         id: id.clone(),
         created_at: now.clone(),
         updated_at: now,
@@ -441,7 +622,17 @@ fn enqueue_generation_request(
         outputs: Vec::new(),
         attempts: 0,
         error: None,
+        origin: String::new(),
+        agent_session_id: String::new(),
+        task_group_id: String::new(),
+        skill_id: String::new(),
     };
+    if let Some((session_id, task_group_id, skill_id)) = agent_origin {
+        record.origin = "agent".into();
+        record.agent_session_id = session_id.into();
+        record.task_group_id = task_group_id.into();
+        record.skill_id = skill_id.into();
+    }
 
     write_json(&request_path(data_dir, &id), &request)?;
     upsert_history(data_dir, record.clone())?;
@@ -768,8 +959,11 @@ pub(crate) fn save_skill(app: AppHandle, skill: SkillEntry) -> Result<Vec<SkillE
         }
     }
     fs::create_dir_all(&package_dir).map_err(|error| format!("创建 Skill 目录失败: {error}"))?;
-    fs::write(skill_package_path(&data_dir, &next.directory), format!("{}\n", next.content))
-        .map_err(|error| format!("写入 SKILL.md 失败: {error}"))?;
+    fs::write(
+        skill_package_path(&data_dir, &next.directory),
+        format!("{}\n", next.content),
+    )
+    .map_err(|error| format!("写入 SKILL.md 失败: {error}"))?;
     copy_skill_references(&next.source_path, &package_dir)?;
     next.updated_at = utc_now();
     if let Some(index) = skills.iter().position(|item| item.id == next.id) {
@@ -793,7 +987,8 @@ pub(crate) fn delete_skill(app: AppHandle, skill_id: String) -> Result<Vec<Skill
     {
         let package_dir = skills_dir(&data_dir).join(&skill.directory);
         if package_dir.starts_with(skills_dir(&data_dir)) && package_dir.is_dir() {
-            fs::remove_dir_all(package_dir).map_err(|error| format!("删除 Skill 目录失败: {error}"))?;
+            fs::remove_dir_all(package_dir)
+                .map_err(|error| format!("删除 Skill 目录失败: {error}"))?;
         }
     }
     skills.retain(|skill| skill.id != skill_id);
@@ -810,7 +1005,10 @@ fn copy_skill_references(source_path: &str, package_dir: &Path) -> Result<(), St
     let source_dir = if source.is_dir() {
         source.to_path_buf()
     } else {
-        source.parent().unwrap_or_else(|| Path::new(".")).to_path_buf()
+        source
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .to_path_buf()
     };
     let source_references = source_dir.join("references");
     if !source_references.is_dir() {
@@ -832,10 +1030,9 @@ fn copy_skill_references(source_path: &str, package_dir: &Path) -> Result<(), St
         {
             continue;
         }
-        let file_name = path
-            .file_name()
-            .ok_or("Skill reference 文件名无效")?;
-        let bytes = fs::read(&path).map_err(|error| format!("读取 Skill reference 失败: {error}"))?;
+        let file_name = path.file_name().ok_or("Skill reference 文件名无效")?;
+        let bytes =
+            fs::read(&path).map_err(|error| format!("读取 Skill reference 失败: {error}"))?;
         if bytes.len() > 1_048_576 {
             return Err(format!("Skill reference 文件超过 1 MB：{}", path.display()));
         }
@@ -848,8 +1045,7 @@ fn copy_skill_references(source_path: &str, package_dir: &Path) -> Result<(), St
 fn load_skill_package_content(data_dir: &Path, skill: &SkillEntry) -> Result<String, String> {
     let entry_path = skill_package_path(data_dir, &skill.directory);
     let content = if entry_path.is_file() {
-        fs::read_to_string(&entry_path)
-            .map_err(|error| format!("读取 Skill.md 失败: {error}"))?
+        fs::read_to_string(&entry_path).map_err(|error| format!("读取 Skill.md 失败: {error}"))?
     } else {
         skill.content.clone()
     };
@@ -1711,7 +1907,11 @@ mod tests {
         let package = root.join("skills").join("image-director");
         fs::create_dir_all(package.join("references")).unwrap();
         fs::write(package.join("SKILL.md"), "# Image Director\n\nMain rules").unwrap();
-        fs::write(package.join("references").join("camera.md"), "# Camera\n\nUse 50mm").unwrap();
+        fs::write(
+            package.join("references").join("camera.md"),
+            "# Camera\n\nUse 50mm",
+        )
+        .unwrap();
         let skill = SkillEntry {
             id: "skill-id".into(),
             name: "image-director".into(),

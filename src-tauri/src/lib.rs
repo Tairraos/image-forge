@@ -18,6 +18,7 @@ pub fn run() {
             commands::audit_skill_package,
             commands::copy_image_to_clipboard,
             commands::create_agent_session,
+            commands::create_agent_image_tasks,
             commands::cleanup_data_files,
             commands::delete_task,
             commands::delete_skill,
@@ -145,7 +146,10 @@ mod tests {
 
     #[test]
     fn skill_directory_names_are_codex_style_and_path_safe() {
-        assert_eq!(skill_directory_name("Image Director", "abc"), "image-director");
+        assert_eq!(
+            skill_directory_name("Image Director", "abc"),
+            "image-director"
+        );
         assert_eq!(skill_directory_name("构图 导演", "abc"), "构图-导演");
         assert!(is_safe_skill_directory("image-director"));
         assert!(!is_safe_skill_directory("../image-director"));

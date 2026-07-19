@@ -225,6 +225,14 @@ pub struct TaskRecord {
     pub attempts: u32,
     #[serde(default)]
     pub error: Option<String>,
+    #[serde(default)]
+    pub origin: String,
+    #[serde(default)]
+    pub agent_session_id: String,
+    #[serde(default)]
+    pub task_group_id: String,
+    #[serde(default)]
+    pub skill_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -409,6 +417,39 @@ pub struct AgentSkillContext {
     pub manifest: SkillManifest,
     #[serde(default)]
     pub references: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentImagePlan {
+    #[serde(default)]
+    pub title: String,
+    pub prompt: String,
+    #[serde(default)]
+    pub provider_id: String,
+    #[serde(default)]
+    pub resolution: String,
+    #[serde(default)]
+    pub ratio: String,
+    #[serde(default)]
+    pub quality: String,
+    #[serde(default)]
+    pub prompt_fidelity: String,
+    #[serde(default)]
+    pub reference_policy: String,
+    #[serde(default)]
+    pub reference_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentTaskGroup {
+    pub id: String,
+    pub session_id: String,
+    #[serde(default)]
+    pub skill_id: String,
+    pub tasks: Vec<TaskRecord>,
+    pub created_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

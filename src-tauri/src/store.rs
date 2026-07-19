@@ -349,6 +349,10 @@ pub(crate) fn fallback_failed_record(task_id: &str, error: &str) -> TaskRecord {
         outputs: Vec::new(),
         attempts: 0,
         error: Some(error.into()),
+        origin: String::new(),
+        agent_session_id: String::new(),
+        task_group_id: String::new(),
+        skill_id: String::new(),
     }
 }
 
@@ -835,7 +839,8 @@ pub(crate) fn list_agent_sessions(
         return Ok(Vec::new());
     }
     let mut sessions = Vec::new();
-    for entry in fs::read_dir(dir).map_err(|error| format!("读取 Agent 会话目录失败: {error}"))? {
+    for entry in fs::read_dir(dir).map_err(|error| format!("读取 Agent 会话目录失败: {error}"))?
+    {
         let entry = entry.map_err(|error| format!("读取 Agent 会话失败: {error}"))?;
         if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
             continue;

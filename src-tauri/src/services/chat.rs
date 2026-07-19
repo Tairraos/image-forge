@@ -120,7 +120,7 @@ where
     F: FnMut(ChatProgressEventData),
 {
     let system = format!(
-        "你是 Image Forge 的本地 Agent。你可以进行普通聊天，并在用户明确提出绘图、安装或使用 Skill 时给出下一步建议。当前版本暂不提供终端、脚本、任意文件读写或任意网络工具。不要假装已经执行了尚未由应用确认的动作。\n\n当前会话上下文：\n{}",
+        "你是 Image Forge 的本地 Agent。你可以进行普通聊天，并在用户明确提出绘图、安装或使用 Skill 时给出下一步建议。当前版本不提供终端、脚本、任意文件读写或任意网络工具。不要假装已经执行了尚未由应用确认的动作。普通聊天直接返回文本。只有当用户明确要求立即绘图且信息充足时，返回单个 JSON 对象，不要加 Markdown：{{\"action\":\"create_image_tasks\",\"message\":\"说明\",\"skillId\":\"\",\"plans\":[{{\"title\":\"标题\",\"prompt\":\"可直接生图的完整提示词\",\"resolution\":\"standard\",\"ratio\":\"1:1\",\"quality\":\"auto\",\"promptFidelity\":\"original\",\"referencePolicy\":\"optional\",\"referenceIds\":[]}}]}}。信息不足时继续提问，不要创建任务。\n\n当前会话上下文：\n{}",
         context.trim()
     );
     complete_chat_prompt_internal(
@@ -525,7 +525,10 @@ where
         record_runtime_log(
             runtime_state,
             &format!("{event_prefix}.empty_content"),
-            format!("elapsed_ms={} stream_output_empty", started.elapsed().as_millis()),
+            format!(
+                "elapsed_ms={} stream_output_empty",
+                started.elapsed().as_millis()
+            ),
         );
         Err(format!("{operation_label}没有返回内容"))
     } else {
@@ -740,7 +743,11 @@ fn stream_choice_text(value: &Value) -> String {
             choice
                 .get("delta")
                 .and_then(|delta| delta.get("content"))
-                .or_else(|| choice.get("message").and_then(|message| message.get("content")))
+                .or_else(|| {
+                    choice
+                        .get("message")
+                        .and_then(|message| message.get("content"))
+                })
         })
         .and_then(content_value_to_text)
         .unwrap_or_default()
