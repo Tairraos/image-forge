@@ -239,7 +239,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import AgentWorkspace from "./components/AgentWorkspace.vue";
 import AppShell from "./components/AppShell.vue";
 import DrawingWorkspace from "./components/DrawingWorkspace.vue";
@@ -277,7 +277,7 @@ import { invoke, listenDragDrop, listenEvent, openDialog, saveDialog } from "./t
 
 const statusText = ref("启动中");
 const statusTone = ref("busy");
-const workspaceMode = ref("drawing");
+const workspaceMode = ref(localStorage.getItem("image-forge-workspace-mode") || "drawing");
 const agentSessions = ref([]);
 const currentAgentSessionId = ref("");
 const agentProviderId = ref("");
@@ -354,6 +354,8 @@ const cleanupCandidates = ref([]);
 const cleanupLoading = ref(false);
 const cleanupConfirming = ref(false);
 const cleanupError = ref("");
+
+watch(workspaceMode, (mode) => localStorage.setItem("image-forge-workspace-mode", mode));
 
 const form = reactive({
   providerId: "",
