@@ -561,7 +561,7 @@ mod tests {
             imported[0].effect_image_path,
             imported[0].reference_paths[0]
         );
-        trash::delete(&root).unwrap();
+        let _ = trash::delete(&root);
     }
 
     #[test]
@@ -590,7 +590,7 @@ mod tests {
         assert_eq!(imported.len(), 1);
         assert_eq!(imported[0].content, "旧版提示词");
         assert_eq!(imported[0].reference_paths.len(), 1);
-        trash::delete(&root).unwrap();
+        let _ = trash::delete(&root);
     }
 
     fn test_dir(label: &str) -> PathBuf {

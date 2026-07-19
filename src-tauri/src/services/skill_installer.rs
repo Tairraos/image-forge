@@ -944,7 +944,7 @@ mod tests {
 
     fn recycle(path: &std::path::Path) {
         if path.exists() {
-            trash::delete(path).unwrap();
+            let _ = trash::delete(path);
         }
     }
 

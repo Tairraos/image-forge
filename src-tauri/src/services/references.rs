@@ -459,6 +459,6 @@ mod tests {
         assert!(paths.contains("requests/orphan.json"));
         assert!(!paths.contains("outputs/kept.png"));
         assert!(!paths.contains("requests/task-1.json"));
-        trash::delete(&root).unwrap();
+        let _ = trash::delete(&root);
     }
 }

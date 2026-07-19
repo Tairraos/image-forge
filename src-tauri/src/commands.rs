@@ -2291,7 +2291,7 @@ mod tests {
 
     fn recycle(path: &Path) {
         if path.exists() {
-            trash::delete(path).unwrap();
+            let _ = trash::delete(path);
         }
     }
 
