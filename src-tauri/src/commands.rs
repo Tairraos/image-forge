@@ -2124,6 +2124,14 @@ mod tests {
     }
 
     #[test]
+    fn explicit_confirmation_accepts_clear_confirmation_phrases() {
+        assert!(explicit_confirmation("请继续"));
+        assert!(explicit_confirmation("yes"));
+        assert!(explicit_confirmation("确认覆盖"));
+        assert!(!explicit_confirmation("先看看再说"));
+    }
+
+    #[test]
     fn task_status_reports_missing_task_groups() {
         let data_dir = command_test_data_dir("missing-task-status");
         let error = task_status_records(&data_dir, "missing-group", "").unwrap_err();
