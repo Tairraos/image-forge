@@ -335,6 +335,31 @@ pub struct AgentToolCall {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AgentQuestion {
+    #[serde(default)]
+    pub key: String,
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub placeholder: String,
+    #[serde(default = "default_true")]
+    pub required: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentTaskGroupSummary {
+    pub id: String,
+    #[serde(default)]
+    pub task_ids: Vec<String>,
+    #[serde(default)]
+    pub titles: Vec<String>,
+    #[serde(default)]
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AgentMessage {
     pub id: String,
     pub role: String,
@@ -344,6 +369,12 @@ pub struct AgentMessage {
     pub attachments: Vec<AgentAttachment>,
     #[serde(default)]
     pub tool_call: Option<AgentToolCall>,
+    #[serde(default)]
+    pub questions: Vec<AgentQuestion>,
+    #[serde(default)]
+    pub task_group: Option<AgentTaskGroupSummary>,
+    #[serde(default)]
+    pub error: String,
     pub created_at: String,
 }
 
@@ -378,6 +409,49 @@ pub struct AgentProgressEvent {
     pub chunk: String,
     #[serde(default)]
     pub message: String,
+    #[serde(default)]
+    pub tool_call_id: String,
+    #[serde(default)]
+    pub tool_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", tag = "type")]
+pub enum AgentEnvelope {
+    #[serde(rename = "assistant")]
+    Assistant {
+        #[serde(rename = "schemaVersion", default = "default_agent_schema_version")]
+        schema_version: u32,
+        #[serde(default)]
+        message: String,
+        #[serde(default)]
+        questions: Vec<AgentQuestion>,
+    },
+    #[serde(rename = "tool_call")]
+    ToolCall {
+        #[serde(rename = "schemaVersion", default = "default_agent_schema_version")]
+        schema_version: u32,
+        #[serde(default)]
+        id: String,
+        name: String,
+        #[serde(default)]
+        arguments: Value,
+    },
+    #[serde(rename = "tool_result")]
+    ToolResult {
+        #[serde(rename = "schemaVersion", default = "default_agent_schema_version")]
+        schema_version: u32,
+        id: String,
+        name: String,
+        #[serde(default)]
+        result: Value,
+        #[serde(default)]
+        error: String,
+    },
+}
+
+fn default_agent_schema_version() -> u32 {
+    1
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

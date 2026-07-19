@@ -1,4 +1,5 @@
 pub(crate) mod agent_store;
+pub(crate) mod agent_tools;
 pub(crate) mod chat;
 pub(crate) mod clipboard;
 pub(crate) mod images;

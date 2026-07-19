@@ -120,6 +120,9 @@ pub(crate) async fn send_agent_message(
         content: content.trim().to_string(),
         attachments,
         tool_call: None,
+        questions: Vec::new(),
+        task_group: None,
+        error: String::new(),
         created_at: utc_now(),
     };
     if user.content.is_empty() {
@@ -152,9 +155,15 @@ pub(crate) async fn send_agent_message(
         .join("\n");
     if !skill_id.trim().is_empty() {
         let skill_context = use_skill(app.clone(), skill_id.clone())?;
-        context.push_str(&format!("\n\n<skill name=\"{}\">\n{}\n", skill_context.name, skill_context.content));
+        context.push_str(&format!(
+            "\n\n<skill name=\"{}\">\n{}\n",
+            skill_context.name, skill_context.content
+        ));
         for reference in skill_context.references {
-            context.push_str(&format!("\n<skill_reference>\n{}\n</skill_reference>\n", reference));
+            context.push_str(&format!(
+                "\n<skill_reference>\n{}\n</skill_reference>\n",
+                reference
+            ));
         }
         context.push_str("</skill>");
     }
@@ -180,6 +189,8 @@ pub(crate) async fn send_agent_message(
                         mode: event.mode.into(),
                         chunk: event.chunk,
                         message: event.message,
+                        tool_call_id: String::new(),
+                        tool_name: String::new(),
                     },
                 );
             },
@@ -211,6 +222,9 @@ pub(crate) async fn send_agent_message(
                         .await?,
                     attachments: Vec::new(),
                     tool_call: None,
+                    questions: Vec::new(),
+                    task_group: None,
+                    error: String::new(),
                     created_at: utc_now(),
                 },
             )?;
@@ -237,7 +251,13 @@ pub(crate) fn cancel_agent_turn(app: AppHandle, session_id: String) -> Result<bo
         .remove(&session_id);
     if let Some(handle) = handle {
         handle.abort();
-        record_operation("停止 Agent 对话", "成功", format!("session_id={session_id}"), None, None);
+        record_operation(
+            "停止 Agent 对话",
+            "成功",
+            format!("session_id={session_id}"),
+            None,
+            None,
+        );
         Ok(true)
     } else {
         Ok(false)
