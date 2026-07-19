@@ -49,7 +49,10 @@ pub(crate) fn append_message(
     Ok(session)
 }
 
-pub(crate) fn save_session(data_dir: &Path, mut session: AgentSession) -> Result<AgentSession, String> {
+pub(crate) fn save_session(
+    data_dir: &Path,
+    mut session: AgentSession,
+) -> Result<AgentSession, String> {
     validate_session_id(&session.id)?;
     session.updated_at = utc_now();
     write_agent_session(data_dir, &session)?;
@@ -65,6 +68,9 @@ fn validate_session_id(value: &str) -> Result<(), String> {
 fn title_from_message(content: &str) -> String {
     let title = content.lines().next().unwrap_or_default().trim();
     let shortened = title.chars().take(28).collect::<String>();
-    if shortened.is_empty() { "新对话".into() } else { shortened }
+    if shortened.is_empty() {
+        "新对话".into()
+    } else {
+        shortened
+    }
 }
-

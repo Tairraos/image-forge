@@ -1,17 +1,36 @@
-use std::{fs, path::{Path, PathBuf}};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use sha2::{Digest, Sha256};
 
-use crate::{models::{SkillAuditResult, SkillEntry, SkillManifest}, store::{skill_directory_name, skills_dir, write_skill_index, read_skills}, utils::utc_now};
+use crate::{
+    models::{SkillAuditResult, SkillEntry, SkillManifest},
+    store::{read_skills, skill_directory_name, skills_dir, write_skill_index},
+    utils::utc_now,
+};
 
 const ALLOWED_CAPABILITIES: &[&str] = &["chat", "image_plan", "reference_images"];
 const SCRIPT_EXTENSIONS: &[&str] = &[
-    "py", "js", "ts", "mjs", "cjs", "sh", "bash", "zsh", "ps1", "bat", "cmd", "rb",
-    "exe", "bin",
+    "py", "js", "ts", "mjs", "cjs", "sh", "bash", "zsh", "ps1", "bat", "cmd", "rb", "exe", "bin",
 ];
 const DANGEROUS_TERMS: &[&str] = &[
-    "script", "scripts", "command", "commands", "shell", "exec", "executable", "subprocess",
-    "runtime", "terminal", "powershell", "python", "node", "curl", "wget",
+    "script",
+    "scripts",
+    "command",
+    "commands",
+    "shell",
+    "exec",
+    "executable",
+    "subprocess",
+    "runtime",
+    "terminal",
+    "powershell",
+    "python",
+    "node",
+    "curl",
+    "wget",
 ];
 
 pub(crate) fn audit_skill_directory(root: &Path) -> Result<SkillAuditResult, String> {
@@ -22,18 +41,26 @@ pub(crate) fn audit_skill_directory(root: &Path) -> Result<SkillAuditResult, Str
         .into_iter()
         .find(|path| path.is_file())
         .ok_or("Skill 包缺少 SKILL.md")?;
-    let content = fs::read_to_string(&entry)
-        .map_err(|error| format!("读取 Skill Markdown 失败: {error}"))?;
+    let content =
+        fs::read_to_string(&entry).map_err(|error| format!("读取 Skill Markdown 失败: {error}"))?;
     let mut reasons = Vec::new();
     let mut warnings = Vec::new();
     let mut total_size = 0u64;
     let mut reference_count = 0usize;
 
-    inspect_tree(root, root, &mut total_size, &mut reference_count, &mut reasons)?;
+    inspect_tree(
+        root,
+        root,
+        &mut total_size,
+        &mut reference_count,
+        &mut reasons,
+    )?;
     let lower = content.to_ascii_lowercase();
     for term in DANGEROUS_TERMS {
         if contains_capability_term(&lower, term) {
-            reasons.push(format!("SKILL.md 声明或要求 `{term}` 能力，当前 Agent 不提供系统命令执行"));
+            reasons.push(format!(
+                "SKILL.md 声明或要求 `{term}` 能力，当前 Agent 不提供系统命令执行"
+            ));
         }
     }
     for link in markdown_links(&content) {
@@ -55,7 +82,11 @@ pub(crate) fn audit_skill_directory(root: &Path) -> Result<SkillAuditResult, Str
         schema_version: 1,
         content_hash: hash,
         name,
-        capabilities: vec!["chat".into(), "image_plan".into(), "reference_images".into()],
+        capabilities: vec![
+            "chat".into(),
+            "image_plan".into(),
+            "reference_images".into(),
+        ],
         sections,
         required_sections: Vec::new(),
         output_capability: "image_plan".into(),
@@ -90,7 +121,14 @@ fn inspect_tree(
         let entry = entry.map_err(|error| format!("读取 Skill 包条目失败: {error}"))?;
         let current = entry.path();
         let relative = current.strip_prefix(root).unwrap_or(&current);
-        if relative.components().any(|component| matches!(component, std::path::Component::ParentDir | std::path::Component::RootDir | std::path::Component::Prefix(_))) {
+        if relative.components().any(|component| {
+            matches!(
+                component,
+                std::path::Component::ParentDir
+                    | std::path::Component::RootDir
+                    | std::path::Component::Prefix(_)
+            )
+        }) {
             reasons.push(format!("路径不安全: {}", relative.display()));
             continue;
         }
@@ -101,8 +139,14 @@ fn inspect_tree(
             continue;
         }
         if metadata.is_dir() {
-            let name = current.file_name().and_then(|value| value.to_str()).unwrap_or_default();
-            if matches!(name.to_ascii_lowercase().as_str(), "scripts" | "script" | "bin" | "tools") {
+            let name = current
+                .file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or_default();
+            if matches!(
+                name.to_ascii_lowercase().as_str(),
+                "scripts" | "script" | "bin" | "tools"
+            ) {
                 reasons.push(format!("发现不允许的脚本目录: {}", relative.display()));
                 continue;
             }
@@ -113,8 +157,15 @@ fn inspect_tree(
         if metadata.len() > 1024 * 1024 {
             reasons.push(format!("文件超过 1 MB 上限: {}", relative.display()));
         }
-        let extension = current.extension().and_then(|value| value.to_str()).unwrap_or_default().to_ascii_lowercase();
-        if !matches!(extension.as_str(), "md" | "markdown" | "png" | "jpg" | "jpeg" | "webp" | "gif") {
+        let extension = current
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        if !matches!(
+            extension.as_str(),
+            "md" | "markdown" | "png" | "jpg" | "jpeg" | "webp" | "gif"
+        ) {
             reasons.push(format!("文件类型不受支持: {}", relative.display()));
         }
         if extension == "md" || extension == "markdown" {
@@ -140,7 +191,11 @@ fn contains_capability_term(text: &str, term: &str) -> bool {
 fn markdown_links(content: &str) -> Vec<String> {
     content
         .split_once("](")
-        .map(|(_, rest)| rest.split(')').map(|value| value.trim().to_string()).collect())
+        .map(|(_, rest)| {
+            rest.split(')')
+                .map(|value| value.trim().to_string())
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -165,7 +220,10 @@ pub(crate) fn staging_skill_path(data_dir: &Path, id: &str) -> PathBuf {
     data_dir.join(".staging").join(id)
 }
 
-pub(crate) fn install_local_skill(data_dir: &Path, source: &Path) -> Result<(SkillEntry, SkillAuditResult), String> {
+pub(crate) fn install_local_skill(
+    data_dir: &Path,
+    source: &Path,
+) -> Result<(SkillEntry, SkillAuditResult), String> {
     let root = if source.is_file() {
         source.parent().ok_or("无法确定 Skill 包目录")?
     } else {
@@ -209,12 +267,15 @@ pub(crate) fn install_local_skill(data_dir: &Path, source: &Path) -> Result<(Ski
 }
 
 fn copy_tree(source: &Path, destination: &Path) -> Result<(), String> {
-    fs::create_dir_all(destination).map_err(|error| format!("创建 Skill staging 目录失败: {error}"))?;
-    for entry in fs::read_dir(source).map_err(|error| format!("读取 Skill 目录失败: {error}"))? {
+    fs::create_dir_all(destination)
+        .map_err(|error| format!("创建 Skill staging 目录失败: {error}"))?;
+    for entry in fs::read_dir(source).map_err(|error| format!("读取 Skill 目录失败: {error}"))?
+    {
         let entry = entry.map_err(|error| format!("读取 Skill 条目失败: {error}"))?;
         let from = entry.path();
         let to = destination.join(entry.file_name());
-        let metadata = fs::symlink_metadata(&from).map_err(|error| format!("读取 Skill 条目失败: {error}"))?;
+        let metadata =
+            fs::symlink_metadata(&from).map_err(|error| format!("读取 Skill 条目失败: {error}"))?;
         if metadata.is_dir() {
             copy_tree(&from, &to)?;
         } else if metadata.is_file() {

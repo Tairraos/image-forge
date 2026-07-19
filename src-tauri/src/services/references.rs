@@ -4,8 +4,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use sha2::{Digest, Sha256};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 use crate::{
     models::{CleanupCandidate, GenerateRequest, PromptTemplate, TaskRecord},
@@ -38,7 +38,9 @@ pub(crate) fn scan_orphan_files(data_dir: &Path) -> Result<Vec<CleanupCandidate>
             if request_is_used || referenced.contains(&canonical) {
                 continue;
             }
-            let size = fs::metadata(&path).map(|metadata| metadata.len()).unwrap_or_default();
+            let size = fs::metadata(&path)
+                .map(|metadata| metadata.len())
+                .unwrap_or_default();
             candidates.push(CleanupCandidate {
                 relative_path: path
                     .strip_prefix(data_dir)
@@ -121,7 +123,10 @@ fn collect_paths_from_value(value: &Value, data_dir: &Path, referenced: &mut Has
 fn collect_referenced_request_ids(data_dir: &Path) -> Result<HashSet<String>, String> {
     let history = read_history(data_dir)?;
     let queue = read_queue(data_dir)?;
-    let mut ids = history.into_iter().map(|record| record.id).collect::<HashSet<_>>();
+    let mut ids = history
+        .into_iter()
+        .map(|record| record.id)
+        .collect::<HashSet<_>>();
     ids.extend(queue.waiting);
     ids.extend(queue.running.into_iter().map(|run| run.task_id));
     Ok(ids)

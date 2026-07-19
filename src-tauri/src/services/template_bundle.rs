@@ -543,7 +543,10 @@ mod tests {
             manifest.templates[0].references,
             manifest.templates[1].references
         );
-        assert_eq!(manifest.templates[0].effect_image, manifest.templates[0].references[0]);
+        assert_eq!(
+            manifest.templates[0].effect_image,
+            manifest.templates[0].references[0]
+        );
         drop(archive);
 
         let imported_dir = root.join("imported");
@@ -554,7 +557,10 @@ mod tests {
         assert_eq!(imported[0].content, "第一个提示词");
         assert_eq!(imported[1].content, "第二个提示词");
         assert_eq!(imported[0].reference_paths, imported[1].reference_paths);
-        assert_eq!(imported[0].effect_image_path, imported[0].reference_paths[0]);
+        assert_eq!(
+            imported[0].effect_image_path,
+            imported[0].reference_paths[0]
+        );
         fs::remove_dir_all(root).unwrap();
     }
 
