@@ -1,11 +1,16 @@
 use std::{
     fs,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
+use reqwest::header::CONTENT_TYPE;
+use serde::Deserialize;
 use sha2::{Digest, Sha256};
+use url::Url;
 
 use crate::{
+    defaults::APP_USER_AGENT,
     models::{SkillAuditResult, SkillEntry, SkillManifest},
     services::skill::fetch_skill_markdown,
     store::{read_skills, skill_directory_name, skills_dir, write_skill_index},
@@ -16,6 +21,7 @@ const MAX_MARKDOWN_BYTES: u64 = 1024 * 1024;
 const MAX_IMAGE_BYTES: u64 = 100 * 1024 * 1024;
 const MAX_PACKAGE_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_REFERENCE_DOCUMENTS: usize = 200;
+const GITHUB_FETCH_TIMEOUT_SECONDS: u64 = 30;
 
 const ALLOWED_CAPABILITIES: &[&str] = &["chat", "image_plan", "reference_images"];
 const SCRIPT_EXTENSIONS: &[&str] = &[
@@ -553,6 +559,22 @@ pub(crate) async fn install_skill_source(
 ) -> Result<(SkillEntry, SkillAuditResult), String> {
     let source = source.trim();
     if source.starts_with("http://") || source.starts_with("https://") {
+        if let Some(source_dir) = download_github_skill_package(data_dir, source).await? {
+            let result =
+                install_local_skill(data_dir, &source_dir, replace).map(|(mut skill, audit)| {
+                    skill.source_url = source.to_string();
+                    (skill, audit)
+                });
+            move_to_trash_if_exists(&source_dir);
+            if let Ok((skill, _)) = &result {
+                let mut skills = read_skills(data_dir)?;
+                if let Some(entry) = skills.iter_mut().find(|entry| entry.id == skill.id) {
+                    entry.source_url = skill.source_url.clone();
+                }
+                write_skill_index(data_dir, &skills)?;
+            }
+            return result;
+        }
         let fetched = fetch_skill_markdown(source).await?;
         let staging_id = uuid::Uuid::new_v4().to_string();
         let source_dir = staging_skill_path(data_dir, &format!("source-{staging_id}"));
@@ -576,6 +598,263 @@ pub(crate) async fn install_skill_source(
         return result;
     }
     install_local_skill(data_dir, Path::new(source), replace)
+}
+
+async fn download_github_skill_package(
+    data_dir: &Path,
+    source: &str,
+) -> Result<Option<PathBuf>, String> {
+    let Some(tree) = parse_github_tree_source(source)? else {
+        return Ok(None);
+    };
+    let staging_id = format!("source-{}", uuid::Uuid::new_v4());
+    let source_dir = staging_skill_path(data_dir, &staging_id);
+    fs::create_dir_all(&source_dir).map_err(|error| format!("创建 Skill 下载目录失败: {error}"))?;
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(GITHUB_FETCH_TIMEOUT_SECONDS))
+        .user_agent(APP_USER_AGENT)
+        .build()
+        .map_err(|error| format!("创建 GitHub Skill 下载请求失败: {error}"))?;
+
+    if let Err(error) = download_github_tree(&client, &tree, &source_dir).await {
+        move_to_trash_if_exists(&source_dir);
+        return Err(error);
+    }
+    if !source_dir.join("SKILL.md").is_file() && !source_dir.join("skill.md").is_file() {
+        move_to_trash_if_exists(&source_dir);
+        return Err("GitHub Skill 包缺少 SKILL.md".into());
+    }
+    Ok(Some(source_dir))
+}
+
+#[derive(Debug, Clone)]
+struct GithubTreeSource {
+    owner: String,
+    repository: String,
+    branch: String,
+    path: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct GithubContentEntry {
+    path: String,
+    #[serde(rename = "type")]
+    kind: String,
+    #[serde(default)]
+    download_url: Option<String>,
+    #[serde(default)]
+    size: Option<u64>,
+}
+
+fn parse_github_tree_source(source: &str) -> Result<Option<GithubTreeSource>, String> {
+    let url = Url::parse(source).map_err(|_| "请输入完整的 Skill URL".to_string())?;
+    if url.host_str() != Some("github.com") {
+        return Ok(None);
+    }
+    let segments = url
+        .path_segments()
+        .map(|segments| {
+            segments
+                .filter(|segment| !segment.is_empty())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    if segments.len() < 4 || segments.get(2) != Some(&"tree") {
+        return Ok(None);
+    }
+    Ok(Some(GithubTreeSource {
+        owner: segments[0].to_string(),
+        repository: segments[1].trim_end_matches(".git").to_string(),
+        branch: segments[3].to_string(),
+        path: segments.get(4..).unwrap_or_default().join("/"),
+    }))
+}
+
+async fn download_github_tree(
+    client: &reqwest::Client,
+    tree: &GithubTreeSource,
+    destination: &Path,
+) -> Result<(), String> {
+    let mut pending = vec![tree.path.clone()];
+    while let Some(path) = pending.pop() {
+        let entries = github_contents(client, tree, &path).await?;
+        for entry in entries {
+            let relative = github_relative_path(tree, &entry.path);
+            if entry.kind == "dir" {
+                if relative_components_include_script_dir(&relative) {
+                    return Err(format!("GitHub Skill 包包含不允许的脚本目录: {relative}"));
+                }
+                if relative == "references" || relative.starts_with("references/") {
+                    pending.push(entry.path);
+                }
+                continue;
+            }
+            if entry.kind != "file" {
+                return Err(format!("GitHub Skill 包包含不支持的条目: {relative}"));
+            }
+            if is_skill_entry_file(&relative) || is_allowed_reference_file(&relative) {
+                download_github_file(client, &entry, &destination.join(&relative)).await?;
+            } else if relative.starts_with("references/") || has_script_extension(&relative) {
+                return Err(format!("GitHub Skill 包包含不支持的文件: {relative}"));
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn github_contents(
+    client: &reqwest::Client,
+    tree: &GithubTreeSource,
+    path: &str,
+) -> Result<Vec<GithubContentEntry>, String> {
+    let mut url = Url::parse(&format!(
+        "https://api.github.com/repos/{}/{}/contents/{}",
+        tree.owner,
+        tree.repository,
+        path.trim_matches('/')
+    ))
+    .map_err(|error| format!("构造 GitHub Skill 目录 URL 失败: {error}"))?;
+    url.query_pairs_mut().append_pair("ref", &tree.branch);
+    let response = client
+        .get(url.clone())
+        .send()
+        .await
+        .map_err(|error| format!("请求 GitHub Skill 目录失败: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "请求 GitHub Skill 目录失败: HTTP {}",
+            response.status().as_u16()
+        ));
+    }
+    let value = response
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|error| format!("解析 GitHub Skill 目录失败: {error}"))?;
+    if value.is_array() {
+        serde_json::from_value(value)
+            .map_err(|error| format!("读取 GitHub Skill 目录失败: {error}"))
+    } else {
+        let entry = serde_json::from_value(value)
+            .map_err(|error| format!("读取 GitHub Skill 文件失败: {error}"))?;
+        Ok(vec![entry])
+    }
+}
+
+async fn download_github_file(
+    client: &reqwest::Client,
+    entry: &GithubContentEntry,
+    destination: &Path,
+) -> Result<(), String> {
+    let url = entry
+        .download_url
+        .as_deref()
+        .ok_or_else(|| format!("GitHub 文件缺少下载地址: {}", entry.path))?;
+    let limit = if is_markdown_path(&entry.path) {
+        MAX_MARKDOWN_BYTES
+    } else {
+        MAX_IMAGE_BYTES
+    };
+    if entry.size.is_some_and(|size| size > limit) {
+        return Err(format!("GitHub 文件超过大小上限: {}", entry.path));
+    }
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|error| format!("下载 GitHub Skill 文件失败: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "下载 GitHub Skill 文件失败: HTTP {} {}",
+            response.status().as_u16(),
+            entry.path
+        ));
+    }
+    if response.content_length().is_some_and(|size| size > limit) {
+        return Err(format!("GitHub 文件超过大小上限: {}", entry.path));
+    }
+    let content_type = response
+        .headers()
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_lowercase();
+    if content_type.contains("text/html") {
+        return Err(format!("GitHub 文件返回 HTML: {}", entry.path));
+    }
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|error| format!("读取 GitHub Skill 文件失败: {error}"))?;
+    if bytes.len() > limit as usize {
+        return Err(format!("GitHub 文件超过大小上限: {}", entry.path));
+    }
+    if is_markdown_path(&entry.path) {
+        std::str::from_utf8(&bytes)
+            .map_err(|_| format!("GitHub Markdown 不是 UTF-8: {}", entry.path))?;
+    }
+    if let Some(parent) = destination.parent() {
+        fs::create_dir_all(parent).map_err(|error| format!("创建 Skill 下载目录失败: {error}"))?;
+    }
+    fs::write(destination, bytes).map_err(|error| format!("写入 GitHub Skill 文件失败: {error}"))
+}
+
+fn github_relative_path(tree: &GithubTreeSource, path: &str) -> String {
+    if tree.path.trim().is_empty() {
+        path.trim_matches('/').to_string()
+    } else {
+        path.trim_matches('/')
+            .strip_prefix(tree.path.trim_matches('/'))
+            .unwrap_or(path.trim_matches('/'))
+            .trim_matches('/')
+            .to_string()
+    }
+}
+
+fn is_skill_entry_file(relative: &str) -> bool {
+    matches!(relative, "SKILL.md" | "skill.md")
+}
+
+fn is_allowed_reference_file(relative: &str) -> bool {
+    relative.starts_with("references/")
+        && matches!(
+            Path::new(relative)
+                .extension()
+                .and_then(|value| value.to_str())
+                .unwrap_or_default()
+                .to_ascii_lowercase()
+                .as_str(),
+            "md" | "markdown" | "png" | "jpg" | "jpeg" | "webp" | "gif"
+        )
+}
+
+fn is_markdown_path(path: &str) -> bool {
+    matches!(
+        Path::new(path)
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase()
+            .as_str(),
+        "md" | "markdown"
+    )
+}
+
+fn has_script_extension(path: &str) -> bool {
+    let extension = Path::new(path)
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    SCRIPT_EXTENSIONS.contains(&extension.as_str())
+}
+
+fn relative_components_include_script_dir(relative: &str) -> bool {
+    relative.split('/').any(|component| {
+        matches!(
+            component.to_ascii_lowercase().as_str(),
+            "scripts" | "script" | "bin" | "tools"
+        )
+    })
 }
 
 fn move_to_trash_if_exists(path: &Path) {
@@ -645,7 +924,8 @@ mod tests {
     use crate::{models::SkillEntry, store::read_skills};
 
     use super::{
-        audit_skill_directory, ensure_skill_manifest, install_local_skill, read_verified_manifest,
+        audit_skill_directory, ensure_skill_manifest, has_script_extension, install_local_skill,
+        is_allowed_reference_file, parse_github_tree_source, read_verified_manifest,
         save_skill_entry,
     };
 
@@ -820,5 +1100,31 @@ mod tests {
         assert!(ensure_skill_manifest(&rejected_package).is_err());
         assert!(!rejected_package.join("manifest.json").exists());
         recycle(&data_dir);
+    }
+
+    #[test]
+    fn github_tree_source_is_parsed_as_a_skill_directory() {
+        let source =
+            parse_github_tree_source("https://github.com/openai/skills/tree/main/skills/imagegen")
+                .unwrap()
+                .unwrap();
+        assert_eq!(source.owner, "openai");
+        assert_eq!(source.repository, "skills");
+        assert_eq!(source.branch, "main");
+        assert_eq!(source.path, "skills/imagegen");
+        assert!(parse_github_tree_source(
+            "https://raw.githubusercontent.com/openai/skills/main/skills/imagegen/SKILL.md"
+        )
+        .unwrap()
+        .is_none());
+    }
+
+    #[test]
+    fn github_package_download_only_accepts_reference_docs_and_images() {
+        assert!(is_allowed_reference_file("references/guide.md"));
+        assert!(is_allowed_reference_file("references/sample.png"));
+        assert!(!is_allowed_reference_file("README.md"));
+        assert!(!is_allowed_reference_file("references/run.py"));
+        assert!(has_script_extension("references/run.py"));
     }
 }
