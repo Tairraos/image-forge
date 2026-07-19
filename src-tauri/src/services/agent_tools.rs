@@ -111,13 +111,21 @@ pub(crate) fn validate_tool_arguments(name: &str, arguments: &Value) -> Result<(
         .as_object()
         .ok_or("Tool Call 参数必须是 JSON 对象")?;
     match name {
-        TOOL_LIST_SKILLS => Ok(()),
-        TOOL_INSTALL_SKILL => require_non_empty_string(object.get("source"), "source"),
+        TOOL_LIST_SKILLS => {
+            reject_unknown_fields(name, object, &["query"])?;
+            Ok(())
+        }
+        TOOL_INSTALL_SKILL => {
+            reject_unknown_fields(name, object, &["source", "replace"])?;
+            require_non_empty_string(object.get("source"), "source")
+        }
         TOOL_USE_SKILL => {
+            reject_unknown_fields(name, object, &["skillId", "task", "referenceIds"])?;
             require_non_empty_string(object.get("skillId"), "skillId")?;
             require_non_empty_string(object.get("task"), "task")
         }
         TOOL_CREATE_IMAGE_TASKS => {
+            reject_unknown_fields(name, object, &["skillId", "plans"])?;
             let plans = object
                 .get("plans")
                 .and_then(Value::as_array)
@@ -129,6 +137,21 @@ pub(crate) fn validate_tool_arguments(name: &str, arguments: &Value) -> Result<(
                 let plan = plan
                     .as_object()
                     .ok_or_else(|| format!("plans[{index}] 必须是对象"))?;
+                reject_unknown_fields(
+                    &format!("plans[{index}]"),
+                    plan,
+                    &[
+                        "title",
+                        "prompt",
+                        "providerId",
+                        "resolution",
+                        "ratio",
+                        "quality",
+                        "promptFidelity",
+                        "referencePolicy",
+                        "referenceIds",
+                    ],
+                )?;
                 require_non_empty_string(plan.get("prompt"), &format!("plans[{index}].prompt"))?;
                 let policy = plan
                     .get("referencePolicy")
@@ -152,6 +175,7 @@ pub(crate) fn validate_tool_arguments(name: &str, arguments: &Value) -> Result<(
             Ok(())
         }
         TOOL_GET_TASK_STATUS => {
+            reject_unknown_fields(name, object, &["taskGroupId", "taskId"])?;
             let has_group = non_empty_string(object.get("taskGroupId"));
             let has_task = non_empty_string(object.get("taskId"));
             if has_group || has_task {
@@ -161,6 +185,21 @@ pub(crate) fn validate_tool_arguments(name: &str, arguments: &Value) -> Result<(
             }
         }
         _ => Err(format!("不允许的 Agent 工具：{name}")),
+    }
+}
+
+fn reject_unknown_fields(
+    label: &str,
+    object: &serde_json::Map<String, Value>,
+    allowed: &[&str],
+) -> Result<(), String> {
+    if let Some(key) = object
+        .keys()
+        .find(|key| !allowed.iter().any(|field| field == &key.as_str()))
+    {
+        Err(format!("{label} 不允许未知字段 `{key}`"))
+    } else {
+        Ok(())
     }
 }
 
@@ -319,6 +358,35 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.contains("没有 referenceIds"));
+    }
+
+    #[test]
+    fn tool_validation_rejects_unknown_fields() {
+        let error = validate_tool_arguments(
+            "install_skill",
+            &json!({
+                "source": "https://example.com/skill.md",
+                "replace": false,
+                "extra": "not-allowed"
+            }),
+        )
+        .unwrap_err();
+        assert!(error.contains("未知字段"));
+
+        let error = validate_tool_arguments(
+            "create_image_tasks",
+            &json!({
+                "plans": [{
+                    "title": "图一",
+                    "prompt": "完整提示词",
+                    "referencePolicy": "none",
+                    "referenceIds": [],
+                    "unexpected": true
+                }]
+            }),
+        )
+        .unwrap_err();
+        assert!(error.contains("未知字段"));
     }
 
     #[test]
