@@ -608,7 +608,9 @@ async function deleteAgentConversation(sessionId) {
   }
 }
 
-async function sendAgentConversationMessage(content) {
+async function sendAgentConversationMessage(payload) {
+  const content = typeof payload === "string" ? payload : payload?.content || "";
+  const useReferences = typeof payload === "string" ? true : payload?.useReferences !== false;
   if (!currentAgentSessionId.value) await createAgentConversation();
   if (!currentAgentSessionId.value) return;
   agentBusy.value = true;
@@ -618,14 +620,19 @@ async function sendAgentConversationMessage(content) {
       sessionId: currentAgentSessionId.value,
       providerId: agentProviderId.value,
       skillId: agentSkillId.value,
-      content,
-      attachments: agentAttachments.value.map(({ dataUrl, ...attachment }) => attachment),
+      content: useReferences ? content : `${content}\n\n<reference_policy>本轮不使用当前附图。</reference_policy>`,
+      attachments: useReferences
+        ? agentAttachments.value.map(({ dataUrl, ...attachment }) => attachment)
+        : [],
     });
     agentSessions.value = [session, ...agentSessions.value.filter((item) => item.id !== session.id)];
-    agentAttachments.value = [];
+    if (useReferences) agentAttachments.value = [];
     agentSkillId.value = "";
   } catch (error) {
     setStatus(String(error), "error");
+    if (currentAgentSessionId.value) {
+      await selectAgentConversation(currentAgentSessionId.value);
+    }
   } finally {
     agentBusy.value = false;
     agentStreamText.value = "";
@@ -661,6 +668,7 @@ async function stopAgentConversation() {
   if (currentAgentSessionId.value) {
     try {
       await invoke("cancel_agent_turn", { sessionId: currentAgentSessionId.value });
+      await selectAgentConversation(currentAgentSessionId.value);
     } catch (error) {
       setStatus(String(error), "error");
     }
@@ -730,7 +738,8 @@ function handleAgentProgressEvent(event) {
   if (payload.sessionId !== currentAgentSessionId.value) return;
   if (payload.phase === "delta") agentStreamText.value += payload.chunk || "";
   if (["tool_delta", "tool_start", "tool_result"].includes(payload.phase)) {
-    agentToolStatus.value = payload.message || "正在执行工具";
+    const tool = payload.toolName ? ` · ${payload.toolName}` : "";
+    agentToolStatus.value = `${payload.message || "正在执行工具"}${tool}`;
   }
   if (payload.phase === "error") setStatus(payload.message || "Agent 调用失败", "error");
 }
@@ -743,7 +752,15 @@ function openAgentTaskGroup(group) {
 }
 
 function retryAgentMessage(message) {
-  if (message?.content) void sendAgentConversationMessage(message.content);
+  const messages = currentAgentMessages.value;
+  const index = messages.findIndex((item) => item.id === message?.id);
+  const previousUser = messages
+    .slice(0, index < 0 ? messages.length : index)
+    .reverse()
+    .find((item) => item.role === "user");
+  if (previousUser?.content) {
+    void sendAgentConversationMessage({ content: previousUser.content, useReferences: false });
+  }
 }
 
 function updateAgentAnswer({ key, value }) {

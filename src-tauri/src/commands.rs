@@ -222,8 +222,8 @@ pub(crate) async fn send_agent_message(
                         mode: event.mode.into(),
                         chunk: event.chunk,
                         message: event.message,
-                        tool_call_id: String::new(),
-                        tool_name: String::new(),
+                        tool_call_id: event.tool_call_id,
+                        tool_name: event.tool_name,
                     },
                 );
             },

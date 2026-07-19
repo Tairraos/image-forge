@@ -126,6 +126,8 @@ where
                 mode: mode_label(&response.mode),
                 chunk: String::new(),
                 message: format!("正在执行 {}", call.name),
+                tool_call_id: call.id.clone(),
+                tool_name: call.name.clone(),
             });
             let result = execute_tool(call.name.clone(), arguments.clone()).await;
             let (result_value, error) = match result {
@@ -167,6 +169,8 @@ where
                 } else {
                     error
                 },
+                tool_call_id: call.id.clone(),
+                tool_name: call.name.clone(),
             });
         }
     }

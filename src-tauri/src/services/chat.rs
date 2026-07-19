@@ -24,6 +24,8 @@ pub(crate) struct ChatProgressEventData {
     pub mode: &'static str,
     pub chunk: String,
     pub message: String,
+    pub tool_call_id: String,
+    pub tool_name: String,
 }
 
 #[derive(Debug, Clone)]
@@ -89,9 +91,7 @@ pub(crate) async fn agent_completion(
     let is_stream = is_stream_content_type(response.headers().get(CONTENT_TYPE));
     if !status.is_success() {
         let body = response.text().await.unwrap_or_default();
-        let message = if body.to_ascii_lowercase().contains("tool")
-            || body.to_ascii_lowercase().contains("function")
-        {
+        let message = if looks_like_agent_tools_unsupported(status, &body) {
             format!("AGENT_TOOLS_UNSUPPORTED: HTTP {} {}", status.as_u16(), body)
         } else {
             format!("Agent 请求失败: HTTP {} {}", status.as_u16(), body)
@@ -157,6 +157,8 @@ async fn consume_agent_tool_stream(
                     mode: "stream",
                     chunk: content,
                     message: String::new(),
+                    tool_call_id: String::new(),
+                    tool_name: String::new(),
                 });
             }
             if let Some(items) = delta.get("tool_calls").and_then(Value::as_array) {
@@ -183,6 +185,8 @@ async fn consume_agent_tool_stream(
                         mode: "stream",
                         chunk: String::new(),
                         message: format!("准备调用 {}", entry.name),
+                        tool_call_id: entry.id.clone(),
+                        tool_name: entry.name.clone(),
                     });
                 }
             }
@@ -426,6 +430,8 @@ where
         mode: "pending",
         chunk: String::new(),
         message: String::new(),
+        tool_call_id: String::new(),
+        tool_name: String::new(),
     });
 
     let base_url = match normalize_base_url(&provider.base_url) {
@@ -488,6 +494,8 @@ where
                         mode: "stream",
                         chunk: String::new(),
                         message: String::new(),
+                        tool_call_id: String::new(),
+                        tool_name: String::new(),
                     });
                     let text = consume_streaming_response(
                         response,
@@ -527,6 +535,8 @@ where
                         mode: "non-stream",
                         chunk: String::new(),
                         message: "当前模型不支持流式响应，已回退到非流式模式".into(),
+                        tool_call_id: String::new(),
+                        tool_name: String::new(),
                     });
                     let response = send_chat_request(
                         &client,
@@ -562,6 +572,8 @@ where
                     mode: "non-stream",
                     chunk: String::new(),
                     message: String::new(),
+                    tool_call_id: String::new(),
+                    tool_name: String::new(),
                 });
                 let parsed = parse_non_stream_response(
                     status,
@@ -579,6 +591,8 @@ where
                     mode: "pending",
                     chunk: String::new(),
                     message: error.clone(),
+                    tool_call_id: String::new(),
+                    tool_name: String::new(),
                 });
                 return Err(error);
             }
@@ -600,6 +614,8 @@ where
         mode: "non-stream",
         chunk: String::new(),
         message: String::new(),
+        tool_call_id: String::new(),
+        tool_name: String::new(),
     });
     let status = response.status();
     let text = read_response_body(
@@ -804,6 +820,8 @@ where
             mode: "stream",
             chunk,
             message: String::new(),
+            tool_call_id: String::new(),
+            tool_name: String::new(),
         });
     }
     Ok(false)
@@ -1000,6 +1018,35 @@ fn looks_like_stream_unsupported(status: StatusCode, text: &str) -> bool {
             "not implement",
             "unknown field",
             "invalid",
+        ]
+        .iter()
+        .any(|pattern| normalized.contains(pattern))
+}
+
+fn looks_like_agent_tools_unsupported(status: StatusCode, text: &str) -> bool {
+    if !status.is_client_error() {
+        return false;
+    }
+    let normalized = text.to_ascii_lowercase();
+    let mentions_tools = [
+        "tool",
+        "function_call",
+        "function call",
+        "tool_choice",
+        "tools",
+    ]
+    .iter()
+    .any(|pattern| normalized.contains(pattern));
+    mentions_tools
+        && [
+            "unsupported",
+            "not support",
+            "not supported",
+            "unknown",
+            "invalid",
+            "extra",
+            "not allowed",
+            "does not permit",
         ]
         .iter()
         .any(|pattern| normalized.contains(pattern))

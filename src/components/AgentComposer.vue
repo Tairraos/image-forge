@@ -23,7 +23,12 @@
       @keydown.ctrl.enter.prevent="send"
     />
     <footer>
-      <n-button size="small" :disabled="busy" @click="$emit('add-reference')">添加参考图</n-button>
+      <div class="agent-composer-reference-actions">
+        <n-button size="small" :disabled="busy" @click="$emit('add-reference')">添加参考图</n-button>
+        <n-checkbox v-if="attachments.length" v-model:checked="useReferences" :disabled="busy">
+          本轮使用参考图
+        </n-checkbox>
+      </div>
       <n-button v-if="busy" size="small" type="error" secondary @click="$emit('stop')">停止</n-button>
       <n-button v-else size="small" type="primary" :disabled="!draft.trim() || !providerId" @click="send">发送</n-button>
     </footer>
@@ -42,11 +47,12 @@ const props = defineProps({
 const emit = defineEmits(["send", "stop", "add-reference", "paste-reference", "drop-reference", "remove-attachment"]);
 const draft = ref("");
 const dragActive = ref(false);
+const useReferences = ref(true);
 
 function send() {
   const content = draft.value.trim();
   if (!content || props.busy || !props.providerId) return;
-  emit("send", content);
+  emit("send", { content, useReferences: useReferences.value });
   draft.value = "";
 }
 
