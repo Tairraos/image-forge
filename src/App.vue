@@ -548,7 +548,12 @@ async function refreshAgentSessions() {
       agentProviderId.value = agentSessions.value[0].modelProviderId || form.chatProviderId;
     }
     if (!agentSessions.value.length && agentProviderId.value) await createAgentConversation();
-    syncAgentTaskGroupPolling();
+    if (currentAgentSessionId.value) {
+      await refreshAgentTaskGroups();
+      syncAgentTaskGroupPolling();
+    } else {
+      syncAgentTaskGroupPolling();
+    }
   } catch {
     // Agent 会话在旧版本数据目录或浏览器预览中可能暂不可用。
   }
