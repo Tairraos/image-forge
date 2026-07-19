@@ -5,13 +5,178 @@ use std::{
 };
 
 use sha2::{Digest, Sha256};
+use serde_json::Value;
 
 use crate::{
-    models::{GenerateRequest, PromptTemplate, TaskRecord},
+    models::{CleanupCandidate, GenerateRequest, PromptTemplate, TaskRecord},
     state::record_operation,
-    store::{read_history, read_json, read_templates},
+    store::{read_history, read_json, read_queue, read_templates},
     utils::image_mime_type,
 };
+
+const CLEANUP_DIRECTORIES: [&str; 4] = ["outputs", "references", "requests", "clipboard"];
+
+/// 扫描四个资源目录，返回没有被应用数据引用的文件；本函数只读，不会删除文件。
+pub(crate) fn scan_orphan_files(data_dir: &Path) -> Result<Vec<CleanupCandidate>, String> {
+    let referenced = collect_referenced_files(data_dir)?;
+    let request_ids = collect_referenced_request_ids(data_dir)?;
+    let mut candidates = Vec::new();
+
+    for directory_name in CLEANUP_DIRECTORIES {
+        let directory = data_dir.join(directory_name);
+        if !directory.is_dir() {
+            continue;
+        }
+        for path in files_in_directory(&directory)? {
+            let canonical = fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+            let request_is_used = directory_name == "requests"
+                && path
+                    .file_name()
+                    .and_then(|value| value.to_str())
+                    .and_then(|value| value.strip_suffix(".json"))
+                    .is_some_and(|task_id| request_ids.contains(task_id));
+            if request_is_used || referenced.contains(&canonical) {
+                continue;
+            }
+            let size = fs::metadata(&path).map(|metadata| metadata.len()).unwrap_or_default();
+            candidates.push(CleanupCandidate {
+                relative_path: path
+                    .strip_prefix(data_dir)
+                    .unwrap_or(&path)
+                    .to_string_lossy()
+                    .into_owned(),
+                path: path.to_string_lossy().into_owned(),
+                size,
+            });
+        }
+    }
+    candidates.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
+    Ok(candidates)
+}
+
+/// 重新扫描后把孤岛文件移入系统回收站，避免使用弹窗打开期间的旧列表直接删除。
+pub(crate) fn cleanup_orphan_files(data_dir: &Path) -> Result<Vec<CleanupCandidate>, String> {
+    let candidates = scan_orphan_files(data_dir)?;
+    for candidate in &candidates {
+        let path = PathBuf::from(&candidate.path);
+        let allowed = CLEANUP_DIRECTORIES
+            .iter()
+            .any(|directory| path.starts_with(data_dir.join(directory)));
+        if !allowed {
+            return Err(format!("拒绝清理数据目录外的文件：{}", path.display()));
+        }
+        if let Err(error) = trash::delete(&path) {
+            let message = format!("将孤岛文件移到回收站失败（{}）: {error}", path.display());
+            record_operation(
+                "清理孤岛文件",
+                "失败",
+                format!("path={}", path.display()),
+                None,
+                Some(&message),
+            );
+            return Err(message);
+        }
+        record_operation(
+            "清理孤岛文件",
+            "成功",
+            format!("path={} bytes={}", path.display(), candidate.size),
+            None,
+            None,
+        );
+    }
+    Ok(candidates)
+}
+
+fn collect_referenced_files(data_dir: &Path) -> Result<HashSet<PathBuf>, String> {
+    let mut referenced = HashSet::new();
+    for path in json_files(data_dir)? {
+        let value: Value = read_json(&path)?;
+        collect_paths_from_value(&value, data_dir, &mut referenced);
+    }
+    Ok(referenced)
+}
+
+fn collect_paths_from_value(value: &Value, data_dir: &Path, referenced: &mut HashSet<PathBuf>) {
+    match value {
+        Value::String(value) => {
+            let path = Path::new(value);
+            if path.is_absolute() && path.starts_with(data_dir) && path.is_file() {
+                referenced.insert(fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()));
+            }
+        }
+        Value::Array(values) => {
+            for value in values {
+                collect_paths_from_value(value, data_dir, referenced);
+            }
+        }
+        Value::Object(values) => {
+            for value in values.values() {
+                collect_paths_from_value(value, data_dir, referenced);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_referenced_request_ids(data_dir: &Path) -> Result<HashSet<String>, String> {
+    let history = read_history(data_dir)?;
+    let queue = read_queue(data_dir)?;
+    let mut ids = history.into_iter().map(|record| record.id).collect::<HashSet<_>>();
+    ids.extend(queue.waiting);
+    ids.extend(queue.running.into_iter().map(|run| run.task_id));
+    Ok(ids)
+}
+
+fn json_files(root: &Path) -> Result<Vec<PathBuf>, String> {
+    let mut files = Vec::new();
+    collect_json_files(root, &mut files)?;
+    Ok(files)
+}
+
+fn collect_json_files(root: &Path, files: &mut Vec<PathBuf>) -> Result<(), String> {
+    if !root.is_dir() {
+        return Ok(());
+    }
+    for entry in fs::read_dir(root).map_err(|error| format!("读取数据目录失败: {error}"))? {
+        let entry = entry.map_err(|error| format!("读取数据目录条目失败: {error}"))?;
+        let file_type = entry
+            .file_type()
+            .map_err(|error| format!("读取数据目录条目类型失败: {error}"))?;
+        let path = entry.path();
+        if file_type.is_dir() {
+            collect_json_files(&path, files)?;
+        } else if file_type.is_file()
+            && path.extension().and_then(|value| value.to_str()) == Some("json")
+        {
+            files.push(path);
+        }
+    }
+    Ok(())
+}
+
+fn files_in_directory(root: &Path) -> Result<Vec<PathBuf>, String> {
+    let mut files = Vec::new();
+    collect_files(root, &mut files)?;
+    Ok(files)
+}
+
+fn collect_files(root: &Path, files: &mut Vec<PathBuf>) -> Result<(), String> {
+    for entry in fs::read_dir(root)
+        .map_err(|error| format!("读取清理目录失败（{}）: {error}", root.display()))?
+    {
+        let entry = entry.map_err(|error| format!("读取待清理文件失败: {error}"))?;
+        let file_type = entry
+            .file_type()
+            .map_err(|error| format!("读取待清理文件类型失败: {error}"))?;
+        let path = entry.path();
+        if file_type.is_dir() {
+            collect_files(&path, files)?;
+        } else if file_type.is_file() {
+            files.push(path);
+        }
+    }
+    Ok(())
+}
 
 pub(crate) fn persist_reference_paths(
     data_dir: &Path,
@@ -240,9 +405,11 @@ fn normalize_extension(extension: &str) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    use std::{collections::HashSet, fs, path::Path};
 
-    use super::should_prune_reference_file;
+    use uuid::Uuid;
+
+    use super::{scan_orphan_files, should_prune_reference_file};
 
     #[test]
     fn only_image_assets_in_reference_dir_are_pruned() {
@@ -250,5 +417,43 @@ mod tests {
         assert!(should_prune_reference_file(Path::new("/tmp/demo.jpeg")));
         assert!(!should_prune_reference_file(Path::new("/tmp/.DS_Store")));
         assert!(!should_prune_reference_file(Path::new("/tmp/readme.md")));
+    }
+
+    #[test]
+    fn orphan_scan_keeps_json_paths_and_queue_request_files() {
+        let root = std::env::temp_dir().join(format!("image-forge-cleanup-{}", Uuid::new_v4()));
+        let outputs = root.join("outputs");
+        let requests = root.join("requests");
+        fs::create_dir_all(&outputs).unwrap();
+        fs::create_dir_all(&requests).unwrap();
+        let kept_output = outputs.join("kept.png");
+        fs::write(&kept_output, b"kept").unwrap();
+        fs::write(outputs.join("orphan.png"), b"orphan").unwrap();
+        fs::write(requests.join("task-1.json"), "{}").unwrap();
+        fs::write(requests.join("orphan.json"), "{}").unwrap();
+        fs::write(
+            root.join("links.json"),
+            serde_json::to_string(&serde_json::json!({
+                "output": kept_output.to_string_lossy()
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            root.join("queue.json"),
+            r#"{"waiting":["task-1"],"running":[],"updatedAt":"2026-07-19T00:00:00Z"}"#,
+        )
+        .unwrap();
+
+        let candidates = scan_orphan_files(&root).unwrap();
+        let paths = candidates
+            .iter()
+            .map(|candidate| candidate.relative_path.as_str())
+            .collect::<HashSet<_>>();
+        assert!(paths.contains("outputs/orphan.png"));
+        assert!(paths.contains("requests/orphan.json"));
+        assert!(!paths.contains("outputs/kept.png"));
+        assert!(!paths.contains("requests/task-1.json"));
+        fs::remove_dir_all(root).unwrap();
     }
 }

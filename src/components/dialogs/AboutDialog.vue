@@ -20,6 +20,7 @@
 
     <template #footer>
       <div class="dialog-actions">
+        <n-button size="small" secondary @click="$emit('cleanup')">清理</n-button>
         <n-button size="small" secondary @click="$emit('show-logs')">日志</n-button>
         <n-button size="small" @click="show = false">关闭</n-button>
       </div>
@@ -39,5 +40,5 @@ defineProps({
   },
 });
 
-defineEmits(["show-logs"]);
+defineEmits(["show-logs", "cleanup"]);
 </script>

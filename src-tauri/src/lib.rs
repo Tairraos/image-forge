@@ -16,6 +16,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::about_info,
             commands::copy_image_to_clipboard,
+            commands::cleanup_data_files,
             commands::delete_task,
             commands::delete_skill,
             commands::delete_template,
@@ -41,6 +42,7 @@ pub fn run() {
             commands::retry_task,
             commands::reveal_path,
             commands::runtime_logs,
+            commands::scan_cleanup_candidates,
             commands::save_settings,
             commands::save_skill,
             commands::save_template,

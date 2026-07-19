@@ -1196,6 +1196,65 @@ button:disabled {
   line-height: 1.55;
 }
 
+.cleanup-modal .n-card {
+  width: min(720px, calc(100vw - 48px));
+}
+
+.cleanup-content {
+  min-height: 180px;
+}
+
+.cleanup-summary,
+.cleanup-state {
+  margin: 0 0 12px;
+  color: var(--muted);
+}
+
+.cleanup-error {
+  color: #c2415b;
+}
+
+.cleanup-table-wrap {
+  max-height: min(52vh, 480px);
+  overflow: auto;
+  border: 1px solid rgba(148, 130, 172, 0.24);
+  border-radius: 8px;
+}
+
+.cleanup-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.cleanup-table th,
+.cleanup-table td {
+  padding: 7px 10px;
+  text-align: left;
+  border-bottom: 1px solid rgba(148, 130, 172, 0.2);
+}
+
+.cleanup-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #fffafd;
+}
+
+.cleanup-table th:last-child,
+.cleanup-table td:last-child {
+  width: 90px;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.cleanup-table td:first-child {
+  max-width: 560px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .template-manager {
   display: grid;
   gap: 10px;

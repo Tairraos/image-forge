@@ -11,7 +11,7 @@ use uuid::Uuid;
 use crate::{
     defaults::APP_BUILD_TIME,
     models::{
-        AboutInfo, ApiProvider, AppState, GenerateRequest, PromptTemplate, QueueSnapshot,
+        AboutInfo, ApiProvider, AppState, CleanupCandidate, GenerateRequest, PromptTemplate, QueueSnapshot,
         ReferencePreview, Settings, SkillConversationMessage, SkillEntry, SkillFetchResult,
         SkillImagePlan, SkillPlanResult, SkillPlannerEvent, SkillPlannerQuestion, TaskRecord,
         TemplateFillEvent, TemplateImportResult,
@@ -27,7 +27,8 @@ use crate::{
             build_queue_snapshot, emit_queue_updated, ensure_queue_worker, recover_stale_running,
         },
         references::{
-            persist_reference_paths, prune_unreferenced_files, prune_unreferenced_files_with_data,
+            cleanup_orphan_files, persist_reference_paths, prune_unreferenced_files,
+            prune_unreferenced_files_with_data, scan_orphan_files,
         },
         skill::fetch_skill_markdown as fetch_skill_markdown_from_url,
         template_bundle::{export_templates_archive, import_templates_archive},
@@ -57,6 +58,42 @@ pub(crate) fn about_info() -> AboutInfo {
 /// 返回本次运行的结构化日志文本。
 pub(crate) fn runtime_logs() -> String {
     runtime_logs_text()
+}
+
+#[tauri::command]
+/// 扫描四个资源目录中的孤岛文件；只读，不会删除任何文件。
+pub(crate) fn scan_cleanup_candidates(app: AppHandle) -> Result<Vec<CleanupCandidate>, String> {
+    let data_dir = ensure_data_dir(&app)?;
+    let result = scan_orphan_files(&data_dir);
+    match &result {
+        Ok(candidates) => record_operation(
+            "扫描孤岛文件",
+            "成功",
+            format!("candidate_count={}", candidates.len()),
+            None,
+            None,
+        ),
+        Err(error) => record_operation("扫描孤岛文件", "失败", "", None, Some(error)),
+    }
+    result
+}
+
+#[tauri::command]
+/// 重新扫描并把当前孤岛文件移入系统回收站。
+pub(crate) fn cleanup_data_files(app: AppHandle) -> Result<Vec<CleanupCandidate>, String> {
+    let data_dir = ensure_data_dir(&app)?;
+    let result = cleanup_orphan_files(&data_dir);
+    match &result {
+        Ok(candidates) => record_operation(
+            "清理孤岛文件",
+            "成功",
+            format!("file_count={}", candidates.len()),
+            None,
+            None,
+        ),
+        Err(error) => record_operation("清理孤岛文件", "失败", "", None, Some(error)),
+    }
+    result
 }
 
 fn record_result<T>(

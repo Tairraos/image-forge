@@ -18,6 +18,14 @@ pub struct AboutInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CleanupCandidate {
+    pub path: String,
+    pub relative_path: String,
+    pub size: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ApiProvider {
     #[serde(default = "default_provider_id")]
     pub id: String,

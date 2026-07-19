@@ -192,6 +192,16 @@
         v-model:show="showAboutDialog"
         :info="aboutInfo"
         @show-logs="openRuntimeLogs"
+        @cleanup="openCleanup"
+      />
+
+      <CleanupDialog
+        v-model:show="showCleanupDialog"
+        :candidates="cleanupCandidates"
+        :loading="cleanupLoading"
+        :confirming="cleanupConfirming"
+        :error="cleanupError"
+        @confirm="confirmCleanup"
       />
 
       <RuntimeLogDialog
@@ -242,6 +252,7 @@ import ComposerPanel from "./components/ComposerPanel.vue";
 import QueuePanel from "./components/QueuePanel.vue";
 import ResultPanel from "./components/ResultPanel.vue";
 import AboutDialog from "./components/dialogs/AboutDialog.vue";
+import CleanupDialog from "./components/dialogs/CleanupDialog.vue";
 import ApiSourceDialog from "./components/dialogs/ApiSourceDialog.vue";
 import ConfirmDialog from "./components/dialogs/ConfirmDialog.vue";
 import EffectImageViewer from "./components/dialogs/EffectImageViewer.vue";
@@ -334,6 +345,7 @@ const showSkillReferenceDialog = ref(false);
 const showTaskDetail = ref(false);
 const showAboutDialog = ref(false);
 const showRuntimeLogDialog = ref(false);
+const showCleanupDialog = ref(false);
 const confirmation = reactive({
   visible: false,
   title: "请确认",
@@ -356,6 +368,10 @@ const skillDraft = reactive(emptySkill());
 const skillEditorMode = ref("edit");
 const aboutInfo = ref({ version: "", buildTime: "" });
 const runtimeLogText = ref("");
+const cleanupCandidates = ref([]);
+const cleanupLoading = ref(false);
+const cleanupConfirming = ref(false);
+const cleanupError = ref("");
 
 const form = reactive({
   providerId: "",
@@ -1618,6 +1634,35 @@ async function openRuntimeLogs() {
     runtimeLogText.value = `读取运行日志失败：${String(error)}`;
   }
   showRuntimeLogDialog.value = true;
+}
+
+async function openCleanup() {
+  cleanupCandidates.value = [];
+  cleanupError.value = "";
+  cleanupLoading.value = true;
+  showCleanupDialog.value = true;
+  try {
+    cleanupCandidates.value = await invoke("scan_cleanup_candidates");
+  } catch (error) {
+    cleanupError.value = String(error);
+  } finally {
+    cleanupLoading.value = false;
+  }
+}
+
+async function confirmCleanup() {
+  cleanupConfirming.value = true;
+  cleanupError.value = "";
+  try {
+    const removed = await invoke("cleanup_data_files");
+    cleanupCandidates.value = [];
+    showCleanupDialog.value = false;
+    setStatus(`已清理 ${removed.length} 个孤岛文件`, "ok");
+  } catch (error) {
+    cleanupError.value = String(error);
+  } finally {
+    cleanupConfirming.value = false;
+  }
 }
 
 // 将引用模板内容插入到提示词当前光标位置。
