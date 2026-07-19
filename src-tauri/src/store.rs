@@ -1334,6 +1334,23 @@ mod transaction_tests {
     }
 
     #[test]
+    fn drawing_prompts_keep_at_text_verbatim() {
+        for prompt in [
+            "普通 @ 文本",
+            "@unknown 不是 Skill",
+            "第一行\n  @camera 保留空格边界",
+            "@one 与 @two 都是提示词",
+        ] {
+            let request = normalize_request(GenerateRequest {
+                prompt: prompt.into(),
+                ..GenerateRequest::default()
+            })
+            .unwrap();
+            assert_eq!(request.prompt, prompt);
+        }
+    }
+
+    #[test]
     fn legacy_skill_index_migrates_content_to_package() {
         let root = temp_root("legacy-skill-index");
         fs::write(
