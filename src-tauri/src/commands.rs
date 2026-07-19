@@ -509,13 +509,18 @@ fn task_status_records(
     if task_group_id.trim().is_empty() && task_id.trim().is_empty() {
         return Err("需要 taskGroupId 或 taskId".into());
     }
-    Ok(read_history(data_dir)?
+    let records = read_history(data_dir)?
         .into_iter()
         .filter(|task| {
             (!task_id.is_empty() && task.id == task_id)
                 || (!task_group_id.is_empty() && task.task_group_id == task_group_id)
         })
-        .collect())
+        .collect::<Vec<_>>();
+    if records.is_empty() {
+        Err("找不到任务或任务组".into())
+    } else {
+        Ok(records)
+    }
 }
 
 fn list_skill_summaries(data_dir: &Path, query: &str) -> Result<Vec<serde_json::Value>, String> {
@@ -721,12 +726,24 @@ pub(crate) fn create_agent_image_tasks(
     skill_id: String,
     plans: Vec<AgentImagePlan>,
 ) -> Result<AgentTaskGroup, String> {
+    let data_dir = ensure_data_dir(&app)?;
+    let group = create_agent_image_tasks_in_data_dir(&data_dir, session_id, skill_id, plans)?;
+    let _ = emit_queue_updated(&app, &data_dir);
+    ensure_queue_worker(&app);
+    Ok(group)
+}
+
+fn create_agent_image_tasks_in_data_dir(
+    data_dir: &Path,
+    session_id: String,
+    skill_id: String,
+    plans: Vec<AgentImagePlan>,
+) -> Result<AgentTaskGroup, String> {
     if plans.is_empty() || plans.len() > 12 {
         return Err("图片计划数量必须在 1 到 12 之间".into());
     }
-    let data_dir = ensure_data_dir(&app)?;
-    let settings = read_settings(&data_dir)?;
-    let agent_session = session(&data_dir, &session_id)?;
+    let settings = read_settings(data_dir)?;
+    let agent_session = session(data_dir, &session_id)?;
     let attachment_paths = agent_session
         .messages
         .iter()
@@ -743,6 +760,9 @@ pub(crate) fn create_agent_image_tasks(
         };
         if policy == "use" && plan.reference_ids.is_empty() {
             return Err("referencePolicy=use 时必须指定参考图".into());
+        }
+        if policy == "none" && !plan.reference_ids.is_empty() {
+            return Err("referencePolicy=none 时不能指定参考图".into());
         }
         let mut request = GenerateRequest {
             provider_id: Some(if plan.provider_id.trim().is_empty() {
@@ -792,7 +812,7 @@ pub(crate) fn create_agent_image_tasks(
             return Err(format!("API 源「{}」还没有填写 API Key", provider.name));
         }
         request.provider_id = Some(provider.id.clone());
-        request.reference_paths = persist_reference_paths(&data_dir, &request.reference_paths)?;
+        request.reference_paths = persist_reference_paths(data_dir, &request.reference_paths)?;
         prepared.push((plan.title, request, provider));
     }
     let now = utc_now();
@@ -815,8 +835,8 @@ pub(crate) fn create_agent_image_tasks(
         request_files.push((id, request));
         tasks.push(record);
     }
-    write_generation_batch(&data_dir, &request_files, &tasks)?;
-    let mut agent_session = session(&data_dir, &session_id)?;
+    write_generation_batch(data_dir, &request_files, &tasks)?;
+    let mut agent_session = session(data_dir, &session_id)?;
     if !agent_session.task_group_ids.contains(&task_group_id) {
         agent_session.task_group_ids.push(task_group_id.clone());
     }
@@ -839,9 +859,7 @@ pub(crate) fn create_agent_image_tasks(
         error: String::new(),
         created_at: now,
     });
-    let _ = save_session(&data_dir, agent_session)?;
-    let _ = emit_queue_updated(&app, &data_dir);
-    ensure_queue_worker(&app);
+    let _ = save_session(data_dir, agent_session)?;
     Ok(AgentTaskGroup {
         id: task_group_id,
         session_id,
@@ -1957,6 +1975,68 @@ mod tests {
         recycle(&data_dir);
     }
 
+    #[test]
+    fn agent_image_tasks_create_a_group_atomically() {
+        let (data_dir, agent_session, reference_id) = agent_task_data_dir("agent-image-group");
+        let group = create_agent_image_tasks_in_data_dir(
+            &data_dir,
+            agent_session.id.clone(),
+            "skill-camera".into(),
+            vec![agent_plan("电影感构图", "use", &[&reference_id])],
+        )
+        .unwrap();
+
+        assert_eq!(group.tasks.len(), 1);
+        assert_eq!(group.skill_id, "skill-camera");
+        let task = &group.tasks[0];
+        assert_eq!(task.origin, "agent");
+        assert_eq!(task.agent_session_id, agent_session.id);
+        assert_eq!(task.task_group_id, group.id);
+        assert_eq!(task.skill_id, "skill-camera");
+        assert_eq!(task.reference_paths.len(), 1);
+        assert!(Path::new(&task.reference_paths[0]).starts_with(data_dir.join("references")));
+
+        let history = read_history(&data_dir).unwrap();
+        assert_eq!(history.len(), 1);
+        let queue = read_queue(&data_dir).unwrap();
+        assert_eq!(queue.waiting, vec![task.id.clone()]);
+        let saved_session = session(&data_dir, &agent_session.id).unwrap();
+        assert!(saved_session.task_group_ids.contains(&group.id));
+        let summary = saved_session
+            .messages
+            .iter()
+            .find_map(|message| message.task_group.as_ref())
+            .unwrap();
+        assert_eq!(summary.id, group.id);
+        assert_eq!(summary.task_ids, vec![task.id.clone()]);
+        recycle(&data_dir);
+    }
+
+    #[test]
+    fn agent_image_tasks_reject_reference_ids_when_policy_is_none() {
+        let (data_dir, agent_session, reference_id) = agent_task_data_dir("agent-image-none");
+        let error = create_agent_image_tasks_in_data_dir(
+            &data_dir,
+            agent_session.id,
+            "skill-camera".into(),
+            vec![agent_plan("不使用参考图", "none", &[&reference_id])],
+        )
+        .unwrap_err();
+
+        assert!(error.contains("referencePolicy=none"));
+        assert!(read_history(&data_dir).unwrap().is_empty());
+        assert!(read_queue(&data_dir).unwrap().waiting.is_empty());
+        recycle(&data_dir);
+    }
+
+    #[test]
+    fn task_status_reports_missing_task_groups() {
+        let data_dir = command_test_data_dir("missing-task-status");
+        let error = task_status_records(&data_dir, "missing-group", "").unwrap_err();
+        assert!(error.contains("找不到任务"));
+        recycle(&data_dir);
+    }
+
     fn command_test_data_dir(name: &str) -> PathBuf {
         let root = std::env::current_dir()
             .unwrap()
@@ -1965,6 +2045,74 @@ mod tests {
             .join(format!("{name}-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
         root
+    }
+
+    fn agent_task_data_dir(name: &str) -> (PathBuf, AgentSession, String) {
+        let data_dir = command_test_data_dir(name);
+        let provider = ApiProvider {
+            id: "image-provider".into(),
+            name: "测试生图模型".into(),
+            model_type: "image-gpt".into(),
+            base_url: "https://example.com/v1".into(),
+            api_key: "test-key".into(),
+            proxy_url: String::new(),
+            image_model: "gpt-image-1".into(),
+            images_concurrency: 1,
+            enabled: true,
+            notes: String::new(),
+        };
+        write_settings(
+            &data_dir,
+            &Settings {
+                active_provider_id: provider.id.clone(),
+                active_image_provider_id: provider.id.clone(),
+                providers: vec![provider],
+                ..Settings::default()
+            },
+        )
+        .unwrap();
+
+        let reference_path = data_dir.join("agent-reference.png");
+        std::fs::write(&reference_path, b"\x89PNG\r\n\x1a\nagent-reference").unwrap();
+        let mut agent_session = create_session(&data_dir, "chat-provider").unwrap();
+        let reference_id = "ref-1".to_string();
+        agent_session.messages.push(AgentMessage {
+            id: "message-1".into(),
+            role: "user".into(),
+            status: "user".into(),
+            content: "用参考图画一张图".into(),
+            attachments: vec![AgentAttachment {
+                id: reference_id.clone(),
+                path: reference_path.to_string_lossy().into_owned(),
+                file_name: "agent-reference.png".into(),
+                mime_type: "image/png".into(),
+                width: Some(1),
+                height: Some(1),
+            }],
+            tool_call: None,
+            questions: Vec::new(),
+            skill_id: String::new(),
+            skill_content_hash: String::new(),
+            task_group: None,
+            error: String::new(),
+            created_at: utc_now(),
+        });
+        let agent_session = save_session(&data_dir, agent_session).unwrap();
+        (data_dir, agent_session, reference_id)
+    }
+
+    fn agent_plan(title: &str, reference_policy: &str, reference_ids: &[&str]) -> AgentImagePlan {
+        AgentImagePlan {
+            title: title.into(),
+            prompt: "一张完整的测试图片提示词".into(),
+            provider_id: String::new(),
+            resolution: "standard".into(),
+            ratio: "1:1".into(),
+            quality: "auto".into(),
+            prompt_fidelity: "original".into(),
+            reference_policy: reference_policy.into(),
+            reference_ids: reference_ids.iter().map(|value| (*value).into()).collect(),
+        }
     }
 
     fn write_skill_manifest(package: &Path) {
