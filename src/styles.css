@@ -2298,9 +2298,14 @@ button:disabled {
 
 .confirm-modal {
   width: min(420px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
 }
 
 .confirm-dialog-shell {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  max-height: calc(100vh - 112px);
+  min-height: 0;
   outline: none;
 }
 
@@ -2309,6 +2314,8 @@ button:disabled {
   color: #514464;
   font-size: 13px;
   line-height: 1.65;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
 }
 
 .confirm-dialog-actions {
@@ -2323,9 +2330,14 @@ button:disabled {
 
 .notice-modal {
   width: min(460px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
 }
 
 .notice-dialog-shell {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  max-height: calc(100vh - 112px);
+  min-height: 0;
   outline: none;
 }
 
@@ -2334,6 +2346,7 @@ button:disabled {
   color: #514464;
   font-size: 13px;
   line-height: 1.65;
+  overflow-y: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
