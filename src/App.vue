@@ -273,7 +273,7 @@ import {
   sizeForPreset,
 } from "./lib/options";
 import { themeOverrides } from "./lib/theme";
-import { invoke, listenDragDrop, listenEvent, openDialog, saveDialog } from "./tauri";
+import { invoke, listenDragDrop, listenEvent, listenWindowState, openDialog, restoreWindowState, saveDialog } from "./tauri";
 
 const statusText = ref("启动中");
 const statusTone = ref("busy");
@@ -384,6 +384,7 @@ let unlistenQueueUpdated = null;
 let unlistenTemplateFill = null;
 let unlistenAgentProgress = null;
 let unlistenAgentTaskGroup = null;
+let unlistenWindowState = null;
 let queueRefreshInFlight = false;
 let queueRefreshQueued = false;
 let agentTaskGroupPollTimer = 0;
@@ -488,6 +489,12 @@ onMounted(async () => {
   removeScrollbarVisibility = installAutoHideScrollbars();
   window.addEventListener("keydown", handleWorkspaceShortcut);
   try {
+    await restoreWindowState();
+    unlistenWindowState = await listenWindowState();
+  } catch {
+    // 浏览器预览或窗口权限不可用时沿用配置中的默认尺寸。
+  }
+  try {
     unlistenDragDrop = await listenDragDrop(handleReferenceDragDrop);
   } catch {
     // 浏览器预览没有 Tauri 拖放事件，保留 HTML5 drop 作为兼容路径。
@@ -528,6 +535,7 @@ onUnmounted(() => {
   unlistenTemplateFill?.();
   unlistenAgentProgress?.();
   unlistenAgentTaskGroup?.();
+  unlistenWindowState?.();
   removeScrollbarVisibility?.();
   window.removeEventListener("keydown", handleWorkspaceShortcut);
 });
