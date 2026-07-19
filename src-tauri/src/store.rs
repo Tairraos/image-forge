@@ -366,6 +366,45 @@ pub(crate) fn write_queue(data_dir: &Path, queue: &QueueState) -> Result<(), Str
     write_json(&queue_path(data_dir), &queue)
 }
 
+pub(crate) fn write_generation_batch(
+    data_dir: &Path,
+    requests: &[(String, GenerateRequest)],
+    records: &[TaskRecord],
+) -> Result<(), String> {
+    if requests.len() != records.len() || requests.is_empty() {
+        return Err("批量任务数据不完整".into());
+    }
+    let mut history = read_history(data_dir)?;
+    let mut queue = read_queue(data_dir)?;
+    let mut written_requests = Vec::new();
+    for (task_id, request) in requests {
+        let path = request_path(data_dir, task_id);
+        if let Err(error) = write_json(&path, request) {
+            for written in written_requests {
+                let _ = trash::delete(written);
+            }
+            return Err(error);
+        }
+        written_requests.push(path);
+    }
+    for record in records {
+        history.retain(|item| item.id != record.id);
+        history.push(record.clone());
+        queue.running.retain(|run| run.task_id != record.id);
+        queue.waiting.retain(|task_id| task_id != &record.id);
+        queue.waiting.push(record.id.clone());
+    }
+    if let Err(error) =
+        write_history(data_dir, &history).and_then(|_| write_queue(data_dir, &queue))
+    {
+        for written in written_requests {
+            let _ = trash::delete(written);
+        }
+        return Err(format!("原子写入任务组失败: {error}"));
+    }
+    Ok(())
+}
+
 /// 把任务放到等待队列末尾，并去重运行/等待中的旧位置。
 pub(crate) fn enqueue_task(data_dir: &Path, task_id: &str) -> Result<(), String> {
     let mut queue = read_queue(data_dir)?;

@@ -45,7 +45,8 @@ use crate::{
         params_from_request, provider_for_request, read_history, read_json, read_queue,
         read_settings, read_skills, read_templates, refresh_history_output_sizes, request_path,
         skill_directory_name, skill_package_path, skills_dir, templates_path, upsert_history,
-        write_history, write_json, write_queue, write_settings, write_skill_index,
+        write_generation_batch, write_history, write_json, write_queue, write_settings,
+        write_skill_index,
     },
     utils::utc_now,
 };
@@ -175,6 +176,7 @@ pub(crate) async fn send_agent_message(
     chat_messages.extend(current.messages.iter().map(agent_message_to_chat_value));
     let task_provider = provider.clone();
     let task_messages = chat_messages;
+    let user_confirmation = content.clone();
     let session_for_task = session_id.clone();
     let app_for_task = app.clone();
     let task = tokio::spawn(async move {
@@ -185,7 +187,15 @@ pub(crate) async fn send_agent_message(
             &task_provider,
             &mut messages,
             Some(app_for_task.state::<RuntimeState>().inner()),
-            |name, arguments| execute_agent_tool(&app_for_task, &session_for_task, name, arguments),
+            |name, arguments| {
+                let app = app_for_task.clone();
+                let session_id = session_for_task.clone();
+                let user_confirmation = user_confirmation.clone();
+                async move {
+                    execute_agent_tool(&app, &session_id, &user_confirmation, &name, &arguments)
+                        .await
+                }
+            },
             move |event| {
                 let _ = app_for_event.emit(
                     "agent-progress",
@@ -371,9 +381,10 @@ fn agent_message_to_chat_value(message: &AgentMessage) -> serde_json::Value {
     })
 }
 
-fn execute_agent_tool(
+async fn execute_agent_tool(
     app: &AppHandle,
     session_id: &str,
+    user_message: &str,
     name: &str,
     arguments: &serde_json::Value,
 ) -> Result<serde_json::Value, String> {
@@ -410,7 +421,25 @@ fn execute_agent_tool(
                 .collect::<Vec<_>>();
             Ok(serde_json::Value::Array(summaries))
         }
-        "install_skill" => Err("安装 Skill 需要用户在界面中确认来源后执行".into()),
+        "install_skill" => {
+            let source = arguments
+                .get("source")
+                .and_then(serde_json::Value::as_str)
+                .ok_or("install_skill.source 不能为空")?;
+            let replace = arguments
+                .get("replace")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false);
+            if replace && !explicit_confirmation(user_message) {
+                return Err("覆盖安装需要用户在当前消息中明确确认".into());
+            }
+            let data_dir = ensure_data_dir(app)?;
+            let (skill, audit) = install_skill_source(&data_dir, source, replace).await?;
+            Ok(serde_json::json!({
+                "skill": skill,
+                "warnings": audit.warnings,
+            }))
+        }
         "use_skill" => {
             let skill_id = arguments
                 .get("skillId")
@@ -429,13 +458,13 @@ fn execute_agent_tool(
                 .and_then(serde_json::Value::as_str)
                 .unwrap_or_default()
                 .to_string();
-            serde_json::to_value(create_agent_image_tasks(
-                app.clone(),
-                session_id.to_string(),
-                skill_id,
-                plans,
-            )?)
-            .map_err(|error| format!("序列化任务组失败: {error}"))
+            if plans.len() > 4 && !explicit_confirmation(user_message) {
+                return Err("一次创建超过 4 张图片需要用户在当前消息中明确确认".into());
+            }
+            let group =
+                create_agent_image_tasks(app.clone(), session_id.to_string(), skill_id, plans)?;
+            let _ = app.emit("agent-task-group", &group);
+            serde_json::to_value(group).map_err(|error| format!("序列化任务组失败: {error}"))
         }
         "get_task_status" => {
             let data_dir = ensure_data_dir(app)?;
@@ -459,6 +488,13 @@ fn execute_agent_tool(
         }
         _ => Err(format!("不允许的 Agent 工具：{name}")),
     }
+}
+
+fn explicit_confirmation(message: &str) -> bool {
+    let message = message.trim().to_lowercase();
+    ["确认", "同意", "覆盖", "继续", "yes", "confirm"]
+        .iter()
+        .any(|keyword| message.contains(keyword))
 }
 
 #[tauri::command]
@@ -555,7 +591,7 @@ pub(crate) fn create_agent_image_tasks(
     let data_dir = ensure_data_dir(&app)?;
     let settings = read_settings(&data_dir)?;
     let task_group_id = Uuid::new_v4().to_string();
-    let mut requests = Vec::with_capacity(plans.len());
+    let mut prepared = Vec::with_capacity(plans.len());
     for plan in plans {
         let policy = match plan.reference_policy.trim() {
             "use" | "optional" | "none" => plan.reference_policy.trim(),
@@ -565,7 +601,7 @@ pub(crate) fn create_agent_image_tasks(
         if policy == "use" && plan.reference_ids.is_empty() {
             return Err("referencePolicy=use 时必须指定参考图".into());
         }
-        let request = GenerateRequest {
+        let mut request = GenerateRequest {
             provider_id: Some(if plan.provider_id.trim().is_empty() {
                 settings.active_image_provider_id.clone()
             } else {
@@ -599,25 +635,58 @@ pub(crate) fn create_agent_image_tasks(
             },
             ..GenerateRequest::default()
         };
-        normalize_request(request.clone())?;
-        provider_for_request(&settings, request.provider_id.as_deref())?;
-        requests.push(request);
+        request = normalize_request(request)?;
+        let provider = provider_for_request(&settings, request.provider_id.as_deref())?;
+        if provider.api_key.trim().is_empty() {
+            return Err(format!("API 源「{}」还没有填写 API Key", provider.name));
+        }
+        request.provider_id = Some(provider.id.clone());
+        request.reference_paths = persist_reference_paths(&data_dir, &request.reference_paths)?;
+        prepared.push((plan.title, request, provider));
     }
-    let mut tasks = Vec::with_capacity(requests.len());
-    for request in requests {
-        tasks.push(enqueue_generation_request(
-            &app,
-            &data_dir,
-            &settings,
-            request,
+    let now = utc_now();
+    let mut request_files = Vec::with_capacity(prepared.len());
+    let mut tasks = Vec::with_capacity(prepared.len());
+    let mut titles = Vec::with_capacity(prepared.len());
+    for (title, request, provider) in prepared {
+        let id = Uuid::new_v4().to_string();
+        let record = task_record_from_request(
+            id.clone(),
+            &request,
+            &provider,
             Some((&session_id, &task_group_id, &skill_id)),
-        )?);
+        );
+        titles.push(if title.trim().is_empty() {
+            "图片".into()
+        } else {
+            title
+        });
+        request_files.push((id, request));
+        tasks.push(record);
     }
+    write_generation_batch(&data_dir, &request_files, &tasks)?;
     let mut agent_session = session(&data_dir, &session_id)?;
     if !agent_session.task_group_ids.contains(&task_group_id) {
         agent_session.task_group_ids.push(task_group_id.clone());
     }
+    agent_session.messages.push(AgentMessage {
+        id: Uuid::new_v4().to_string(),
+        role: "tool".into(),
+        content: format!("已创建 {} 个绘图任务", tasks.len()),
+        attachments: Vec::new(),
+        tool_call: None,
+        questions: Vec::new(),
+        task_group: Some(crate::models::AgentTaskGroupSummary {
+            id: task_group_id.clone(),
+            task_ids: tasks.iter().map(|task| task.id.clone()).collect(),
+            titles,
+            status: "queued".into(),
+        }),
+        error: String::new(),
+        created_at: now,
+    });
     let _ = save_session(&data_dir, agent_session)?;
+    let _ = emit_queue_updated(&app, &data_dir);
     ensure_queue_worker(&app);
     Ok(AgentTaskGroup {
         id: task_group_id,
@@ -828,8 +897,23 @@ fn enqueue_generation_request(
     }
     request.reference_paths = persist_reference_paths(data_dir, &request.reference_paths)?;
 
-    let now = utc_now();
     let id = Uuid::new_v4().to_string();
+    let record = task_record_from_request(id.clone(), &request, &provider, agent_origin);
+
+    write_json(&request_path(data_dir, &id), &request)?;
+    upsert_history(data_dir, record.clone())?;
+    enqueue_task(data_dir, &id)?;
+    let _ = emit_queue_updated(app, data_dir);
+    Ok(record)
+}
+
+fn task_record_from_request(
+    id: String,
+    request: &GenerateRequest,
+    provider: &ApiProvider,
+    agent_origin: Option<(&str, &str, &str)>,
+) -> TaskRecord {
+    let now = utc_now();
     let mut record = TaskRecord {
         id: id.clone(),
         created_at: now.clone(),
@@ -842,7 +926,7 @@ fn enqueue_generation_request(
         mode: "images".into(),
         model: provider.image_model.clone(),
         status: "queued".into(),
-        params: params_from_request(&request),
+        params: params_from_request(request),
         reference_paths: request.reference_paths.clone(),
         outputs: Vec::new(),
         attempts: 0,
@@ -859,11 +943,7 @@ fn enqueue_generation_request(
         record.skill_id = skill_id.into();
     }
 
-    write_json(&request_path(data_dir, &id), &request)?;
-    upsert_history(data_dir, record.clone())?;
-    enqueue_task(data_dir, &id)?;
-    let _ = emit_queue_updated(app, data_dir);
-    Ok(record)
+    record
 }
 
 #[tauri::command]
