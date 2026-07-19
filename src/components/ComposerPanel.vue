@@ -33,7 +33,7 @@
                   <template #trigger>
                     <CircleAlert :size="14" class="model-help-icon" />
                   </template>
-                  对话模型用于执行 skill
+                  对话模型用于模板 AI 填充
                 </n-tooltip>
               </span>
             </template>

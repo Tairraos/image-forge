@@ -143,6 +143,16 @@ button:disabled {
   color: var(--text);
 }
 
+.app-shell-workspace {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.app-shell-workspace > * {
+  min-height: 0;
+  height: 100%;
+}
+
 .topbar {
   display: grid;
   grid-template-columns: minmax(300px, 1fr) auto;
@@ -366,59 +376,6 @@ button:disabled {
   border-radius: 8px;
   padding: 10px;
   background: var(--surface-strong);
-}
-
-.skill-mention-popup {
-  position: absolute;
-  z-index: 12;
-  right: 10px;
-  bottom: 52px;
-  left: 10px;
-  max-height: 286px;
-  overflow: auto;
-  border: 1px solid var(--line-strong);
-  border-radius: 9px;
-  padding: 4px;
-  background: rgba(255, 254, 250, 0.98);
-  box-shadow: 0 14px 32px rgba(73, 54, 130, 0.18);
-}
-
-.skill-mention-popup button {
-  display: grid;
-  width: 100%;
-  border: 0;
-  border-radius: 6px;
-  padding: 7px 9px;
-  background: transparent;
-  color: var(--text);
-  text-align: left;
-}
-
-.skill-mention-popup button:hover,
-.skill-mention-popup button.is-active {
-  background: var(--primary-soft);
-  color: var(--primary);
-}
-
-.skill-mention-popup button span {
-  overflow: hidden;
-  font-size: 12px;
-  font-weight: 750;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.skill-mention-popup button small,
-.skill-mention-empty {
-  overflow: hidden;
-  color: var(--muted);
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.skill-mention-empty {
-  padding: 8px 9px;
 }
 
 .prompt-live-head,

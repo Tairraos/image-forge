@@ -1,82 +1,60 @@
 <template>
   <n-config-provider :theme-overrides="themeOverrides" component-size="small">
     <n-global-style />
-    <main class="app">
-      <AppTopbar
-        :mode="workspaceMode"
-        @update:mode="workspaceMode = $event"
-        @show-api="showApiDialog = true"
-        @show-template-manager="showTemplateManagerDialog = true"
-        @show-skill-manager="showSkillManagerDialog = true"
-        @show-about="openAbout"
+    <AppShell
+      :mode="workspaceMode"
+      @update:mode="workspaceMode = $event"
+      @show-api="showApiDialog = true"
+      @show-template-manager="showTemplateManagerDialog = true"
+      @show-skill-manager="showSkillManagerDialog = true"
+      @show-about="openAbout"
+    >
+
+      <DrawingWorkspace
+        v-show="workspaceMode === 'drawing'"
+        :filtered-history="filteredHistory"
+        :selected-task-id="selectedTaskId"
+        :history-query="historyQuery"
+        :history-scope="historyScope"
+        :history-scroll-request="historyScrollRequest"
+        :selected-task="selectedTask"
+        :current-outputs="currentOutputs"
+        :form="form"
+        :image-provider-options="imageProviderOptions"
+        :chat-provider-options="chatProviderOptions"
+        :references="references"
+        :submitting="submitting"
+        :reference-drag-active="referenceDragActive"
+        :workspace-style="workspaceStyle"
+        @select-task="selectedTaskId = $event"
+        @update:history-query="historyQuery = $event"
+        @update:history-scope="historyScope = $event"
+        @reuse="reuseTask"
+        @refresh-task="refreshTask"
+        @retry="retryTask"
+        @delete="deleteTask"
+        @copy-output="copyOutput"
+        @download-output="downloadOutput"
+        @reveal-output="reveal($event.path)"
+        @start-panel-resize="startPanelResize"
+        @show-detail="showTaskDetail = true"
+        @model-template="newTemplateFromTask"
+        @submit="submitTask"
+        @show-template="showTemplateReferenceDialog = true"
+        @clear-prompt="clearPrompt"
+        @prompt-focus="capturePromptCursor"
+        @prompt-cursor="capturePromptCursor"
+        @prompt-paste="handlePromptPaste"
+        @paste-reference="pasteWorkbenchReferenceImage"
+        @add-reference="addReferenceImages"
+        @remove-reference="removeReference(references, $event)"
+        @reference-drag-over="referenceDragActive = true"
+        @reference-drag-leave="referenceDragActive = false"
+        @drop-reference="handleReferenceDropEvent"
       />
 
-      <section v-if="workspaceMode === 'drawing'" class="workspace" :style="workspaceStyle">
-        <QueuePanel
-          :filtered-history="filteredHistory"
-          :selected-task-id="selectedTaskId"
-          :history-query="historyQuery"
-          :history-scope="historyScope"
-          :scroll-request="historyScrollRequest"
-          @select-task="selectedTaskId = $event"
-          @update:history-query="historyQuery = $event"
-          @update:history-scope="historyScope = $event"
-          @reuse="reuseTask"
-          @refresh-task="refreshTask"
-          @retry="retryTask"
-          @delete="deleteTask"
-          @copy-output="copyOutput"
-          @download-output="downloadOutput"
-          @reveal-output="reveal($event.path)"
-        />
-
-        <div
-          class="panel-resizer"
-          role="separator"
-          aria-label="调整队列和结果预览宽度"
-          @pointerdown="startPanelResize('queue', $event)"
-        ></div>
-
-        <ResultPanel
-          :selected-task="selectedTask"
-          :current-outputs="currentOutputs"
-          @show-detail="showTaskDetail = true"
-          @reuse="reuseTask"
-          @copy-output="copyOutput"
-          @model-template="newTemplateFromTask"
-        />
-
-        <div
-          class="panel-resizer"
-          role="separator"
-          aria-label="调整结果预览和工作台宽度"
-          @pointerdown="startPanelResize('composer', $event)"
-        ></div>
-
-        <ComposerPanel
-          :form="form"
-          :image-provider-options="imageProviderOptions"
-          :chat-provider-options="chatProviderOptions"
-          :references="references"
-          :submitting="submitting"
-          :reference-drag-active="referenceDragActive"
-          @submit="submitTask"
-          @show-template="showTemplateReferenceDialog = true"
-          @clear-prompt="clearPrompt"
-          @prompt-focus="capturePromptCursor"
-          @prompt-cursor="capturePromptCursor"
-          @prompt-paste="handlePromptPaste"
-          @paste-reference="pasteWorkbenchReferenceImage"
-          @add-reference="addReferenceImages"
-          @remove-reference="removeReference(references, $event)"
-          @reference-drag-over="referenceDragActive = true"
-          @reference-drag-leave="referenceDragActive = false"
-          @drop-reference="handleReferenceDropEvent"
-        />
-      </section>
-
       <AgentWorkspace
-        v-else
+        v-show="workspaceMode === 'agent'"
         :sessions="agentSessions"
         :current-session="currentAgentSession"
         :messages="currentAgentMessages"
@@ -109,21 +87,24 @@
         @delete-session="deleteAgentConversation"
       />
 
-      <footer class="status-bar">
-        <span class="status-pill" :data-tone="statusTone">{{ statusText }}</span>
-        <div class="status-summary">
-          <span class="status-meta">当前 API：{{ activeProvider?.name || "未配置" }} · Images API</span>
-          <span class="status-count">{{ queue.running.length }} 运行</span>
-          <span class="status-count">{{ queue.waiting.length }} 排队</span>
-          <span v-if="activeProvider && !activeProvider.apiKey" class="warn-text">API Key 未设置</span>
-        </div>
-      </footer>
+      <template #footer>
+        <footer class="status-bar">
+          <span class="status-pill" :data-tone="statusTone">{{ statusText }}</span>
+          <div class="status-summary">
+            <span class="status-meta">当前 API：{{ activeProvider?.name || "未配置" }} · Images API</span>
+            <span class="status-count">{{ queue.running.length }} 运行</span>
+            <span class="status-count">{{ queue.waiting.length }} 排队</span>
+            <span v-if="activeProvider && !activeProvider.apiKey" class="warn-text">API Key 未设置</span>
+          </div>
+        </footer>
+      </template>
 
-      <ApiSourceDialog
-        v-model:show="showApiDialog"
-        :settings="settings"
-        @save="saveApiSettings"
-      />
+      <template #dialogs>
+        <ApiSourceDialog
+          v-model:show="showApiDialog"
+          :settings="settings"
+          @save="saveApiSettings"
+        />
 
       <TemplateManagerDialog
         v-model:show="showTemplateManagerDialog"
@@ -252,18 +233,16 @@
         :button-text="notice.buttonText"
         @close="resolveNotice"
       />
-
-    </main>
+      </template>
+    </AppShell>
   </n-config-provider>
 </template>
 
 <script setup>
 import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
-import AppTopbar from "./components/AppTopbar.vue";
 import AgentWorkspace from "./components/AgentWorkspace.vue";
-import ComposerPanel from "./components/ComposerPanel.vue";
-import QueuePanel from "./components/QueuePanel.vue";
-import ResultPanel from "./components/ResultPanel.vue";
+import AppShell from "./components/AppShell.vue";
+import DrawingWorkspace from "./components/DrawingWorkspace.vue";
 import AboutDialog from "./components/dialogs/AboutDialog.vue";
 import CleanupDialog from "./components/dialogs/CleanupDialog.vue";
 import ApiSourceDialog from "./components/dialogs/ApiSourceDialog.vue";
