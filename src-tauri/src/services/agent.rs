@@ -1,3 +1,5 @@
+use std::future::Future;
+
 use serde_json::{json, Value};
 
 use crate::{
@@ -18,7 +20,7 @@ pub(crate) struct AgentTurnResult {
     pub tool_calls: Vec<AgentToolCall>,
 }
 
-pub(crate) async fn run_turn<F, E>(
+pub(crate) async fn run_turn<F, E, Fut>(
     provider: &ApiProvider,
     messages: &mut Vec<Value>,
     runtime_state: Option<&RuntimeState>,
@@ -27,7 +29,8 @@ pub(crate) async fn run_turn<F, E>(
 ) -> Result<AgentTurnResult, String>
 where
     F: FnMut(ChatProgressEventData),
-    E: FnMut(&str, &Value) -> Result<Value, String>,
+    E: FnMut(String, Value) -> Fut,
+    Fut: Future<Output = Result<Value, String>>,
 {
     let tools = tool_definitions();
     let mut completed_tool_calls = Vec::new();
@@ -105,7 +108,7 @@ where
                 message: format!("正在执行 {}", call.name),
                 elapsed_ms: None,
             });
-            let result = execute_tool(&call.name, &arguments);
+            let result = execute_tool(call.name.clone(), arguments.clone()).await;
             let (result_value, error) = match result {
                 Ok(value) => (value, String::new()),
                 Err(error) => (Value::Null, error),

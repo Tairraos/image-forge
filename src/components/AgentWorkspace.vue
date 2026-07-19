@@ -53,58 +53,40 @@
         />
       </header>
 
-      <div class="agent-message-list">
-        <div v-if="!messages.length" class="agent-empty">
-          <strong>开始一段对话</strong>
-          <span>可以直接聊天，也可以要求 Agent 使用已安装 Skill 或创建绘图任务。</span>
-        </div>
-        <article
-          v-for="message in messages"
-          :key="message.id"
-          class="agent-message"
-          :data-role="message.role"
-        >
-          <div class="agent-message-role">{{ message.role === "user" ? "你" : "Agent" }}</div>
-          <div class="agent-message-body">{{ message.content }}</div>
-        </article>
-        <article v-if="busy || streamText" class="agent-message" data-role="assistant">
-          <div class="agent-message-role">Agent</div>
-          <div class="agent-message-body">{{ streamText || "正在思考..." }}</div>
-        </article>
-      </div>
-
-      <div class="agent-composer">
-        <div v-if="attachments.length" class="agent-attachments">
-          <div v-for="attachment in attachments" :key="attachment.id" class="agent-attachment">
-            <img :src="attachment.dataUrl" :alt="attachment.fileName" />
-            <button type="button" aria-label="移除参考图" @click="$emit('remove-attachment', attachment.id)">×</button>
-          </div>
-        </div>
-        <n-input
-          v-model:value="draft"
-          type="textarea"
-          :autosize="{ minRows: 3, maxRows: 8 }"
-          placeholder="输入消息"
-          :disabled="busy"
-          @keydown.meta.enter.prevent="send"
-          @keydown.ctrl.enter.prevent="send"
-        />
-        <footer>
-          <n-button size="small" :disabled="busy" @click="$emit('add-reference')">添加参考图</n-button>
-          <n-button v-if="busy" size="small" type="error" secondary @click="$emit('stop')">停止</n-button>
-          <n-button v-else size="small" type="primary" :disabled="!draft.trim() || !providerId" @click="send">发送</n-button>
-        </footer>
-      </div>
+      <AgentMessageList
+        :messages="messages"
+        :busy="busy"
+        :stream-text="streamText"
+        :tool-status-text="toolStatusText"
+        :answers="answers"
+        @open-task-group="$emit('open-task-group', $event)"
+        @retry="$emit('retry', $event)"
+        @update-answer="$emit('update-answer', $event)"
+        @answer-questions="$emit('answer-questions', $event)"
+      />
+      <AgentComposer
+        :provider-id="providerId"
+        :busy="busy"
+        :attachments="attachments"
+        @send="$emit('send', $event)"
+        @stop="$emit('stop')"
+        @add-reference="$emit('add-reference')"
+        @paste-reference="$emit('paste-reference', $event)"
+        @drop-reference="$emit('drop-reference', $event)"
+        @remove-attachment="$emit('remove-attachment', $event)"
+      />
     </div>
   </section>
 </template>
 
 <script setup>
-import { ref } from "vue";
+import AgentComposer from "./AgentComposer.vue";
+import AgentMessageList from "./AgentMessageList.vue";
 
-const props = defineProps({
+defineProps({
   sessions: { type: Array, default: () => [] },
   currentSession: { type: Object, default: null },
+  messages: { type: Array, default: () => [] },
   providerOptions: { type: Array, default: () => [] },
   providerId: { type: String, default: "" },
   busy: Boolean,
@@ -112,19 +94,14 @@ const props = defineProps({
   attachments: { type: Array, default: () => [] },
   skills: { type: Array, default: () => [] },
   selectedSkillId: { type: String, default: "" },
+  toolStatusText: { type: String, default: "" },
+  answers: { type: Object, default: () => ({}) },
 });
 const emit = defineEmits([
   "create", "select", "send", "stop", "add-reference", "remove-attachment", "update:provider-id",
   "install-skill", "use-skill",
+  "open-task-group", "retry", "paste-reference", "drop-reference", "update-answer", "answer-questions",
 ]);
-const draft = ref("");
-
-function send() {
-  const content = draft.value.trim();
-  if (!content || props.busy || !props.providerId) return;
-  emit("send", content);
-  draft.value = "";
-}
 
 function formatTime(value) {
   if (!value) return "";

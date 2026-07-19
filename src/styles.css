@@ -2791,6 +2791,47 @@ button:disabled {
   background: var(--surface-muted);
 }
 
+.agent-tool-card,
+.agent-question-card,
+.agent-task-group-card {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-muted);
+  text-align: left;
+}
+
+.agent-tool-card[data-status="failed"] {
+  border-color: #e1a4a4;
+}
+
+.agent-tool-card span,
+.agent-tool-card small,
+.agent-task-group-card span,
+.agent-task-group-card small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.agent-task-group-card {
+  width: 100%;
+  color: inherit;
+  cursor: pointer;
+}
+
+.agent-task-group-card:hover {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.agent-question-card label {
+  display: grid;
+  gap: 4px;
+}
+
 .agent-composer {
   border-top: 1px solid var(--line);
   border-bottom: 0;

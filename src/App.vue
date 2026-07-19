@@ -79,10 +79,13 @@
         v-else
         :sessions="agentSessions"
         :current-session="currentAgentSession"
+        :messages="currentAgentMessages"
         :provider-options="chatProviderOptions"
         :provider-id="agentProviderId"
         :busy="agentBusy"
         :stream-text="agentStreamText"
+        :tool-status-text="agentToolStatus"
+        :answers="agentAnswers"
         :attachments="agentAttachments"
         :skills="skills"
         :selected-skill-id="agentSkillId"
@@ -95,6 +98,12 @@
         @update:provider-id="agentProviderId = $event"
         @install-skill="installAgentSkill"
         @use-skill="selectAgentSkill"
+        @open-task-group="openAgentTaskGroup"
+        @retry="retryAgentMessage"
+        @paste-reference="pasteAgentReferenceImage"
+        @drop-reference="addAgentReferencePaths"
+        @update-answer="updateAgentAnswer"
+        @answer-questions="answerAgentQuestions"
       />
 
       <footer class="status-bar">
@@ -292,6 +301,8 @@ const currentAgentSessionId = ref("");
 const agentProviderId = ref("");
 const agentBusy = ref(false);
 const agentStreamText = ref("");
+const agentToolStatus = ref("");
+const agentAnswers = ref({});
 const agentAttachments = ref([]);
 const agentSkillId = ref("");
 const settings = ref(defaultSettings());
@@ -422,6 +433,8 @@ const activeProvider = computed(() =>
 const currentAgentSession = computed(() =>
   agentSessions.value.find((session) => session.id === currentAgentSessionId.value) || null,
 );
+
+const currentAgentMessages = computed(() => currentAgentSession.value?.messages || []);
 
 const historyTimeline = computed(() => {
   const byId = new Map();
@@ -575,6 +588,7 @@ async function selectAgentConversation(sessionId) {
     currentAgentSessionId.value = session.id;
     agentProviderId.value = session.modelProviderId || agentProviderId.value;
     agentStreamText.value = "";
+    agentToolStatus.value = "";
   } catch (error) {
     setStatus(String(error), "error");
   }
@@ -601,6 +615,7 @@ async function sendAgentConversationMessage(content) {
   } finally {
     agentBusy.value = false;
     agentStreamText.value = "";
+    agentToolStatus.value = "";
   }
 }
 
@@ -613,7 +628,14 @@ async function installAgentSkill() {
   try {
     const selected = await openDialog({ directory: true, multiple: false });
     if (!selected || Array.isArray(selected)) return;
-    await invoke("install_skill", { source: selected, replace: false });
+    try {
+      await invoke("install_skill", { source: selected, replace: false });
+    } catch (error) {
+      if (!String(error).includes("CONFIRM_REPLACE_SKILL")) throw error;
+      const confirmed = await requestConfirmation("覆盖安装 Skill", "同名 Skill 已存在，确认把旧版本移入回收站并安装新版本？");
+      if (!confirmed) return;
+      await invoke("install_skill", { source: selected, replace: true });
+    }
     await refreshAll();
     setStatus("Skill 安装完成", "ok");
   } catch (error) {
@@ -636,11 +658,15 @@ async function stopAgentConversation() {
 async function addAgentReferenceImages() {
   const selected = await openDialog({ multiple: true, filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "gif"] }] });
   const paths = Array.isArray(selected) ? selected : selected ? [selected] : [];
-  for (const path of paths) {
+  await addAgentReferencePaths(paths);
+}
+
+async function addAgentReferencePaths(paths) {
+  for (const path of paths || []) {
     try {
       const preview = await invoke("reference_from_path", { path });
       agentAttachments.value.push({
-        id: preview.path,
+        id: createAgentAttachmentId(),
         path: preview.path,
         fileName: preview.fileName,
         mimeType: preview.mimeType,
@@ -652,6 +678,35 @@ async function addAgentReferenceImages() {
   }
 }
 
+async function pasteAgentReferenceImage(event) {
+  const paths = extractClipboardFilePaths(event?.clipboardData);
+  if (paths.length) {
+    event.preventDefault();
+    await addAgentReferencePaths(paths);
+    return;
+  }
+  try {
+    const preview = await invoke("reference_from_clipboard");
+    if (preview && !agentAttachments.value.some((item) => item.path === preview.path)) {
+      agentAttachments.value.push({
+        id: createAgentAttachmentId(),
+        path: preview.path,
+        fileName: preview.fileName,
+        mimeType: preview.mimeType,
+        dataUrl: preview.dataUrl,
+      });
+      event?.preventDefault?.();
+    }
+  } catch {
+    // 普通文本粘贴不处理。
+  }
+}
+
+function createAgentAttachmentId() {
+  if (globalThis.crypto?.randomUUID) return `ref-${globalThis.crypto.randomUUID()}`;
+  return `ref-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 function removeAgentAttachment(id) {
   agentAttachments.value = agentAttachments.value.filter((item) => item.id !== id);
 }
@@ -660,7 +715,33 @@ function handleAgentProgressEvent(event) {
   const payload = event?.payload || {};
   if (payload.sessionId !== currentAgentSessionId.value) return;
   if (payload.phase === "delta") agentStreamText.value += payload.chunk || "";
+  if (["tool_delta", "tool_start", "tool_result"].includes(payload.phase)) {
+    agentToolStatus.value = payload.message || "正在执行工具";
+  }
   if (payload.phase === "error") setStatus(payload.message || "Agent 调用失败", "error");
+}
+
+function openAgentTaskGroup(group) {
+  workspaceMode.value = "drawing";
+  const firstId = group?.taskIds?.[0];
+  if (firstId) selectedTaskId.value = firstId;
+  void refreshQueueOnly();
+}
+
+function retryAgentMessage(message) {
+  if (message?.content) void sendAgentConversationMessage(message.content);
+}
+
+function updateAgentAnswer({ key, value }) {
+  agentAnswers.value = { ...agentAnswers.value, [key]: value };
+}
+
+function answerAgentQuestions(message) {
+  const content = (message.questions || [])
+    .map((question) => `${question.label}：${String(agentAnswers.value[question.key] || "").trim()}`)
+    .join("\n");
+  if (content.trim()) void sendAgentConversationMessage(content);
+  agentAnswers.value = {};
 }
 
 async function handleAgentTaskGroupEvent(event) {
