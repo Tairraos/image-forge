@@ -9,6 +9,9 @@ dist/
 coverage/
 release/
 
+# Agent 改造期间的本地临时任务清单
+docs/agent-implementation-tasks.md
+
 src-tauri/target/
 src-tauri/gen/
 src-tauri/.cargo/
