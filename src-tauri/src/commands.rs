@@ -992,16 +992,16 @@ pub(crate) fn cancel_agent_task_group(
             .filter(|record| record.task_group_id == task_group_id)
             .collect());
     }
+    let runtime_state = app.state::<RuntimeState>();
     {
-        let mut requests = app
-            .state::<RuntimeState>()
+        let mut requests = runtime_state
             .cancel_requests
             .lock()
             .map_err(|_| "取消状态锁定失败")?;
         requests.extend(cancel_ids.iter().cloned());
     }
     if let Err(error) = write_history_queue_transaction(&data_dir, &history, &queue) {
-        if let Ok(mut requests) = app.state::<RuntimeState>().cancel_requests.lock() {
+        if let Ok(mut requests) = runtime_state.cancel_requests.lock() {
             for task_id in &cancel_ids {
                 requests.remove(task_id);
             }

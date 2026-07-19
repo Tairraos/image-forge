@@ -10,7 +10,7 @@ use crate::{
     store::{
         clear_running_task, enqueue_task, ensure_data_dir, fallback_failed_record, history_record,
         output_dir_for, pop_next_runnable, read_history, read_json, read_queue, read_settings,
-        request_path, upsert_history, write_history, write_history_queue_transaction, write_queue,
+        request_path, upsert_history, write_history, write_history_queue_transaction,
     },
     utils::{http_client_with_proxy, utc_now, REQUEST_TIMEOUT_SECONDS},
 };
