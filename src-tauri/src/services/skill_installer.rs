@@ -1059,10 +1059,7 @@ mod tests {
             Some("https://example.com/skills/source-url"),
         )
         .unwrap();
-        assert_eq!(
-            skill.source_url,
-            "https://example.com/skills/source-url"
-        );
+        assert_eq!(skill.source_url, "https://example.com/skills/source-url");
         recycle(&source);
         recycle(&data_dir);
     }

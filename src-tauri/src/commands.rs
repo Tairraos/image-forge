@@ -434,32 +434,10 @@ async fn execute_agent_tool(
             let query = arguments
                 .get("query")
                 .and_then(serde_json::Value::as_str)
-                .unwrap_or_default()
-                .trim()
-                .to_lowercase();
-            let summaries = read_skills(&data_dir)?
-                .into_iter()
-                .filter(|skill| {
-                    query.is_empty()
-                        || [skill.name.as_str(), skill.notes.as_str(), skill.source_url.as_str()]
-                            .join(" ")
-                            .to_lowercase()
-                            .contains(&query)
-                })
-                .map(|skill| {
-                    let manifest = audit_skill_directory(&skills_dir(&data_dir).join(&skill.directory))
-                        .ok()
-                        .and_then(|audit| audit.manifest);
-                    serde_json::json!({
-                        "id": skill.id,
-                        "name": skill.name,
-                        "notes": skill.notes,
-                        "sourceUrl": skill.source_url,
-                        "capabilities": manifest.map(|value| value.capabilities).unwrap_or_default(),
-                    })
-                })
-                .collect::<Vec<_>>();
-            Ok(serde_json::Value::Array(summaries))
+                .unwrap_or_default();
+            Ok(serde_json::Value::Array(list_skill_summaries(
+                &data_dir, query,
+            )?))
         }
         "install_skill" => {
             let source = arguments
@@ -538,6 +516,41 @@ fn task_status_records(
                 || (!task_group_id.is_empty() && task.task_group_id == task_group_id)
         })
         .collect())
+}
+
+fn list_skill_summaries(data_dir: &Path, query: &str) -> Result<Vec<serde_json::Value>, String> {
+    let query = query.trim().to_lowercase();
+    read_skills(data_dir)?
+        .into_iter()
+        .filter(|skill| skill_matches_query(skill, &query))
+        .map(|skill| skill_summary_value(data_dir, skill))
+        .collect()
+}
+
+fn skill_matches_query(skill: &SkillEntry, query: &str) -> bool {
+    query.is_empty()
+        || [
+            skill.name.as_str(),
+            skill.notes.as_str(),
+            skill.source_url.as_str(),
+        ]
+        .join(" ")
+        .to_lowercase()
+        .contains(query)
+}
+
+fn skill_summary_value(data_dir: &Path, skill: SkillEntry) -> Result<serde_json::Value, String> {
+    let package_dir = skills_dir(data_dir).join(&skill.directory);
+    let manifest = audit_skill_directory(&package_dir)
+        .ok()
+        .and_then(|audit| audit.manifest);
+    Ok(serde_json::json!({
+        "id": skill.id,
+        "name": skill.name,
+        "notes": skill.notes,
+        "sourceUrl": skill.source_url,
+        "capabilities": manifest.map(|value| value.capabilities).unwrap_or_default(),
+    }))
 }
 
 fn update_agent_task_group_summary(data_dir: &Path, task_group_id: &str, status: &str) {
@@ -1784,6 +1797,64 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["3", "2", "1"]
         );
+    }
+
+    #[test]
+    fn agent_skill_list_returns_filtered_summaries_without_content() {
+        let data_dir = command_test_data_dir("skill-list");
+        std::fs::create_dir_all(data_dir.join("skills").join("camera-director")).unwrap();
+        std::fs::create_dir_all(data_dir.join(".staging")).unwrap();
+        std::fs::write(
+            data_dir.join("skills").join("camera-director").join("SKILL.md"),
+            "---\nname: 镜头导演\ncapabilities: [chat, image_plan]\n---\n# 镜头导演\n正文不应出现在 list_skills 结果里",
+        )
+        .unwrap();
+        write_skill_index(
+            &data_dir,
+            &[SkillEntry {
+                id: "skill-camera".into(),
+                name: "镜头导演".into(),
+                source_url: "https://example.com/skills/camera".into(),
+                notes: "电影感构图".into(),
+                content: "正文不应出现在 list_skills 结果里".into(),
+                directory: "camera-director".into(),
+                source_path: String::new(),
+                created_at: String::new(),
+                updated_at: String::new(),
+            }],
+        )
+        .unwrap();
+
+        let summaries = list_skill_summaries(&data_dir, "电影").unwrap();
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(summaries[0]["id"], "skill-camera");
+        assert_eq!(summaries[0]["name"], "镜头导演");
+        assert_eq!(summaries[0]["notes"], "电影感构图");
+        assert_eq!(
+            summaries[0]["capabilities"],
+            serde_json::json!(["chat", "image_plan"])
+        );
+        assert!(summaries[0].get("content").is_none());
+
+        let empty = list_skill_summaries(&data_dir, "不存在").unwrap();
+        assert!(empty.is_empty());
+        recycle(&data_dir);
+    }
+
+    fn command_test_data_dir(name: &str) -> PathBuf {
+        let root = std::env::current_dir()
+            .unwrap()
+            .join("target")
+            .join("agent-command-tests")
+            .join(format!("{name}-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    fn recycle(path: &Path) {
+        if path.exists() {
+            trash::delete(path).unwrap();
+        }
     }
 
     fn template(id: &str, title: &str, content: &str, reference_paths: &[&str]) -> PromptTemplate {
