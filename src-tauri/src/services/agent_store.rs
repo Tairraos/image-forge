@@ -70,15 +70,48 @@ pub(crate) fn save_session(
 }
 
 pub(crate) fn prepare_context(session: &mut AgentSession) -> Vec<AgentMessage> {
+    const CONTEXT_CHAR_BUDGET: usize = 48_000;
+    const PRIORITY_CHAR_BUDGET: usize = 16_000;
     const RECENT_MESSAGES: usize = 24;
-    const SUMMARY_MESSAGES: usize = 20;
-    if session.messages.len() > RECENT_MESSAGES && session.summary.trim().is_empty() {
-        session.summary = session
-            .messages
+    let mut selected = Vec::new();
+    let mut priority_size = 0;
+    for (index, message) in session.messages.iter().enumerate().rev() {
+        if !is_unfinished_context(message) {
+            continue;
+        }
+        let size = context_size(message);
+        if priority_size + size <= PRIORITY_CHAR_BUDGET || selected.is_empty() {
+            selected.push(index);
+            priority_size += size;
+        }
+    }
+    let mut total_size = priority_size;
+    let mut recent_count = 0;
+    for (index, message) in session.messages.iter().enumerate().rev() {
+        if selected.contains(&index) {
+            continue;
+        }
+        let size = context_size(message);
+        if recent_count >= RECENT_MESSAGES
+            || (total_size + size > CONTEXT_CHAR_BUDGET && recent_count > 0)
+        {
+            break;
+        }
+        selected.push(index);
+        total_size += size;
+        recent_count += 1;
+    }
+    selected.sort_unstable();
+    let first_selected = selected.first().copied().unwrap_or(session.messages.len());
+    if first_selected > 0 {
+        session.summary = session.messages[..first_selected]
             .iter()
-            .take(session.messages.len().saturating_sub(RECENT_MESSAGES))
             .filter(|message| matches!(message.role.as_str(), "user" | "assistant"))
-            .take(SUMMARY_MESSAGES)
+            .rev()
+            .take(40)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
             .map(|message| {
                 let content = message.content.chars().take(160).collect::<String>();
                 format!("{}: {}", message.role, content)
@@ -86,16 +119,27 @@ pub(crate) fn prepare_context(session: &mut AgentSession) -> Vec<AgentMessage> {
             .collect::<Vec<_>>()
             .join("\n");
     }
-    session
-        .messages
-        .iter()
-        .rev()
-        .take(RECENT_MESSAGES)
-        .cloned()
-        .collect::<Vec<_>>()
+    selected
         .into_iter()
-        .rev()
+        .map(|index| session.messages[index].clone())
         .collect()
+}
+
+fn context_size(message: &AgentMessage) -> usize {
+    message.content.chars().count() + 512
+}
+
+fn is_unfinished_context(message: &AgentMessage) -> bool {
+    message
+        .tool_call
+        .as_ref()
+        .is_some_and(|call| matches!(call.status.as_str(), "pending" | "running"))
+        || message.task_group.as_ref().is_some_and(|group| {
+            !matches!(
+                group.status.as_str(),
+                "completed" | "failed" | "cancelled" | "missing"
+            )
+        })
 }
 
 pub(crate) fn recover_sessions(data_dir: &Path) -> Result<Vec<AgentSession>, String> {
