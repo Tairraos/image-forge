@@ -16,7 +16,6 @@ const MAX_TOOL_ROUNDS: usize = 8;
 
 pub(crate) struct AgentTurnResult {
     pub text: String,
-    pub tool_rounds: usize,
     pub tool_calls: Vec<AgentToolCall>,
 }
 
@@ -34,7 +33,7 @@ where
 {
     let tools = tool_definitions();
     let mut completed_tool_calls = Vec::new();
-    for round in 0..MAX_TOOL_ROUNDS {
+    for _round in 0..MAX_TOOL_ROUNDS {
         let response = match agent_completion(
             provider,
             messages,
@@ -76,7 +75,6 @@ where
         if response.tool_calls.is_empty() {
             return Ok(AgentTurnResult {
                 text: response.text,
-                tool_rounds: round,
                 tool_calls: completed_tool_calls,
             });
         }
@@ -106,7 +104,6 @@ where
                 mode: mode_label(&response.mode),
                 chunk: String::new(),
                 message: format!("正在执行 {}", call.name),
-                elapsed_ms: None,
             });
             let result = execute_tool(call.name.clone(), arguments.clone()).await;
             let (result_value, error) = match result {
@@ -148,7 +145,6 @@ where
                 } else {
                     error
                 },
-                elapsed_ms: None,
             });
         }
     }

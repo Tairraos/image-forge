@@ -13,12 +13,10 @@ use crate::{
 };
 
 const CHAT_COMPLETION_TIMEOUT_SECONDS: u64 = 60;
-const SKILL_PLANNER_TIMEOUT_SECONDS: u64 = 180;
 const TEMPLATE_SYSTEM_PROMPT: &str = "你是提示词模板填充助手。用户会提供一个包含若干 {占位描述} 的生图提示词模板。请根据花括号里的描述语义，把每一处花括号连同里面的描述替换为具体、自然、适合生图的中文内容。不要保留花括号，不要改变花括号外的其它文字，不要输出解释、Markdown 或代码块，只输出填充后的完整文本。";
 
 pub(crate) struct ChatCompletionOutput {
     pub text: String,
-    pub mode: String,
 }
 
 pub(crate) struct ChatProgressEventData {
@@ -26,7 +24,6 @@ pub(crate) struct ChatProgressEventData {
     pub mode: &'static str,
     pub chunk: String,
     pub message: String,
-    pub elapsed_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -160,7 +157,6 @@ async fn consume_agent_tool_stream(
                     mode: "stream",
                     chunk: content,
                     message: String::new(),
-                    elapsed_ms: Some(started.elapsed().as_millis() as u64),
                 });
             }
             if let Some(items) = delta.get("tool_calls").and_then(Value::as_array) {
@@ -187,13 +183,22 @@ async fn consume_agent_tool_stream(
                         mode: "stream",
                         chunk: String::new(),
                         message: format!("准备调用 {}", entry.name),
-                        elapsed_ms: Some(started.elapsed().as_millis() as u64),
                     });
                 }
             }
         }
     }
     let tool_calls = calls.into_values().collect::<Vec<_>>();
+    record_runtime_log(
+        runtime_state,
+        "agent_tools.stream_complete",
+        format!(
+            "elapsed_ms={} output_len={} tool_calls={}",
+            started.elapsed().as_millis(),
+            text.chars().count(),
+            tool_calls.len()
+        ),
+    );
     if text.trim().is_empty() && tool_calls.is_empty() {
         return Err("Agent 没有返回文本或 Tool Call".into());
     }
@@ -313,58 +318,6 @@ where
     .await
 }
 
-pub(crate) async fn fill_skill_prompt(
-    provider: &ApiProvider,
-    skill: &str,
-    request: &str,
-    runtime_state: Option<&RuntimeState>,
-) -> Result<String, String> {
-    let system_prompt = format!(
-        "你是图像生成提示词执行器。请严格遵循下面的 Skill 规范，根据用户任务产出一段可直接交给生图模型的最终提示词。执行 Skill 要求的分析与组织，但不要展示思考过程，不要解释 Skill，不要输出 Markdown 代码块，只返回最终提示词。\n\n<skill>\n{}\n</skill>",
-        skill.trim()
-    );
-    complete_chat_prompt(
-        provider,
-        &system_prompt,
-        request,
-        "skill_fill.service",
-        "Skill AI 生成",
-        format!(
-            "skill_len={} request_len={}",
-            skill.chars().count(),
-            request.chars().count()
-        ),
-        runtime_state,
-    )
-    .await
-}
-
-pub(crate) async fn plan_skill_response<F>(
-    provider: &ApiProvider,
-    system_prompt: &str,
-    user_content: &str,
-    request_summary: String,
-    runtime_state: Option<&RuntimeState>,
-    on_event: F,
-) -> Result<ChatCompletionOutput, String>
-where
-    F: FnMut(ChatProgressEventData),
-{
-    complete_chat_prompt_internal(
-        provider,
-        system_prompt,
-        user_content,
-        "skill_route.service",
-        "Skill 规划",
-        request_summary,
-        runtime_state,
-        true,
-        SKILL_PLANNER_TIMEOUT_SECONDS,
-        on_event,
-    )
-    .await
-}
-
 pub(crate) async fn agent_response<F>(
     provider: &ApiProvider,
     context: &str,
@@ -392,31 +345,6 @@ where
         on_event,
     )
     .await
-}
-
-async fn complete_chat_prompt(
-    provider: &ApiProvider,
-    system_prompt: &str,
-    user_content: &str,
-    event_prefix: &str,
-    operation_label: &str,
-    request_summary: String,
-    runtime_state: Option<&RuntimeState>,
-) -> Result<String, String> {
-    complete_chat_prompt_internal(
-        provider,
-        system_prompt,
-        user_content,
-        event_prefix,
-        operation_label,
-        request_summary,
-        runtime_state,
-        false,
-        CHAT_COMPLETION_TIMEOUT_SECONDS,
-        |_| {},
-    )
-    .await
-    .map(|output| output.text)
 }
 
 async fn complete_chat_prompt_internal<F>(
@@ -457,7 +385,6 @@ where
         mode: "pending",
         chunk: String::new(),
         message: String::new(),
-        elapsed_ms: Some(started.elapsed().as_millis() as u64),
     });
 
     let base_url = match normalize_base_url(&provider.base_url) {
@@ -520,7 +447,6 @@ where
                         mode: "stream",
                         chunk: String::new(),
                         message: String::new(),
-                        elapsed_ms: Some(started.elapsed().as_millis() as u64),
                     });
                     let text = consume_streaming_response(
                         response,
@@ -531,10 +457,7 @@ where
                         &mut on_event,
                     )
                     .await?;
-                    return Ok(ChatCompletionOutput {
-                        text,
-                        mode: "stream".into(),
-                    });
+                    return Ok(ChatCompletionOutput { text });
                 }
 
                 let status = response.status();
@@ -563,7 +486,6 @@ where
                         mode: "non-stream",
                         chunk: String::new(),
                         message: "当前模型不支持流式响应，已回退到非流式模式".into(),
-                        elapsed_ms: Some(started.elapsed().as_millis() as u64),
                     });
                     let response = send_chat_request(
                         &client,
@@ -591,10 +513,7 @@ where
                         operation_label,
                         runtime_state,
                     )?;
-                    return Ok(ChatCompletionOutput {
-                        text: parsed,
-                        mode: "non-stream".into(),
-                    });
+                    return Ok(ChatCompletionOutput { text: parsed });
                 }
 
                 on_event(ChatProgressEventData {
@@ -602,7 +521,6 @@ where
                     mode: "non-stream",
                     chunk: String::new(),
                     message: String::new(),
-                    elapsed_ms: Some(started.elapsed().as_millis() as u64),
                 });
                 let parsed = parse_non_stream_response(
                     status,
@@ -612,10 +530,7 @@ where
                     operation_label,
                     runtime_state,
                 )?;
-                return Ok(ChatCompletionOutput {
-                    text: parsed,
-                    mode: "non-stream".into(),
-                });
+                return Ok(ChatCompletionOutput { text: parsed });
             }
             Err(error) => {
                 on_event(ChatProgressEventData {
@@ -623,7 +538,6 @@ where
                     mode: "pending",
                     chunk: String::new(),
                     message: error.clone(),
-                    elapsed_ms: Some(started.elapsed().as_millis() as u64),
                 });
                 return Err(error);
             }
@@ -645,7 +559,6 @@ where
         mode: "non-stream",
         chunk: String::new(),
         message: String::new(),
-        elapsed_ms: Some(started.elapsed().as_millis() as u64),
     });
     let status = response.status();
     let text = read_response_body(
@@ -664,10 +577,7 @@ where
         operation_label,
         runtime_state,
     )?;
-    Ok(ChatCompletionOutput {
-        text: parsed,
-        mode: "non-stream".into(),
-    })
+    Ok(ChatCompletionOutput { text: parsed })
 }
 
 async fn send_chat_request(
@@ -853,7 +763,6 @@ where
             mode: "stream",
             chunk,
             message: String::new(),
-            elapsed_ms: Some(started.elapsed().as_millis() as u64),
         });
     }
     Ok(false)

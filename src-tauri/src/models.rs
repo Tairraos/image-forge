@@ -495,25 +495,6 @@ pub struct AgentSkillContext {
     pub references: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentSkillSummary {
-    pub id: String,
-    pub name: String,
-    pub notes: String,
-    pub source_url: String,
-    #[serde(default)]
-    pub capabilities: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentTaskStatus {
-    pub task_group_id: String,
-    #[serde(default)]
-    pub tasks: Vec<TaskRecord>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentImagePlan {
@@ -613,75 +594,6 @@ pub struct SkillEntry {
     pub created_at: String,
     #[serde(default = "utc_now")]
     pub updated_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SkillConversationMessage {
-    #[serde(default)]
-    pub role: String,
-    #[serde(default)]
-    pub content: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SkillPlannerQuestion {
-    #[serde(default)]
-    pub key: String,
-    #[serde(default)]
-    pub label: String,
-    #[serde(default)]
-    pub placeholder: String,
-    #[serde(default = "default_true")]
-    pub required: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SkillImagePlan {
-    #[serde(default)]
-    pub title: String,
-    #[serde(default)]
-    pub prompt: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SkillPlanResult {
-    #[serde(default)]
-    pub status: String,
-    #[serde(default)]
-    pub message: String,
-    #[serde(default)]
-    pub prompt_depth: String,
-    #[serde(default)]
-    pub prompt_fidelity: String,
-    #[serde(default)]
-    pub reference_image_usage: String,
-    #[serde(default)]
-    pub stream_mode: String,
-    #[serde(default)]
-    pub skill_name: String,
-    #[serde(default)]
-    pub questions: Vec<SkillPlannerQuestion>,
-    #[serde(default)]
-    pub images: Vec<SkillImagePlan>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SkillPlannerEvent {
-    pub session_id: String,
-    pub phase: String,
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub mode: String,
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub chunk: String,
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub message: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub elapsed_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
