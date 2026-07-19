@@ -1039,7 +1039,8 @@ pub(crate) fn delete_task(app: AppHandle, task_id: String) -> Result<(), String>
 
     let request_file = request_path(&data_dir, &task_id);
     if request_file.exists() {
-        fs::remove_file(request_file).map_err(|error| format!("删除任务请求失败: {error}"))?;
+        trash::delete(&request_file)
+            .map_err(|error| format!("将任务请求移入回收站失败: {error}"))?;
     }
     if !defer_reference_cleanup {
         prune_unreferenced_files(&data_dir)?;
@@ -1316,8 +1317,8 @@ pub(crate) fn delete_skill(app: AppHandle, skill_id: String) -> Result<Vec<Skill
     {
         let package_dir = skills_dir(&data_dir).join(&skill.directory);
         if package_dir.starts_with(skills_dir(&data_dir)) && package_dir.is_dir() {
-            fs::remove_dir_all(package_dir)
-                .map_err(|error| format!("删除 Skill 目录失败: {error}"))?;
+            trash::delete(&package_dir)
+                .map_err(|error| format!("将 Skill 目录移入回收站失败: {error}"))?;
         }
     }
     skills.retain(|skill| skill.id != skill_id);

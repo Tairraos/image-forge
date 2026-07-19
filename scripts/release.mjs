@@ -6,7 +6,6 @@ import {
   mkdtempSync,
   readdirSync,
   renameSync,
-  rmSync,
   symlinkSync,
 } from "node:fs";
 import { basename, extname, join } from "node:path";
@@ -26,7 +25,7 @@ const bundleDir = join(root, "src-tauri", "target", "release", "bundle");
 const releaseDir = join(root, "release");
 
 try {
-  rmSync(bundleDir, { recursive: true, force: true });
+  moveToTrash(bundleDir);
   cleanIcons();
   run("pnpm", ["tauri", "icon", "src-tauri/icons/app-icon.png"]);
 
@@ -97,14 +96,14 @@ function createSimpleDmg() {
       dmgPath,
     ]);
   } finally {
-    rmSync(stagingDir, { recursive: true, force: true });
+    moveToTrash(stagingDir);
   }
 }
 
 function prepareMacBundles() {
   const appPath = macAppPath();
   run("codesign", ["--force", "--deep", "--sign", "-", appPath]);
-  rmSync(join(bundleDir, "dmg"), { recursive: true, force: true });
+  moveToTrash(join(bundleDir, "dmg"));
   createSimpleDmg();
 }
 
@@ -145,13 +144,13 @@ function releaseName(extension, suffix = "") {
 }
 
 function movePath(from, to) {
-  rmSync(to, { recursive: true, force: true });
+  moveToTrash(to);
   try {
     renameSync(from, to);
   } catch (error) {
     if (error.code !== "EXDEV") throw error;
     cpSync(from, to, { recursive: true });
-    rmSync(from, { recursive: true, force: true });
+    moveToTrash(from);
   }
   return to;
 }
@@ -210,14 +209,22 @@ function cleanIcons() {
   const iconDir = join(root, "src-tauri", "icons");
   for (const entry of readdirSync(iconDir)) {
     if (!["app-icon.png", "icon.png"].includes(entry)) {
-      rmSync(join(iconDir, entry), { recursive: true, force: true });
+      moveToTrash(join(iconDir, entry));
     }
   }
 }
 
 function cleanProcessFiles() {
-  rmSync(join(root, "dist"), { recursive: true, force: true });
-  rmSync(join(root, "src-tauri", "target"), { recursive: true, force: true });
-  rmSync(join(root, "src-tauri", "gen"), { recursive: true, force: true });
+  moveToTrash(join(root, "dist"));
+  moveToTrash(join(root, "src-tauri", "target"));
+  moveToTrash(join(root, "src-tauri", "gen"));
   cleanIcons();
+}
+
+function moveToTrash(path) {
+  if (!existsSync(path)) return;
+  const result = spawnSync("trash", [path], { cwd: root, stdio: "inherit" });
+  if (result.status !== 0) {
+    throw new Error(`无法将路径移入系统回收站：${path}`);
+  }
 }

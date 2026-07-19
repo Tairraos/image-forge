@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import {
   chmodSync,
   cpSync,
@@ -6,7 +7,6 @@ import {
   readFileSync,
   readdirSync,
   renameSync,
-  rmSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
@@ -30,12 +30,20 @@ try {
   ensureLayout(stagingRoot);
   verify(stagingRoot);
   renameSync(stagingRoot, newRoot);
-  rmSync(oldRoot, { recursive: true, force: true });
+  moveToTrash(oldRoot);
   securePermissions(newRoot);
   console.log(`迁移完成：${oldRoot} -> ${newRoot}`);
 } catch (error) {
-  rmSync(stagingRoot, { recursive: true, force: true });
+  moveToTrash(stagingRoot);
   throw error;
+}
+
+function moveToTrash(path) {
+  if (!existsSync(path)) return;
+  const result = spawnSync("trash", [path], { stdio: "inherit" });
+  if (result.status !== 0) {
+    throw new Error(`无法将路径移入系统回收站：${path}`);
+  }
 }
 
 function rewriteJsonPaths(root, oldPrefix, newPrefix) {

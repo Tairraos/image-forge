@@ -131,6 +131,6 @@ mod tests {
         assert_eq!(value["providers"][0]["name"], "测试源");
         assert_eq!(value["providers"][0]["apiKey"], "secret");
         assert!(value["providers"][0].get("id").is_none());
-        fs::remove_dir_all(directory).unwrap();
+        trash::delete(&directory).unwrap();
     }
 }

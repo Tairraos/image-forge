@@ -476,7 +476,8 @@ fn finish_deleted_task(app: &AppHandle, data_dir: &Path, task_id: &str) -> Resul
     write_history(data_dir, &history)?;
     let request_file = request_path(data_dir, task_id);
     if request_file.exists() {
-        std::fs::remove_file(request_file).map_err(|error| format!("删除任务请求失败: {error}"))?;
+        trash::delete(&request_file)
+            .map_err(|error| format!("将任务请求移入回收站失败: {error}"))?;
     }
     if let Ok(mut tasks) = app.state::<RuntimeState>().deleted_tasks.lock() {
         tasks.remove(task_id);

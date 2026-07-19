@@ -210,7 +210,7 @@ mod tests {
             fs::read_dir(data_dir.join("references")).unwrap().count(),
             1
         );
-        fs::remove_dir_all(data_dir).unwrap();
+        trash::delete(&data_dir).unwrap();
     }
 
     #[test]
@@ -220,6 +220,6 @@ mod tests {
         let path = data_dir.join("not-an-image.png");
         fs::write(&path, b"plain text").unwrap();
         assert_eq!(reference_preview(&path).unwrap_err(), "图片文件无法解析");
-        fs::remove_dir_all(data_dir).unwrap();
+        trash::delete(&data_dir).unwrap();
     }
 }

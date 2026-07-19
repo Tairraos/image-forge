@@ -5,7 +5,6 @@ import {
   mkdirSync,
   readdirSync,
   renameSync,
-  rmSync,
 } from "node:fs";
 import { join } from "node:path";
 import { currentVersion, patchVersion, readJson, root } from "./patch-version.mjs";
@@ -24,7 +23,7 @@ const releaseDir = join(root, "release");
 const outputPath = join(releaseDir, `${productName}-${version}-${archName()}.app`);
 
 try {
-  rmSync(bundleDir, { recursive: true, force: true });
+  moveToTrash(bundleDir);
   cleanIcons();
   run("pnpm", ["tauri", "icon", "src-tauri/icons/app-icon.png"]);
   run("pnpm", ["tauri", "build", "--bundles", "app"]);
@@ -81,7 +80,7 @@ function movePath(from, to) {
   } catch (error) {
     if (error.code !== "EXDEV") throw error;
     cpSync(from, to, { recursive: true });
-    rmSync(from, { recursive: true, force: true });
+    moveToTrash(from);
   }
 }
 
@@ -89,14 +88,22 @@ function cleanIcons() {
   const iconDir = join(root, "src-tauri", "icons");
   for (const entry of readdirSync(iconDir)) {
     if (!["app-icon.png", "icon.png"].includes(entry)) {
-      rmSync(join(iconDir, entry), { recursive: true, force: true });
+      moveToTrash(join(iconDir, entry));
     }
   }
 }
 
 function cleanProcessFiles() {
-  rmSync(join(root, "dist"), { recursive: true, force: true });
-  rmSync(join(root, "src-tauri", "target"), { recursive: true, force: true });
-  rmSync(join(root, "src-tauri", "gen"), { recursive: true, force: true });
+  moveToTrash(join(root, "dist"));
+  moveToTrash(join(root, "src-tauri", "target"));
+  moveToTrash(join(root, "src-tauri", "gen"));
   cleanIcons();
+}
+
+function moveToTrash(path) {
+  if (!existsSync(path)) return;
+  const result = spawnSync("trash", [path], { cwd: root, stdio: "inherit" });
+  if (result.status !== 0) {
+    throw new Error(`无法将路径移入系统回收站：${path}`);
+  }
 }
