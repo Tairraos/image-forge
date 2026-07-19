@@ -104,6 +104,7 @@
         @drop-reference="addAgentReferencePaths"
         @update-answer="updateAgentAnswer"
         @answer-questions="answerAgentQuestions"
+        @delete-session="deleteAgentConversation"
       />
 
       <footer class="status-bar">
@@ -589,6 +590,19 @@ async function selectAgentConversation(sessionId) {
     agentProviderId.value = session.modelProviderId || agentProviderId.value;
     agentStreamText.value = "";
     agentToolStatus.value = "";
+  } catch (error) {
+    setStatus(String(error), "error");
+  }
+}
+
+async function deleteAgentConversation(sessionId) {
+  const confirmed = await requestConfirmation("删除 Agent 对话", "确认把这个 Agent 对话移入系统回收站？关联的绘图任务不会删除。");
+  if (!confirmed) return;
+  try {
+    await invoke("delete_agent_session", { sessionId });
+    currentAgentSessionId.value = "";
+    await refreshAgentSessions();
+    setStatus("Agent 对话已移入回收站", "ok");
   } catch (error) {
     setStatus(String(error), "error");
   }

@@ -22,6 +22,7 @@ pub fn run() {
             commands::cleanup_data_files,
             commands::cancel_agent_turn,
             commands::delete_task,
+            commands::delete_agent_session,
             commands::delete_skill,
             commands::delete_template,
             commands::download_output,

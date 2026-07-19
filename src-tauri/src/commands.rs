@@ -20,7 +20,10 @@ use crate::{
     },
     services::{
         agent::run_turn,
-        agent_store::{append_message, create_session, save_session, session, sessions},
+        agent_store::{
+            append_message, create_session, delete_session, prepare_context, recover_sessions,
+            save_session, session,
+        },
         chat::{
             fill_skill_prompt as generate_prompt_from_skill, fill_template_response,
             plan_skill_response,
@@ -80,8 +83,21 @@ pub(crate) fn create_agent_session(
 #[tauri::command]
 pub(crate) fn list_agent_sessions(app: AppHandle) -> Result<Vec<AgentSession>, String> {
     let data_dir = ensure_data_dir(&app)?;
-    let result = sessions(&data_dir);
+    let result = recover_sessions(&data_dir);
     record_result("读取 Agent 会话", "", None, &result);
+    result
+}
+
+#[tauri::command]
+pub(crate) fn delete_agent_session(app: AppHandle, session_id: String) -> Result<(), String> {
+    let data_dir = ensure_data_dir(&app)?;
+    let result = delete_session(&data_dir, &session_id);
+    record_result(
+        "删除 Agent 会话",
+        &format!("session_id={session_id}"),
+        None,
+        &result,
+    );
     result
 }
 
@@ -131,6 +147,9 @@ pub(crate) async fn send_agent_message(
         return Err("消息不能为空".into());
     }
     current = append_message(&data_dir, &session_id, user)?;
+    current.status = "running".into();
+    let context_messages = prepare_context(&mut current);
+    current = save_session(&data_dir, current)?;
     let settings = read_settings(&data_dir)?;
     let provider = settings
         .providers
@@ -143,18 +162,11 @@ pub(crate) async fn send_agent_message(
         })
         .ok_or("还没有配置对话模型")?
         .clone();
-    let mut context = current
-        .messages
-        .iter()
-        .rev()
-        .skip(1)
-        .take(12)
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-        .map(|message| format!("{}: {}", message.role, message.content))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let mut context = if current.summary.trim().is_empty() {
+        String::new()
+    } else {
+        format!("历史摘要：\n{}", current.summary)
+    };
     if !skill_id.trim().is_empty() {
         let skill_context = use_skill(app.clone(), skill_id.clone())?;
         context.push_str(&format!(
@@ -173,7 +185,7 @@ pub(crate) async fn send_agent_message(
         "role": "system",
         "content": agent_system_prompt(&context),
     })];
-    chat_messages.extend(current.messages.iter().map(agent_message_to_chat_value));
+    chat_messages.extend(context_messages.iter().map(agent_message_to_chat_value));
     let task_provider = provider.clone();
     let task_messages = chat_messages;
     let user_confirmation = content.clone();
@@ -265,9 +277,32 @@ pub(crate) async fn send_agent_message(
                     created_at: utc_now(),
                 },
             )?;
+            current.status = "idle".into();
+            current = save_session(&data_dir, current)?;
             Ok(current)
         }
-        Err(error) => Err(error),
+        Err(error) => {
+            if let Ok(mut failed) = session(&data_dir, &session_id) {
+                failed.status = if error.contains("已停止") {
+                    "interrupted".into()
+                } else {
+                    "error".into()
+                };
+                failed.messages.push(AgentMessage {
+                    id: Uuid::new_v4().to_string(),
+                    role: "assistant".into(),
+                    content: "本轮 Agent 对话未完成".into(),
+                    attachments: Vec::new(),
+                    tool_call: None,
+                    questions: Vec::new(),
+                    task_group: None,
+                    error: error.clone(),
+                    created_at: utc_now(),
+                });
+                let _ = save_session(&data_dir, failed);
+            }
+            Err(error)
+        }
     };
     record_result(
         "Agent 对话",
@@ -378,13 +413,15 @@ fn agent_message_to_chat_value(message: &AgentMessage) -> serde_json::Value {
     let attachment_metadata = message
         .attachments
         .iter()
-        .map(|attachment| serde_json::json!({
-            "id": attachment.id,
-            "fileName": attachment.file_name,
-            "mimeType": attachment.mime_type,
-            "width": attachment.width,
-            "height": attachment.height,
-        }))
+        .map(|attachment| {
+            serde_json::json!({
+                "id": attachment.id,
+                "fileName": attachment.file_name,
+                "mimeType": attachment.mime_type,
+                "width": attachment.width,
+                "height": attachment.height,
+            })
+        })
         .collect::<Vec<_>>();
     let content = if attachment_metadata.is_empty() {
         message.content.clone()

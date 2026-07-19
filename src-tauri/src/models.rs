@@ -381,6 +381,8 @@ pub struct AgentMessage {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentSession {
+    #[serde(default = "default_agent_schema_version")]
+    pub schema_version: u32,
     pub id: String,
     #[serde(default)]
     pub title: String,

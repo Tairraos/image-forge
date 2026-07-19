@@ -17,6 +17,13 @@
           <span>{{ session.title || "新对话" }}</span>
           <small>{{ formatTime(session.updatedAt) }}</small>
         </button>
+        <n-button
+          v-if="currentSession"
+          size="tiny"
+          type="error"
+          quaternary
+          @click="$emit('delete-session', currentSession.id)"
+        >删除当前对话</n-button>
       </div>
       <div class="agent-skill-head">
         <strong>Skill</strong>
@@ -101,6 +108,7 @@ const emit = defineEmits([
   "create", "select", "send", "stop", "add-reference", "remove-attachment", "update:provider-id",
   "install-skill", "use-skill",
   "open-task-group", "retry", "paste-reference", "drop-reference", "update-answer", "answer-questions",
+  "delete-session",
 ]);
 
 function formatTime(value) {
