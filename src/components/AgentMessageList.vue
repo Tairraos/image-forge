@@ -18,15 +18,19 @@
         <small v-if="message.toolCall.error">{{ message.toolCall.error }}</small>
       </div>
       <div v-if="message.questions?.length" class="agent-question-card">
-        <label v-for="question in message.questions" :key="question.key">
-          <span>{{ question.label }}</span>
-          <n-input
-            :value="answers[question.key] || ''"
-            :placeholder="question.placeholder"
-            @update:value="$emit('update-answer', { key: question.key, value: $event })"
-          />
-        </label>
-        <n-button size="small" type="primary" @click="$emit('answer-questions', message)">提交回答</n-button>
+        <div class="agent-question-fields">
+          <label v-for="question in message.questions" :key="question.key">
+            <span>{{ question.label }}</span>
+            <n-input
+              :value="answers[question.key] || ''"
+              :placeholder="question.placeholder"
+              @update:value="$emit('update-answer', { key: question.key, value: $event })"
+            />
+          </label>
+        </div>
+        <div class="agent-question-actions">
+          <n-button size="small" type="primary" @click="$emit('answer-questions', message)">提交回答</n-button>
+        </div>
       </div>
       <div v-if="message.taskGroup" class="agent-task-group-card">
         <button type="button" class="agent-task-group-open" @click="$emit('open-task-group', message.taskGroup)">
