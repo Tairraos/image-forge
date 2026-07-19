@@ -885,6 +885,10 @@ fn create_agent_image_tasks_in_data_dir(
             id: task_group_id.clone(),
             task_ids: tasks.iter().map(|task| task.id.clone()).collect(),
             titles,
+            prompt_summaries: tasks
+                .iter()
+                .map(|task| prompt_summary(&task.prompt))
+                .collect(),
             status: "queued".into(),
         }),
         error: String::new(),
@@ -898,6 +902,15 @@ fn create_agent_image_tasks_in_data_dir(
         tasks,
         created_at: utc_now(),
     })
+}
+
+fn prompt_summary(prompt: &str) -> String {
+    let normalized = prompt.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut summary = normalized.chars().take(96).collect::<String>();
+    if normalized.chars().count() > 96 {
+        summary.push_str("...");
+    }
+    summary
 }
 
 #[tauri::command]
@@ -2040,7 +2053,19 @@ mod tests {
             .unwrap();
         assert_eq!(summary.id, group.id);
         assert_eq!(summary.task_ids, vec![task.id.clone()]);
+        assert_eq!(
+            summary.prompt_summaries,
+            vec!["一张完整的测试图片提示词".to_string()]
+        );
         recycle(&data_dir);
+    }
+
+    #[test]
+    fn agent_task_prompt_summary_compacts_whitespace_and_limits_unicode() {
+        assert_eq!(prompt_summary("第一行\n  第二行"), "第一行 第二行");
+        let summary = prompt_summary(&"图".repeat(100));
+        assert_eq!(summary.chars().count(), 99);
+        assert!(summary.ends_with("..."));
     }
 
     #[test]

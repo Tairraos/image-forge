@@ -36,6 +36,9 @@
         <button type="button" class="agent-task-group-open" @click="$emit('open-task-group', message.taskGroup)">
           <strong>绘图任务组 · {{ message.taskGroup.taskIds?.length || 0 }} 项</strong>
           <span>{{ message.taskGroup.titles?.join('、') || message.taskGroup.id }}</span>
+          <small v-if="message.taskGroup.promptSummaries?.length">
+            提示词：{{ message.taskGroup.promptSummaries.join('、') }}
+          </small>
           <small>{{ taskGroupStatusLabel(message.taskGroup.status) }} · 点击查看绘画</small>
         </button>
         <div class="agent-task-group-actions">

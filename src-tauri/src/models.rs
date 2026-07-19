@@ -355,6 +355,8 @@ pub struct AgentTaskGroupSummary {
     #[serde(default)]
     pub titles: Vec<String>,
     #[serde(default)]
+    pub prompt_summaries: Vec<String>,
+    #[serde(default)]
     pub status: String,
 }
 
