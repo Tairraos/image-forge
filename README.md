@@ -58,6 +58,7 @@ docs/technical-design.md
 ### v1.0.18
 
 - 关于弹窗新增“清理”入口，可扫描 `outputs/`、`references/`、`requests/` 和 `clipboard/` 中未被数据引用的孤岛文件，确认后移入系统回收站，取消不会修改文件。
+- Skill 新增、编辑、URL 提取和本地包导入统一经过安全审查并生成 `manifest.json`；旧版无 manifest 的 Skill 首次读取时会安全迁移，审查失败则保留原包并显示具体原因。
 
 ### v1.0.17
 

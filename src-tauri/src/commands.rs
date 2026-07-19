@@ -34,18 +34,19 @@ use crate::{
             prune_unreferenced_files_with_data, scan_orphan_files,
         },
         skill::fetch_skill_markdown as fetch_skill_markdown_from_url,
-        skill_installer::{audit_skill_directory, install_skill_source, read_verified_manifest},
+        skill_installer::{
+            audit_skill_directory, install_skill_source, read_verified_manifest, save_skill_entry,
+        },
         template_bundle::{export_templates_archive, import_templates_archive},
     },
     state::{record_operation, runtime_logs_text, RuntimeState},
     store::{
         enqueue_task, ensure_data_dir, is_safe_skill_directory, next_template_id,
-        normalize_request, normalize_settings, normalize_skill, normalize_template,
-        params_from_request, provider_for_request, read_history, read_json, read_queue,
-        read_settings, read_skills, read_templates, refresh_history_output_sizes, request_path,
-        skill_directory_name, skill_package_path, skills_dir, templates_path, upsert_history,
-        write_generation_batch, write_history, write_json, write_queue, write_settings,
-        write_skill_index,
+        normalize_request, normalize_settings, normalize_template, params_from_request,
+        provider_for_request, read_history, read_json, read_queue, read_settings, read_skills,
+        read_templates, refresh_history_output_sizes, request_path, skills_dir, templates_path,
+        upsert_history, write_generation_batch, write_history, write_json, write_queue,
+        write_settings, write_skill_index,
     },
     utils::utc_now,
 };
@@ -1251,59 +1252,16 @@ pub(crate) fn delete_template(
 }
 
 #[tauri::command]
-/// 新增或更新纯 Markdown Skill，名称始终从内容中自动提取。
-pub(crate) fn save_skill(app: AppHandle, skill: SkillEntry) -> Result<Vec<SkillEntry>, String> {
+/// 新增或更新 Skill；保存与导入使用相同安全门并生成 manifest。
+pub(crate) fn save_skill(
+    app: AppHandle,
+    skill: SkillEntry,
+    replace: bool,
+) -> Result<Vec<SkillEntry>, String> {
     let data_dir = ensure_data_dir(&app)?;
-    let mut skills = read_skills(&data_dir)?;
-    let mut next = normalize_skill(skill)?;
-    let previous_directory = skills
-        .iter()
-        .find(|item| item.id == next.id)
-        .map(|item| item.directory.clone());
-    if next.id.is_empty() {
-        next.id = Uuid::new_v4().to_string();
-        next.created_at = utc_now();
-    }
-    let mut directory = skill_directory_name(&next.name, &next.id);
-    let base_directory = directory.clone();
-    let mut suffix = 2;
-    while skills
-        .iter()
-        .any(|item| item.id != next.id && item.directory == directory)
-    {
-        directory = format!("{}-{}", base_directory, suffix);
-        suffix += 1;
-    }
-    next.directory = directory;
-    let package_dir = skills_dir(&data_dir).join(&next.directory);
-    if let Some(previous_directory) = previous_directory
-        .filter(|value| value != &next.directory && is_safe_skill_directory(value))
-    {
-        let previous_package_dir = skills_dir(&data_dir).join(previous_directory);
-        if previous_package_dir.is_dir() {
-            if package_dir.exists() {
-                return Err(format!("Skill 目录已存在：{}", package_dir.display()));
-            }
-            fs::rename(previous_package_dir, &package_dir)
-                .map_err(|error| format!("重命名 Skill 目录失败: {error}"))?;
-        }
-    }
-    fs::create_dir_all(&package_dir).map_err(|error| format!("创建 Skill 目录失败: {error}"))?;
-    fs::write(
-        skill_package_path(&data_dir, &next.directory),
-        format!("{}\n", next.content),
-    )
-    .map_err(|error| format!("写入 SKILL.md 失败: {error}"))?;
-    copy_skill_references(&next.source_path, &package_dir)?;
-    next.updated_at = utc_now();
-    if let Some(index) = skills.iter().position(|item| item.id == next.id) {
-        next.created_at = skills[index].created_at.clone();
-        skills[index] = next;
-    } else {
-        skills.push(next);
-    }
-    write_skill_index(&data_dir, &skills)?;
-    Ok(skills)
+    let result = save_skill_entry(&data_dir, skill, replace).and_then(|_| read_skills(&data_dir));
+    record_result("保存 Skill", "source=editor", None, &result);
+    result
 }
 
 #[tauri::command]
@@ -1324,52 +1282,6 @@ pub(crate) fn delete_skill(app: AppHandle, skill_id: String) -> Result<Vec<Skill
     skills.retain(|skill| skill.id != skill_id);
     write_skill_index(&data_dir, &skills)?;
     Ok(skills)
-}
-
-fn copy_skill_references(source_path: &str, package_dir: &Path) -> Result<(), String> {
-    let source_path = source_path.trim();
-    if source_path.is_empty() {
-        return Ok(());
-    }
-    let source = Path::new(source_path);
-    let source_dir = if source.is_dir() {
-        source.to_path_buf()
-    } else {
-        source
-            .parent()
-            .unwrap_or_else(|| Path::new("."))
-            .to_path_buf()
-    };
-    let source_references = source_dir.join("references");
-    if !source_references.is_dir() {
-        return Ok(());
-    }
-    let target_references = package_dir.join("references");
-    fs::create_dir_all(&target_references)
-        .map_err(|error| format!("创建 Skill references 目录失败: {error}"))?;
-    for entry in fs::read_dir(&source_references)
-        .map_err(|error| format!("读取 Skill references 目录失败: {error}"))?
-    {
-        let entry = entry.map_err(|error| format!("读取 Skill reference 文件失败: {error}"))?;
-        let path = entry.path();
-        if !path.is_file()
-            || !path
-                .extension()
-                .and_then(|value| value.to_str())
-                .is_some_and(|value| value.eq_ignore_ascii_case("md"))
-        {
-            continue;
-        }
-        let file_name = path.file_name().ok_or("Skill reference 文件名无效")?;
-        let bytes =
-            fs::read(&path).map_err(|error| format!("读取 Skill reference 失败: {error}"))?;
-        if bytes.len() > 1_048_576 {
-            return Err(format!("Skill reference 文件超过 1 MB：{}", path.display()));
-        }
-        fs::write(target_references.join(file_name), bytes)
-            .map_err(|error| format!("写入 Skill reference 失败: {error}"))?;
-    }
-    Ok(())
 }
 
 #[tauri::command]

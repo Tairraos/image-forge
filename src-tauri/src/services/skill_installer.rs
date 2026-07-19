@@ -144,13 +144,43 @@ pub(crate) fn read_verified_manifest(root: &Path) -> Result<SkillManifest, Strin
             manifest.schema_version
         ));
     }
-    let content =
-        fs::read(root.join("SKILL.md")).map_err(|error| format!("读取 Skill 内容失败: {error}"))?;
+    let entry = [root.join("SKILL.md"), root.join("skill.md")]
+        .into_iter()
+        .find(|path| path.is_file())
+        .ok_or("Skill 包缺少 SKILL.md")?;
+    let content = fs::read(entry).map_err(|error| format!("读取 Skill 内容失败: {error}"))?;
     let actual_hash = format!("{:x}", Sha256::digest(&content));
     if actual_hash != manifest.content_hash {
         return Err("Skill 内容已变化，manifest 哈希校验失败，请重新安装".into());
     }
     Ok(manifest)
+}
+
+/// 为旧版无 manifest 的 Skill 包执行一次安全迁移。
+/// 审查失败时不修改原包；通过后以临时文件原子写入 manifest。
+pub(crate) fn ensure_skill_manifest(root: &Path) -> Result<SkillManifest, String> {
+    if root.join("manifest.json").is_file() {
+        return read_verified_manifest(root);
+    }
+    let audit = audit_skill_directory(root)?;
+    if !audit.allowed {
+        return Err(format!(
+            "旧 Skill 安全迁移被拒绝：{}",
+            audit.reasons.join("；")
+        ));
+    }
+    let manifest = audit.manifest.ok_or("Skill 审查未生成 manifest")?;
+    let temporary = root.join(format!(".manifest-{}.tmp", uuid::Uuid::new_v4()));
+    let bytes = serde_json::to_vec_pretty(&manifest)
+        .map_err(|error| format!("序列化 Skill manifest 失败: {error}"))?;
+    if let Err(error) = fs::write(&temporary, bytes) {
+        return Err(format!("写入 Skill manifest 临时文件失败: {error}"));
+    }
+    if let Err(error) = fs::rename(&temporary, root.join("manifest.json")) {
+        move_to_trash_if_exists(&temporary);
+        return Err(format!("保存 Skill manifest 失败: {error}"));
+    }
+    read_verified_manifest(root)
 }
 
 fn inspect_tree(
@@ -274,6 +304,184 @@ fn extract_name(content: &str) -> String {
 
 pub(crate) fn staging_skill_path(data_dir: &Path, id: &str) -> PathBuf {
     data_dir.join(".staging").join(id)
+}
+
+/// 将编辑器中的 Skill 草稿按与导入包相同的安全门保存。
+/// 先在 staging 中构造完整包并审查，审查通过后才替换正式目录。
+pub(crate) fn save_skill_entry(
+    data_dir: &Path,
+    mut skill: SkillEntry,
+    replace: bool,
+) -> Result<(SkillEntry, SkillAuditResult), String> {
+    skill.id = skill.id.trim().to_string();
+    skill.source_url = skill.source_url.trim().to_string();
+    skill.notes = skill.notes.trim().to_string();
+    skill.directory = skill.directory.trim().to_string();
+    skill.source_path = skill.source_path.trim().to_string();
+    skill.content = skill.content.trim().to_string();
+    if skill.content.is_empty() {
+        return Err("Skill 内容不能为空".into());
+    }
+    if !skill.source_path.is_empty() {
+        let source = Path::new(&skill.source_path);
+        if source.is_dir() {
+            let source_audit = audit_skill_directory(source)?;
+            if !source_audit.allowed {
+                return Err(format!(
+                    "Skill 保存被拒绝：{}",
+                    source_audit.reasons.join("；")
+                ));
+            }
+        }
+    }
+
+    let is_new = skill.id.is_empty();
+    if is_new {
+        skill.id = uuid::Uuid::new_v4().to_string();
+    }
+    let staging_id = format!("save-{}", uuid::Uuid::new_v4());
+    let staging = staging_skill_path(data_dir, &staging_id);
+    fs::create_dir_all(&staging)
+        .map_err(|error| format!("创建 Skill staging 目录失败: {error}"))?;
+    if let Err(error) = fs::write(staging.join("SKILL.md"), format!("{}\n", skill.content)) {
+        move_to_trash_if_exists(&staging);
+        return Err(format!("写入 Skill staging 内容失败: {error}"));
+    }
+
+    let references_source = if !skill.source_path.is_empty() {
+        let source = Path::new(&skill.source_path);
+        if source.is_dir() {
+            Some(source.join("references"))
+        } else {
+            source.parent().map(|parent| parent.join("references"))
+        }
+    } else {
+        None
+    };
+    let existing_package = if skill.directory.is_empty() && !is_new {
+        None
+    } else if !skill.directory.is_empty() {
+        Some(skills_dir(data_dir).join(&skill.directory))
+    } else {
+        None
+    };
+    let source_references = references_source.filter(|path| path.is_dir()).or_else(|| {
+        existing_package
+            .as_ref()
+            .map(|path| path.join("references"))
+            .filter(|path| path.is_dir())
+    });
+    if let Some(source_references) = source_references {
+        if let Err(error) = copy_tree(&source_references, &staging.join("references")) {
+            move_to_trash_if_exists(&staging);
+            return Err(error);
+        }
+    }
+
+    let audit = match audit_skill_directory(&staging) {
+        Ok(audit) if audit.allowed => audit,
+        Ok(audit) => {
+            move_to_trash_if_exists(&staging);
+            return Err(format!("Skill 保存被拒绝：{}", audit.reasons.join("；")));
+        }
+        Err(error) => {
+            move_to_trash_if_exists(&staging);
+            return Err(error);
+        }
+    };
+    let manifest = audit.manifest.clone().ok_or("Skill 审查未生成 manifest")?;
+    if !skill.directory.is_empty() && !crate::store::is_safe_skill_directory(&skill.directory) {
+        move_to_trash_if_exists(&staging);
+        return Err("Skill 目录名不安全".into());
+    }
+    skill.directory = skill_directory_name(&manifest.name, &skill.id);
+
+    let skills = match read_skills(data_dir) {
+        Ok(skills) => skills,
+        Err(error) => {
+            move_to_trash_if_exists(&staging);
+            return Err(error);
+        }
+    };
+    let conflict = skills
+        .iter()
+        .find(|item| item.directory == skill.directory && item.id != skill.id);
+    let destination = skills_dir(data_dir).join(&skill.directory);
+    let replaces_current_package = existing_package
+        .as_ref()
+        .is_some_and(|path| path == &destination);
+    if (!replace && conflict.is_some())
+        || (!replace && destination.exists() && !replaces_current_package)
+    {
+        move_to_trash_if_exists(&staging);
+        return Err(format!(
+            "CONFIRM_REPLACE_SKILL:Skill 目录 {} 已被「{}」使用，是否覆盖？",
+            skill.directory,
+            conflict
+                .map(|item| item.name.as_str())
+                .unwrap_or("未知 Skill")
+        ));
+    }
+
+    let manifest_bytes = match serde_json::to_vec_pretty(&manifest) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            move_to_trash_if_exists(&staging);
+            return Err(format!("序列化 Skill manifest 失败: {error}"));
+        }
+    };
+    if let Err(error) = fs::write(staging.join("manifest.json"), manifest_bytes) {
+        move_to_trash_if_exists(&staging);
+        return Err(format!("写入 Skill manifest 失败: {error}"));
+    }
+    if destination.exists() {
+        if let Err(error) = trash::delete(&destination) {
+            move_to_trash_if_exists(&staging);
+            return Err(format!("将旧 Skill 移入回收站失败: {error}"));
+        }
+    }
+    if let Some(previous) = existing_package
+        .as_ref()
+        .filter(|path| *path != &destination && path.exists())
+    {
+        if let Err(error) = trash::delete(previous) {
+            move_to_trash_if_exists(&staging);
+            return Err(format!("将改名前的 Skill 移入回收站失败: {error}"));
+        }
+    }
+    fs::rename(&staging, &destination).map_err(|error| {
+        move_to_trash_if_exists(&staging);
+        format!("安装 Skill 包失败: {error}")
+    })?;
+
+    let now = utc_now();
+    let created_at = skills
+        .iter()
+        .find(|item| item.id == skill.id)
+        .map(|item| item.created_at.clone())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| now.clone());
+    let saved = SkillEntry {
+        id: skill.id,
+        name: manifest.name.clone(),
+        source_url: skill.source_url,
+        notes: skill.notes,
+        content: fs::read_to_string(destination.join("SKILL.md"))
+            .map_err(|error| format!("读取已保存 Skill 失败: {error}"))?
+            .trim()
+            .to_string(),
+        directory: skill.directory,
+        source_path: String::new(),
+        created_at,
+        updated_at: now,
+    };
+    let mut next_skills = skills;
+    next_skills.retain(|item| item.id != saved.id && item.directory != saved.directory);
+    next_skills.push(saved.clone());
+    if let Err(error) = write_skill_index(data_dir, &next_skills) {
+        return Err(format!("Skill 已安装但索引写入失败: {error}"));
+    }
+    Ok((saved, audit))
 }
 
 pub(crate) fn install_local_skill(
@@ -417,7 +625,9 @@ fn copy_tree(source: &Path, destination: &Path) -> Result<(), String> {
         let to = destination.join(entry.file_name());
         let metadata =
             fs::symlink_metadata(&from).map_err(|error| format!("读取 Skill 条目失败: {error}"))?;
-        if metadata.is_dir() {
+        if metadata.file_type().is_symlink() {
+            return Err(format!("拒绝符号链接: {}", from.display()));
+        } else if metadata.is_dir() {
             copy_tree(&from, &to)?;
         } else if metadata.is_file() {
             fs::copy(&from, &to).map_err(|error| format!("复制 Skill 文件失败: {error}"))?;
@@ -432,7 +642,12 @@ mod tests {
 
     use uuid::Uuid;
 
-    use super::{audit_skill_directory, install_local_skill, read_verified_manifest};
+    use crate::{models::SkillEntry, store::read_skills};
+
+    use super::{
+        audit_skill_directory, ensure_skill_manifest, install_local_skill, read_verified_manifest,
+        save_skill_entry,
+    };
 
     fn fixture(name: &str, content: &str) -> std::path::PathBuf {
         let root = std::env::current_dir()
@@ -502,6 +717,108 @@ mod tests {
         let error = install_local_skill(&data_dir, &source, false).unwrap_err();
         assert!(error.contains("CONFIRM_REPLACE_SKILL"));
         recycle(&source);
+        recycle(&data_dir);
+    }
+
+    #[test]
+    fn editor_save_uses_the_same_gate_and_keeps_previous_package_on_rejection() {
+        let source = fixture(
+            "editor-source",
+            "---\nname: 编辑器 Skill\n---\n# 编辑器 Skill\n## 规则\n只生成图片计划",
+        );
+        let data_dir = fixture("editor-data", "# placeholder");
+        fs::create_dir_all(data_dir.join("skills")).unwrap();
+        fs::create_dir_all(data_dir.join(".staging")).unwrap();
+        fs::write(data_dir.join("skills.json"), "[]").unwrap();
+        let (installed, _) = install_local_skill(&data_dir, &source, false).unwrap();
+        let rejected = SkillEntry {
+            id: installed.id.clone(),
+            name: installed.name.clone(),
+            source_url: installed.source_url.clone(),
+            notes: "新备注".into(),
+            content: "# 编辑器 Skill\n\n请执行 scripts/render.py".into(),
+            directory: installed.directory.clone(),
+            source_path: String::new(),
+            created_at: installed.created_at.clone(),
+            updated_at: installed.updated_at.clone(),
+        };
+        assert!(save_skill_entry(&data_dir, rejected, false).is_err());
+        let package = data_dir.join("skills").join(&installed.directory);
+        assert!(read_verified_manifest(&package).is_ok());
+        assert!(fs::read_to_string(package.join("SKILL.md"))
+            .unwrap()
+            .contains("只生成图片计划"));
+
+        let duplicate = SkillEntry {
+            id: String::new(),
+            name: String::new(),
+            source_url: String::new(),
+            notes: String::new(),
+            content: "# 编辑器 Skill\n\n新的同名内容".into(),
+            directory: String::new(),
+            source_path: String::new(),
+            created_at: String::new(),
+            updated_at: String::new(),
+        };
+        let error = save_skill_entry(&data_dir, duplicate, false).unwrap_err();
+        assert!(error.contains("CONFIRM_REPLACE_SKILL"));
+        assert!(read_verified_manifest(&package).is_ok());
+
+        let renamed = SkillEntry {
+            id: installed.id.clone(),
+            name: installed.name,
+            source_url: installed.source_url,
+            notes: "改名".into(),
+            content: "# 改名后的 Skill\n\n安全内容".into(),
+            directory: installed.directory.clone(),
+            source_path: String::new(),
+            created_at: installed.created_at,
+            updated_at: installed.updated_at,
+        };
+        let (renamed, _) = save_skill_entry(&data_dir, renamed, false).unwrap();
+        assert_eq!(renamed.directory, "改名后的-skill");
+        assert!(!package.exists());
+        assert!(read_verified_manifest(&data_dir.join("skills").join(renamed.directory)).is_ok());
+        recycle(&source);
+        recycle(&data_dir);
+    }
+
+    #[test]
+    fn loading_a_legacy_package_creates_manifest_without_touching_rejected_content() {
+        let data_dir = fixture("legacy-data", "# placeholder");
+        let package = data_dir.join("skills").join("legacy-skill");
+        fs::create_dir_all(&package).unwrap();
+        fs::write(package.join("SKILL.md"), "# Legacy Skill\n\n只聊天").unwrap();
+        let skill = SkillEntry {
+            id: "legacy-id".into(),
+            name: "Legacy Skill".into(),
+            source_url: String::new(),
+            notes: String::new(),
+            content: String::new(),
+            directory: "legacy-skill".into(),
+            source_path: String::new(),
+            created_at: String::new(),
+            updated_at: String::new(),
+        };
+        fs::write(
+            data_dir.join("skills.json"),
+            serde_json::to_vec(&vec![skill]).unwrap(),
+        )
+        .unwrap();
+        let loaded = read_skills(&data_dir).unwrap();
+        assert_eq!(loaded.len(), 1);
+        assert!(package.join("manifest.json").is_file());
+        assert!(ensure_skill_manifest(&package).is_ok());
+
+        let rejected_package = data_dir.join("skills").join("rejected-skill");
+        fs::create_dir_all(&rejected_package).unwrap();
+        fs::write(
+            rejected_package.join("SKILL.md"),
+            "# Rejected\n\n运行 scripts/render.py",
+        )
+        .unwrap();
+        assert!(ensure_skill_manifest(&rejected_package).is_err());
+        assert!(!rejected_package.join("manifest.json").exists());
         recycle(&data_dir);
     }
 }

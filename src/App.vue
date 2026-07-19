@@ -1367,7 +1367,17 @@ async function loadSkillMarkdownPath(path) {
 // 保存纯 Markdown Skill；脚本依赖错误使用统一通知弹窗反馈。
 async function saveSkill() {
   try {
-    skills.value = await invoke("save_skill", { skill: deepClone(skillDraft) });
+    try {
+      skills.value = await invoke("save_skill", { skill: deepClone(skillDraft), replace: false });
+    } catch (error) {
+      if (!String(error).includes("CONFIRM_REPLACE_SKILL")) throw error;
+      const confirmed = await requestConfirmation(
+        "覆盖保存 Skill",
+        "同名 Skill 已存在，确认把旧版本移入回收站并保存当前内容？",
+      );
+      if (!confirmed) return;
+      skills.value = await invoke("save_skill", { skill: deepClone(skillDraft), replace: true });
+    }
     showSkillEditor.value = false;
     setStatus("Skill 已保存", "ok");
   } catch (error) {

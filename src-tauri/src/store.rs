@@ -17,6 +17,7 @@ use crate::{
         ApiProvider, GenerateRequest, GenerationParams, PromptTemplate, QueueRun, QueueState,
         Settings, SkillEntry, TaskRecord,
     },
+    services::skill_installer::ensure_skill_manifest,
     state::record_operation,
     utils::{
         clean_text, image_size_from_path, normalize_base_url, normalize_output_format,
@@ -553,8 +554,13 @@ pub(crate) fn read_skills(data_dir: &Path) -> Result<Vec<SkillEntry>, String> {
         if !is_safe_skill_directory(&skill.directory) {
             skill.directory = skill_directory_name(&skill.name, &skill.id);
         }
-        let path = skill_package_path(data_dir, &skill.directory);
-        if path.is_file() {
+        let package_dir = skills_dir(data_dir).join(&skill.directory);
+        let entry_path = [package_dir.join("SKILL.md"), package_dir.join("skill.md")]
+            .into_iter()
+            .find(|path| path.is_file());
+        if let Some(path) = entry_path {
+            ensure_skill_manifest(&package_dir)
+                .map_err(|error| format!("Skill「{}」无法加载：{error}", skill.name))?;
             skill.content = fs::read_to_string(path)
                 .map_err(|error| format!("读取 Skill 包失败: {error}"))?
                 .trim()
@@ -601,123 +607,6 @@ pub(crate) fn is_safe_skill_directory(value: &str) -> bool {
         && value
             .chars()
             .all(|ch| ch.is_alphanumeric() || matches!(ch, '-' | '_'))
-}
-
-/// 清理 Skill 内容，自动提取名称，并拒绝依赖外部脚本的定义。
-pub(crate) fn normalize_skill(mut skill: SkillEntry) -> Result<SkillEntry, String> {
-    skill.id = skill.id.trim().to_string();
-    skill.source_url = skill.source_url.trim().to_string();
-    skill.directory = skill.directory.trim().to_string();
-    skill.source_path = skill.source_path.trim().to_string();
-    skill.notes = skill.notes.trim().to_string();
-    skill.content = skill.content.trim().to_string();
-    if skill.content.is_empty() {
-        return Err("Skill 内容不能为空".into());
-    }
-    if let Some(reference) = skill_script_reference(&skill.content) {
-        return Err(format!(
-            "这个 Skill 引用了脚本（{reference}）。Image Forge 当前只支持纯 Markdown Skill，无法保存。"
-        ));
-    }
-    skill.name = skill_name_from_markdown(&skill.content);
-    Ok(skill)
-}
-
-/// 按 frontmatter、一级标题、首个非空行的顺序提取 Skill 名称。
-pub(crate) fn skill_name_from_markdown(content: &str) -> String {
-    let trimmed = content.trim_start();
-    let mut body_start = 0;
-    if trimmed.starts_with("---") {
-        let mut offset = 0;
-        for (index, line) in trimmed.lines().enumerate() {
-            offset += line.len() + 1;
-            if index == 0 {
-                continue;
-            }
-            if line.trim() == "---" {
-                body_start = offset;
-                break;
-            }
-            if let Some((key, value)) = line.split_once(':') {
-                if key.trim().eq_ignore_ascii_case("name") {
-                    let name = value.trim().trim_matches(['\'', '"']);
-                    if !name.is_empty() {
-                        return name.chars().take(80).collect();
-                    }
-                }
-            }
-        }
-    }
-
-    let body = trimmed.get(body_start..).unwrap_or(trimmed);
-    for line in body.lines() {
-        let line = line.trim();
-        if let Some(name) = line.strip_prefix("# ") {
-            let name = name.trim();
-            if !name.is_empty() {
-                return name.chars().take(80).collect();
-            }
-        }
-    }
-    body.lines()
-        .map(str::trim)
-        .find(|line| !line.is_empty())
-        .map(|line| line.trim_start_matches(['#', '>', '-', '*', ' ']))
-        .filter(|line| !line.is_empty())
-        .map(|line| line.chars().take(80).collect())
-        .unwrap_or_else(|| "未命名 Skill".into())
-}
-
-fn skill_script_reference(content: &str) -> Option<String> {
-    let lower = content.to_lowercase();
-    if let Some(reference) = ["scripts/", "script/"]
-        .into_iter()
-        .find(|reference| lower.contains(reference))
-    {
-        return Some(reference.into());
-    }
-
-    if lower.starts_with("---") {
-        for line in lower.lines().skip(1) {
-            let line = line.trim();
-            if line == "---" {
-                break;
-            }
-            if let Some((key, _)) = line.split_once(':') {
-                if matches!(key.trim(), "script" | "scripts") {
-                    return Some(format!("{}:", key.trim()));
-                }
-            }
-        }
-    }
-
-    let mut remainder = lower.as_str();
-    while let Some(start) = remainder.find("](") {
-        remainder = &remainder[start + 2..];
-        let Some(end) = remainder.find(')') else {
-            break;
-        };
-        let destination = remainder[..end]
-            .split_whitespace()
-            .next()
-            .unwrap_or_default()
-            .trim_matches(['<', '>']);
-        let path = destination
-            .split(['?', '#'])
-            .next()
-            .unwrap_or_default()
-            .trim_end_matches('/');
-        if [
-            "py", "js", "ts", "sh", "mjs", "cjs", "rb", "ps1", "bat", "cmd",
-        ]
-        .iter()
-        .any(|extension| path.ends_with(&format!(".{extension}")))
-        {
-            return Some(destination.into());
-        }
-        remainder = &remainder[end + 1..];
-    }
-    None
 }
 
 /// 读取 JSON 文件；文件不存在时返回类型默认值，简化首启逻辑。
@@ -842,10 +731,6 @@ pub(crate) fn skills_path(data_dir: &Path) -> PathBuf {
 
 pub(crate) fn skills_dir(data_dir: &Path) -> PathBuf {
     data_dir.join("skills")
-}
-
-pub(crate) fn skill_package_path(data_dir: &Path, directory: &str) -> PathBuf {
-    skills_dir(data_dir).join(directory).join("SKILL.md")
 }
 
 pub(crate) fn agent_sessions_dir(data_dir: &Path) -> PathBuf {
