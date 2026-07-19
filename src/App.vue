@@ -824,14 +824,23 @@ async function refreshAgentTaskGroups({ silent = true } = {}) {
   agentTaskGroupRefreshInFlight = true;
   try {
     const updates = await Promise.all(groups.map(async (group) => {
-      const tasks = await invoke("get_task_status", { taskGroupId: group.id, taskId: "" });
-      const records = Array.isArray(tasks) ? tasks : [];
-      return {
-        id: group.id,
-        status: summarizeTaskGroupStatus(records, group.status),
-        taskIds: records.map((task) => task.id).filter(Boolean),
-        titles: records.map((task) => singleLine(task.prompt)).filter(Boolean),
-      };
+      try {
+        const tasks = await invoke("get_task_status", { taskGroupId: group.id, taskId: "" });
+        const records = Array.isArray(tasks) ? tasks : [];
+        return {
+          id: group.id,
+          status: summarizeTaskGroupStatus(records, group.status),
+          taskIds: records.map((task) => task.id).filter(Boolean),
+          titles: records.map((task) => singleLine(task.prompt)).filter(Boolean),
+        };
+      } catch (error) {
+        return {
+          id: group.id,
+          status: "missing",
+          taskIds: [],
+          titles: [String(error)],
+        };
+      }
     }));
     if (sessionId !== currentAgentSessionId.value) return;
     applyAgentTaskGroupUpdates(sessionId, updates);
@@ -882,6 +891,7 @@ function summarizeTaskGroupStatus(tasks, fallback = "queued") {
   if (statuses.every((status) => status === "completed")) return "completed";
   if (statuses.some((status) => status === "failed")) return "failed";
   if (statuses.some((status) => status === "cancelled")) return "cancelled";
+  if (statuses.some((status) => status === "missing")) return "missing";
   return statuses[0] || fallback || "queued";
 }
 
@@ -895,7 +905,7 @@ function syncAgentTaskGroupPolling() {
 }
 
 function isTerminalTaskGroupStatus(status) {
-  return ["completed", "failed", "cancelled"].includes(status);
+  return ["completed", "failed", "cancelled", "missing"].includes(status);
 }
 
 // 只在队列活跃期间保留兜底轮询，平时由后端事件驱动刷新。

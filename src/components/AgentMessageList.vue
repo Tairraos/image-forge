@@ -97,11 +97,12 @@ function taskGroupStatusLabel(status) {
     completed: "已完成",
     failed: "已失败",
     cancelled: "已取消",
+    missing: "已丢失",
   }[status] || status || "未知状态";
 }
 
 function isTerminalStatus(status) {
-  return ["completed", "failed", "cancelled"].includes(status);
+  return ["completed", "failed", "cancelled", "missing"].includes(status);
 }
 
 function canRetryStatus(status) {
