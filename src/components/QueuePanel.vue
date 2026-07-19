@@ -26,6 +26,7 @@
       <TaskCard
         v-for="task in filteredHistory"
         :key="task.id"
+        :ref="(instance) => setTaskCardRef(task.id, instance)"
         :task="task"
         :selected="selectedTaskId === task.id"
         @select="$emit('select-task', task.id)"
@@ -69,6 +70,33 @@ defineEmits([
 ]);
 
 const historyListRef = ref(null);
+const taskCardRefs = new Map();
+
+function setTaskCardRef(taskId, instance) {
+  if (instance) {
+    taskCardRefs.set(taskId, instance);
+  } else {
+    taskCardRefs.delete(taskId);
+  }
+}
+
+function scrollTaskIntoView(taskId) {
+  if (!taskId) return;
+  const instance = taskCardRefs.get(taskId);
+  const element = instance?.$el || instance;
+  if (element?.scrollIntoView) {
+    element.scrollIntoView({ block: "center", behavior: "smooth" });
+  }
+}
+
+watch(
+  () => props.selectedTaskId,
+  async () => {
+    await nextTick();
+    scrollTaskIntoView(props.selectedTaskId);
+  },
+  { immediate: true },
+);
 
 watch(
   () => props.scrollRequest,
