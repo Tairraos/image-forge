@@ -2030,6 +2030,42 @@ mod tests {
     }
 
     #[test]
+    fn agent_message_to_chat_value_keeps_attachment_metadata_only() {
+        let message = AgentMessage {
+            id: Uuid::new_v4().to_string(),
+            role: "user".into(),
+            status: "user".into(),
+            content: "参考这张图".into(),
+            attachments: vec![AgentAttachment {
+                id: "ref-1".into(),
+                path: "/Users/xiaole/secret/reference.png".into(),
+                file_name: "reference.png".into(),
+                mime_type: "image/png".into(),
+                width: Some(640),
+                height: Some(480),
+            }],
+            tool_call: None,
+            questions: Vec::new(),
+            skill_id: String::new(),
+            skill_content_hash: String::new(),
+            task_group: None,
+            error: String::new(),
+            created_at: utc_now(),
+        };
+
+        let value = agent_message_to_chat_value(&message);
+        let content = value
+            .get("content")
+            .and_then(serde_json::Value::as_str)
+            .unwrap();
+        assert!(content.contains("<reference_attachments>"));
+        assert!(content.contains("\"id\":\"ref-1\""));
+        assert!(content.contains("\"fileName\":\"reference.png\""));
+        assert!(content.contains("\"mimeType\":\"image/png\""));
+        assert!(!content.contains("/Users/xiaole/secret/reference.png"));
+    }
+
+    #[test]
     fn task_status_reports_missing_task_groups() {
         let data_dir = command_test_data_dir("missing-task-status");
         let error = task_status_records(&data_dir, "missing-group", "").unwrap_err();
