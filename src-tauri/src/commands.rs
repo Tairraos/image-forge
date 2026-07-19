@@ -45,8 +45,8 @@ use crate::{
         normalize_request, normalize_settings, normalize_template, params_from_request,
         provider_for_request, read_history, read_json, read_queue, read_settings, read_skills,
         read_templates, refresh_history_output_sizes, request_path, skills_dir, templates_path,
-        upsert_history, write_generation_batch, write_history, write_json, write_queue,
-        write_settings, write_skill_index,
+        upsert_history, write_generation_batch, write_history, write_history_queue_transaction,
+        write_json, write_queue, write_settings, write_skill_index,
     },
     utils::utc_now,
 };
@@ -934,6 +934,7 @@ pub(crate) fn cancel_agent_task_group(
     let mut history = read_history(&data_dir)?;
     let mut queue = read_queue(&data_dir)?;
     let mut found = false;
+    let mut cancel_ids = Vec::new();
     let now = utc_now();
     for record in history
         .iter_mut()
@@ -941,11 +942,7 @@ pub(crate) fn cancel_agent_task_group(
     {
         found = true;
         if matches!(record.status.as_str(), "queued" | "running" | "cancelling") {
-            app.state::<RuntimeState>()
-                .cancel_requests
-                .lock()
-                .map_err(|_| "取消状态锁定失败")?
-                .insert(record.id.clone());
+            cancel_ids.push(record.id.clone());
             if record.status == "queued" {
                 record.status = "cancelled".into();
                 record.error = Some("任务组已取消".into());
@@ -960,9 +957,37 @@ pub(crate) fn cancel_agent_task_group(
     if !found {
         return Err("找不到任务组".into());
     }
-    write_history(&data_dir, &history)?;
-    write_queue(&data_dir, &queue)?;
-    update_agent_task_group_summary(&data_dir, &task_group_id, "cancelling");
+    if cancel_ids.is_empty() {
+        return Ok(history
+            .into_iter()
+            .filter(|record| record.task_group_id == task_group_id)
+            .collect());
+    }
+    {
+        let mut requests = app
+            .state::<RuntimeState>()
+            .cancel_requests
+            .lock()
+            .map_err(|_| "取消状态锁定失败")?;
+        requests.extend(cancel_ids.iter().cloned());
+    }
+    if let Err(error) = write_history_queue_transaction(&data_dir, &history, &queue) {
+        if let Ok(mut requests) = app.state::<RuntimeState>().cancel_requests.lock() {
+            for task_id in &cancel_ids {
+                requests.remove(task_id);
+            }
+        }
+        return Err(error);
+    }
+    let group_status = if history
+        .iter()
+        .any(|record| record.task_group_id == task_group_id && record.status == "cancelling")
+    {
+        "cancelling"
+    } else {
+        "cancelled"
+    };
+    update_agent_task_group_summary(&data_dir, &task_group_id, group_status);
     let _ = emit_queue_updated(&app, &data_dir);
     Ok(history
         .into_iter()
@@ -999,14 +1024,16 @@ pub(crate) fn retry_agent_task_group(
         record.updated_at = now.clone();
         requests.push((record.id.clone(), request));
         records.push(record.clone());
-        if let Ok(mut cancelled) = app.state::<RuntimeState>().cancel_requests.lock() {
-            cancelled.remove(&record.id);
-        }
     }
     if records.is_empty() {
         return Err("任务组没有可重试的失败或取消任务".into());
     }
     write_generation_batch(&data_dir, &requests, &records)?;
+    if let Ok(mut cancelled) = app.state::<RuntimeState>().cancel_requests.lock() {
+        for record in &records {
+            cancelled.remove(&record.id);
+        }
+    }
     update_agent_task_group_summary(&data_dir, &task_group_id, "queued");
     ensure_queue_worker(&app);
     let _ = emit_queue_updated(&app, &data_dir);

@@ -10,7 +10,7 @@ use crate::{
     store::{
         clear_running_task, enqueue_task, ensure_data_dir, fallback_failed_record, history_record,
         output_dir_for, pop_next_runnable, read_history, read_json, read_queue, read_settings,
-        request_path, upsert_history, write_history, write_queue,
+        request_path, upsert_history, write_history, write_history_queue_transaction, write_queue,
     },
     utils::{http_client_with_proxy, utc_now, REQUEST_TIMEOUT_SECONDS},
 };
@@ -120,29 +120,19 @@ pub(crate) fn recover_stale_running(
         .map(|run| run.task_id.clone())
         .collect();
     queue.running.clear();
-    for task_id in &stale {
-        if !queue.waiting.contains(&task_id) {
-            queue.waiting.insert(0, task_id.clone());
-        }
-    }
     let changed_history = match history {
         Some(history) => {
-            let changed_history = mark_stale_records_queued(history, &stale);
-            if changed_history {
-                write_history(data_dir, history)?;
-            }
+            let changed_history = recover_stale_records(data_dir, history, &mut queue, &stale);
+            write_history_queue_transaction(data_dir, history, &queue)?;
             changed_history
         }
         None => {
             let mut history = read_history(data_dir)?;
-            let changed_history = mark_stale_records_queued(&mut history, &stale);
-            if changed_history {
-                write_history(data_dir, &history)?;
-            }
+            let changed_history = recover_stale_records(data_dir, &mut history, &mut queue, &stale);
+            write_history_queue_transaction(data_dir, &history, &queue)?;
             changed_history
         }
     };
-    write_queue(data_dir, &queue)?;
     Ok(changed_history || !stale.is_empty())
 }
 
@@ -178,8 +168,16 @@ fn set_worker_active(app: &AppHandle, next: bool) {
 
 #[cfg(test)]
 mod tests {
-    use super::mark_worker_active_if_idle;
-    use crate::state::RuntimeState;
+    use std::fs;
+
+    use uuid::Uuid;
+
+    use super::{mark_worker_active_if_idle, recover_stale_records};
+    use crate::{
+        models::QueueState,
+        state::RuntimeState,
+        store::{fallback_failed_record, request_path},
+    };
 
     #[test]
     fn worker_slot_can_only_be_claimed_once_until_reset() {
@@ -189,16 +187,89 @@ mod tests {
         let second = mark_worker_active_if_idle(&state);
         assert!(!second);
     }
+
+    #[test]
+    fn recovery_drops_orphans_and_preserves_cancellation_state() {
+        let root = std::env::current_dir()
+            .unwrap()
+            .join("target")
+            .join("agent-queue-recovery-tests")
+            .join(Uuid::new_v4().to_string());
+        fs::create_dir_all(root.join("requests")).unwrap();
+
+        let mut recoverable = fallback_failed_record("recoverable", "running");
+        recoverable.status = "running".into();
+        let mut cancelling = fallback_failed_record("cancelling", "running");
+        cancelling.status = "cancelling".into();
+        let mut missing_request = fallback_failed_record("missing", "running");
+        missing_request.status = "running".into();
+        fs::write(request_path(&root, "recoverable"), b"{}").unwrap();
+
+        let mut history = vec![recoverable, cancelling, missing_request];
+        let mut queue = QueueState {
+            waiting: vec!["orphan".into()],
+            ..QueueState::default()
+        };
+        let changed = recover_stale_records(
+            &root,
+            &mut history,
+            &mut queue,
+            &[
+                "recoverable".into(),
+                "cancelling".into(),
+                "missing".into(),
+                "orphan".into(),
+            ],
+        );
+
+        assert!(changed);
+        assert_eq!(queue.waiting, vec!["recoverable"]);
+        assert_eq!(history[0].status, "queued");
+        assert_eq!(history[1].status, "cancelled");
+        assert_eq!(history[2].status, "failed");
+        let _ = trash::delete(&root);
+    }
 }
 
-fn mark_stale_records_queued(history: &mut [TaskRecord], task_ids: &[String]) -> bool {
+fn recover_stale_records(
+    data_dir: &Path,
+    history: &mut [TaskRecord],
+    queue: &mut crate::models::QueueState,
+    task_ids: &[String],
+) -> bool {
     let mut changed = false;
     for task_id in task_ids {
-        if let Some(record) = history.iter_mut().find(|item| item.id == *task_id) {
-            if record.status == "running" || record.status == "cancelling" {
+        let Some(record) = history.iter_mut().find(|item| item.id == *task_id) else {
+            queue.waiting.retain(|id| id != task_id);
+            continue;
+        };
+        match record.status.as_str() {
+            "cancelling" => {
+                queue.waiting.retain(|id| id != task_id);
+                record.status = "cancelled".into();
+                record.error = Some("应用退出前任务已请求取消".into());
+                record.completed_at = Some(utc_now());
+                record.updated_at = utc_now();
+                changed = true;
+            }
+            "running" if request_path(data_dir, task_id).is_file() => {
+                if !queue.waiting.contains(task_id) {
+                    queue.waiting.insert(0, task_id.clone());
+                }
                 record.status = "queued".into();
                 record.updated_at = utc_now();
                 changed = true;
+            }
+            "running" => {
+                queue.waiting.retain(|id| id != task_id);
+                record.status = "failed".into();
+                record.error = Some("应用恢复任务失败：请求文件不存在".into());
+                record.completed_at = Some(utc_now());
+                record.updated_at = utc_now();
+                changed = true;
+            }
+            _ => {
+                queue.waiting.retain(|id| id != task_id);
             }
         }
     }

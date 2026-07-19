@@ -390,7 +390,26 @@ pub(crate) fn write_generation_batch(
         queue.waiting.retain(|task_id| task_id != &record.id);
         queue.waiting.push(record.id.clone());
     }
-    history = normalized_history(&history);
+
+    write_generation_transaction(data_dir, requests, &history, &queue)
+}
+
+pub(crate) fn write_history_queue_transaction(
+    data_dir: &Path,
+    history: &[TaskRecord],
+    queue: &QueueState,
+) -> Result<(), String> {
+    write_generation_transaction(data_dir, &[], history, queue)
+}
+
+fn write_generation_transaction(
+    data_dir: &Path,
+    requests: &[(String, GenerateRequest)],
+    history: &[TaskRecord],
+    queue: &QueueState,
+) -> Result<(), String> {
+    let history = normalized_history(history);
+    let mut queue = queue.clone();
     queue.updated_at = utc_now();
 
     let transaction_id = format!("generation-batch-{}", Uuid::new_v4());
@@ -1111,6 +1130,21 @@ mod transaction_tests {
             .file_name()
             .to_string_lossy()
             .starts_with("generation-batch-")));
+        recycle(&root);
+    }
+
+    #[test]
+    fn history_queue_transaction_does_not_create_request_files() {
+        let root = temp_root("history-queue-transaction");
+        let mut record = fallback_failed_record("task-a", "cancelled");
+        record.status = "cancelled".into();
+        let queue = QueueState::default();
+
+        write_history_queue_transaction(&root, &[record], &queue).unwrap();
+
+        assert_eq!(read_history(&root).unwrap()[0].status, "cancelled");
+        assert!(read_queue(&root).unwrap().waiting.is_empty());
+        assert!(!request_path(&root, "task-a").exists());
         recycle(&root);
     }
 
