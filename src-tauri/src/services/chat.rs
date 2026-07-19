@@ -109,6 +109,35 @@ where
     .await
 }
 
+pub(crate) async fn agent_response<F>(
+    provider: &ApiProvider,
+    context: &str,
+    user_content: &str,
+    runtime_state: Option<&RuntimeState>,
+    on_event: F,
+) -> Result<ChatCompletionOutput, String>
+where
+    F: FnMut(ChatProgressEventData),
+{
+    let system = format!(
+        "你是 Image Forge 的本地 Agent。你可以进行普通聊天，并在用户明确提出绘图、安装或使用 Skill 时给出下一步建议。当前版本暂不提供终端、脚本、任意文件读写或任意网络工具。不要假装已经执行了尚未由应用确认的动作。\n\n当前会话上下文：\n{}",
+        context.trim()
+    );
+    complete_chat_prompt_internal(
+        provider,
+        &system,
+        user_content,
+        "agent_chat.service",
+        "Agent 对话",
+        format!("message_len={}", user_content.chars().count()),
+        runtime_state,
+        true,
+        CHAT_COMPLETION_TIMEOUT_SECONDS,
+        on_event,
+    )
+    .await
+}
+
 async fn complete_chat_prompt(
     provider: &ApiProvider,
     system_prompt: &str,

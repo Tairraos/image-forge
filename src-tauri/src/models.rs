@@ -294,6 +294,114 @@ pub struct AppState {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AgentAttachment {
+    pub id: String,
+    pub path: String,
+    #[serde(default)]
+    pub file_name: String,
+    #[serde(default)]
+    pub mime_type: String,
+    #[serde(default)]
+    pub width: Option<u32>,
+    #[serde(default)]
+    pub height: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentToolCall {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub arguments: Value,
+    #[serde(default)]
+    pub result: Option<Value>,
+    #[serde(default)]
+    pub error: Option<String>,
+    #[serde(default)]
+    pub status: String,
+    pub created_at: String,
+    #[serde(default)]
+    pub completed_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentMessage {
+    pub id: String,
+    pub role: String,
+    #[serde(default)]
+    pub content: String,
+    #[serde(default)]
+    pub attachments: Vec<AgentAttachment>,
+    #[serde(default)]
+    pub tool_call: Option<AgentToolCall>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentSession {
+    pub id: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub model_provider_id: String,
+    #[serde(default)]
+    pub messages: Vec<AgentMessage>,
+    #[serde(default)]
+    pub summary: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub task_group_ids: Vec<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentProgressEvent {
+    pub session_id: String,
+    pub phase: String,
+    #[serde(default)]
+    pub mode: String,
+    #[serde(default)]
+    pub chunk: String,
+    #[serde(default)]
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillManifest {
+    pub schema_version: u32,
+    pub content_hash: String,
+    pub name: String,
+    #[serde(default)]
+    pub capabilities: Vec<String>,
+    #[serde(default)]
+    pub sections: Vec<String>,
+    #[serde(default)]
+    pub required_sections: Vec<String>,
+    #[serde(default)]
+    pub output_capability: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillAuditResult {
+    pub allowed: bool,
+    #[serde(default)]
+    pub reasons: Vec<String>,
+    #[serde(default)]
+    pub warnings: Vec<String>,
+    #[serde(default)]
+    pub manifest: Option<SkillManifest>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ReferencePreview {
     pub path: String,
     pub file_name: String,

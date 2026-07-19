@@ -11,14 +11,15 @@ use uuid::Uuid;
 use crate::{
     defaults::APP_BUILD_TIME,
     models::{
-        AboutInfo, ApiProvider, AppState, CleanupCandidate, GenerateRequest, PromptTemplate, QueueSnapshot,
-        ReferencePreview, Settings, SkillConversationMessage, SkillEntry, SkillFetchResult,
+        AboutInfo, AgentAttachment, AgentMessage, AgentProgressEvent, AgentSession, ApiProvider, AppState,
+        CleanupCandidate, GenerateRequest, PromptTemplate, QueueSnapshot, ReferencePreview, Settings,
+        SkillAuditResult, SkillConversationMessage, SkillEntry, SkillFetchResult,
         SkillImagePlan, SkillPlanResult, SkillPlannerEvent, SkillPlannerQuestion, TaskRecord,
         TemplateFillEvent, TemplateImportResult,
     },
     services::{
         chat::{
-            fill_skill_prompt as generate_prompt_from_skill, fill_template_response,
+            agent_response, fill_skill_prompt as generate_prompt_from_skill, fill_template_response,
             plan_skill_response,
         },
         images::reference_preview,
@@ -31,6 +32,8 @@ use crate::{
             prune_unreferenced_files_with_data, scan_orphan_files,
         },
         skill::fetch_skill_markdown as fetch_skill_markdown_from_url,
+        skill_installer::audit_skill_directory,
+        agent_store::{append_message, create_session, session, sessions},
         template_bundle::{export_templates_archive, import_templates_archive},
     },
     state::{record_operation, runtime_logs_text, RuntimeState},
@@ -58,6 +61,123 @@ pub(crate) fn about_info() -> AboutInfo {
 /// 返回本次运行的结构化日志文本。
 pub(crate) fn runtime_logs() -> String {
     runtime_logs_text()
+}
+
+#[tauri::command]
+pub(crate) fn create_agent_session(app: AppHandle, provider_id: String) -> Result<AgentSession, String> {
+    let data_dir = ensure_data_dir(&app)?;
+    let result = create_session(&data_dir, &provider_id);
+    record_result("创建 Agent 会话", "", None, &result);
+    result
+}
+
+#[tauri::command]
+pub(crate) fn list_agent_sessions(app: AppHandle) -> Result<Vec<AgentSession>, String> {
+    let data_dir = ensure_data_dir(&app)?;
+    let result = sessions(&data_dir);
+    record_result("读取 Agent 会话", "", None, &result);
+    result
+}
+
+#[tauri::command]
+pub(crate) fn get_agent_session(app: AppHandle, session_id: String) -> Result<AgentSession, String> {
+    let data_dir = ensure_data_dir(&app)?;
+    let result = session(&data_dir, &session_id);
+    record_result("读取 Agent 会话", format!("session_id={session_id}").as_str(), None, &result);
+    result
+}
+
+#[tauri::command]
+pub(crate) async fn send_agent_message(
+    app: AppHandle,
+    session_id: String,
+    content: String,
+    attachments: Vec<AgentAttachment>,
+) -> Result<AgentSession, String> {
+    let data_dir = ensure_data_dir(&app)?;
+    let mut current = session(&data_dir, &session_id)?;
+    let user = AgentMessage {
+        id: Uuid::new_v4().to_string(),
+        role: "user".into(),
+        content: content.trim().to_string(),
+        attachments,
+        tool_call: None,
+        created_at: utc_now(),
+    };
+    if user.content.is_empty() {
+        return Err("消息不能为空".into());
+    }
+    current = append_message(&data_dir, &session_id, user)?;
+    let settings = read_settings(&data_dir)?;
+    let provider = settings
+        .providers
+        .iter()
+        .find(|provider| provider.id == current.model_provider_id && provider.model_type == "chat")
+        .or_else(|| settings.providers.iter().find(|provider| provider.id == settings.active_chat_provider_id && provider.model_type == "chat"))
+        .ok_or("还没有配置对话模型")?
+        .clone();
+    let context = current
+        .messages
+        .iter()
+        .rev()
+        .skip(1)
+        .take(12)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .map(|message| format!("{}: {}", message.role, message.content))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let session_for_event = session_id.clone();
+    let app_for_event = app.clone();
+    let output = agent_response(
+        &provider,
+        &context,
+        &content,
+        Some(app.state::<RuntimeState>().inner()),
+        move |event| {
+            let _ = app_for_event.emit(
+                "agent-progress",
+                AgentProgressEvent {
+                    session_id: session_for_event.clone(),
+                    phase: event.phase.into(),
+                    mode: event.mode.into(),
+                    chunk: event.chunk,
+                    message: event.message,
+                },
+            );
+        },
+    )
+    .await;
+    let result = match output {
+        Ok(output) => {
+            current = append_message(
+                &data_dir,
+                &session_id,
+                AgentMessage {
+                    id: Uuid::new_v4().to_string(),
+                    role: "assistant".into(),
+                    content: output.text,
+                    attachments: Vec::new(),
+                    tool_call: None,
+                    created_at: utc_now(),
+                },
+            )?;
+            Ok(current)
+        }
+        Err(error) => Err(error),
+    };
+    record_result("Agent 对话", format!("session_id={session_id} model={}", provider.image_model).as_str(), Some(!provider.proxy_url.trim().is_empty()), &result);
+    result
+}
+
+#[tauri::command]
+pub(crate) fn audit_skill_package(app: AppHandle, path: String) -> Result<SkillAuditResult, String> {
+    let _ = ensure_data_dir(&app)?;
+    let root = PathBuf::from(path.trim());
+    let result = audit_skill_directory(&root);
+    record_result("审查 Skill 包", format!("path={}", root.display()).as_str(), None, &result);
+    result
 }
 
 #[tauri::command]

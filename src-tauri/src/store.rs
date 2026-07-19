@@ -39,6 +39,8 @@ pub(crate) fn ensure_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
         data_dir.join("clipboard"),
         data_dir.join("references"),
         data_dir.join("skills"),
+        data_dir.join("agent").join("sessions"),
+        data_dir.join(".staging"),
     ] {
         ensure_private_directory(&dir)?;
     }
@@ -801,6 +803,49 @@ pub(crate) fn skills_dir(data_dir: &Path) -> PathBuf {
 
 pub(crate) fn skill_package_path(data_dir: &Path, directory: &str) -> PathBuf {
     skills_dir(data_dir).join(directory).join("SKILL.md")
+}
+
+pub(crate) fn agent_sessions_dir(data_dir: &Path) -> PathBuf {
+    data_dir.join("agent").join("sessions")
+}
+
+pub(crate) fn agent_session_path(data_dir: &Path, session_id: &str) -> PathBuf {
+    agent_sessions_dir(data_dir).join(format!("{session_id}.json"))
+}
+
+pub(crate) fn read_agent_session(
+    data_dir: &Path,
+    session_id: &str,
+) -> Result<crate::models::AgentSession, String> {
+    read_json(&agent_session_path(data_dir, session_id))
+}
+
+pub(crate) fn write_agent_session(
+    data_dir: &Path,
+    session: &crate::models::AgentSession,
+) -> Result<(), String> {
+    write_json(&agent_session_path(data_dir, &session.id), session)
+}
+
+pub(crate) fn list_agent_sessions(
+    data_dir: &Path,
+) -> Result<Vec<crate::models::AgentSession>, String> {
+    let dir = agent_sessions_dir(data_dir);
+    if !dir.is_dir() {
+        return Ok(Vec::new());
+    }
+    let mut sessions = Vec::new();
+    for entry in fs::read_dir(dir).map_err(|error| format!("读取 Agent 会话目录失败: {error}"))? {
+        let entry = entry.map_err(|error| format!("读取 Agent 会话失败: {error}"))?;
+        if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
+            continue;
+        }
+        if let Ok(session) = read_json::<crate::models::AgentSession>(&entry.path()) {
+            sessions.push(session);
+        }
+    }
+    sessions.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
+    Ok(sessions)
 }
 
 /// 归一化单个 API 源，隐藏并固定不再由界面维护的字段。

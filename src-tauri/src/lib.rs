@@ -15,7 +15,9 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             commands::about_info,
+            commands::audit_skill_package,
             commands::copy_image_to_clipboard,
+            commands::create_agent_session,
             commands::cleanup_data_files,
             commands::delete_task,
             commands::delete_skill,
@@ -42,6 +44,9 @@ pub fn run() {
             commands::retry_task,
             commands::reveal_path,
             commands::runtime_logs,
+            commands::list_agent_sessions,
+            commands::get_agent_session,
+            commands::send_agent_message,
             commands::scan_cleanup_candidates,
             commands::save_settings,
             commands::save_skill,

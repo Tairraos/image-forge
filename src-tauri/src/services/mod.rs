@@ -1,3 +1,4 @@
+pub(crate) mod agent_store;
 pub(crate) mod chat;
 pub(crate) mod clipboard;
 pub(crate) mod images;
@@ -6,4 +7,5 @@ pub(crate) mod provider_bundle;
 pub(crate) mod queue;
 pub(crate) mod references;
 pub(crate) mod skill;
+pub(crate) mod skill_installer;
 pub(crate) mod template_bundle;
