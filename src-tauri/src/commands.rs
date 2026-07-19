@@ -624,46 +624,94 @@ pub(crate) async fn install_skill(
 #[tauri::command]
 pub(crate) fn use_skill(app: AppHandle, skill_id: String) -> Result<AgentSkillContext, String> {
     let data_dir = ensure_data_dir(&app)?;
-    let skills = read_skills(&data_dir)?;
+    load_skill_context(&data_dir, &skill_id)
+}
+
+fn load_skill_context(data_dir: &Path, skill_id: &str) -> Result<AgentSkillContext, String> {
+    let skills = read_skills(data_dir)?;
     let skill = skills
         .iter()
         .find(|item| item.id == skill_id)
         .ok_or("找不到 Skill")?;
+    if !is_safe_skill_directory(&skill.directory) {
+        return Err("Skill 目录名不安全".into());
+    }
     let package_dir = skills_dir(&data_dir).join(&skill.directory);
     let audit = audit_skill_directory(&package_dir)?;
     if !audit.allowed {
         return Err(format!("Skill 审查失败：{}", audit.reasons.join("；")));
     }
     let manifest = read_verified_manifest(&package_dir)?;
-    let mut references = Vec::new();
-    let references_dir = package_dir.join("references");
-    if references_dir.is_dir() {
-        for entry in fs::read_dir(references_dir)
-            .map_err(|error| format!("读取 Skill references 失败: {error}"))?
-        {
-            let path = entry
-                .map_err(|error| format!("读取 Skill references 失败: {error}"))?
-                .path();
-            if path
-                .extension()
-                .and_then(|value| value.to_str())
-                .map(|value| value.eq_ignore_ascii_case("md"))
-                .unwrap_or(false)
-            {
-                references.push(
-                    fs::read_to_string(path)
-                        .map_err(|error| format!("读取 Skill reference 失败: {error}"))?,
-                );
-            }
-        }
-    }
+    let content = read_skill_entry_content(&package_dir)?;
+    let references = read_skill_markdown_references(&package_dir)?;
     Ok(AgentSkillContext {
         skill_id: skill.id.clone(),
         name: skill.name.clone(),
-        content: skill.content.clone(),
+        content,
         manifest,
         references,
     })
+}
+
+fn read_skill_entry_content(package_dir: &Path) -> Result<String, String> {
+    let entry = [package_dir.join("SKILL.md"), package_dir.join("skill.md")]
+        .into_iter()
+        .find(|path| path.is_file())
+        .ok_or("Skill 包缺少 SKILL.md")?;
+    fs::read_to_string(entry).map_err(|error| format!("读取 Skill 内容失败: {error}"))
+}
+
+fn read_skill_markdown_references(package_dir: &Path) -> Result<Vec<String>, String> {
+    let references_dir = package_dir.join("references");
+    if references_dir.is_dir() {
+        let mut files = Vec::new();
+        collect_skill_reference_markdown_files(&references_dir, &references_dir, &mut files)?;
+        files.sort_by(|left, right| left.0.cmp(&right.0));
+        files
+            .into_iter()
+            .map(|(_, path)| {
+                fs::read_to_string(&path).map_err(|error| {
+                    format!("读取 Skill reference {} 失败: {error}", path.display())
+                })
+            })
+            .collect()
+    } else {
+        Ok(Vec::new())
+    }
+}
+
+fn collect_skill_reference_markdown_files(
+    root: &Path,
+    current: &Path,
+    files: &mut Vec<(String, PathBuf)>,
+) -> Result<(), String> {
+    let entries = fs::read_dir(current)
+        .map_err(|error| format!("读取 Skill references 失败: {error}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("读取 Skill references 失败: {error}"))?;
+    for entry in entries {
+        let path = entry.path();
+        let metadata = fs::symlink_metadata(&path)
+            .map_err(|error| format!("读取 Skill reference 元数据失败: {error}"))?;
+        if metadata.is_dir() {
+            collect_skill_reference_markdown_files(root, &path, files)?;
+            continue;
+        }
+        let is_markdown = path
+            .extension()
+            .and_then(|value| value.to_str())
+            .map(|value| value.eq_ignore_ascii_case("md") || value.eq_ignore_ascii_case("markdown"))
+            .unwrap_or(false);
+        if is_markdown {
+            let relative = path
+                .strip_prefix(root)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .into_owned();
+            files.push((relative, path));
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -1841,6 +1889,74 @@ mod tests {
         recycle(&data_dir);
     }
 
+    #[test]
+    fn use_skill_loads_package_content_and_nested_references_in_order() {
+        let data_dir = command_test_data_dir("use-skill-context");
+        let package = data_dir.join("skills").join("camera-director");
+        std::fs::create_dir_all(package.join("references").join("nested")).unwrap();
+        let content =
+            "---\nname: 镜头导演\ncapabilities: [chat, image_plan]\n---\n# 镜头导演\n真实正文";
+        std::fs::write(package.join("SKILL.md"), content).unwrap();
+        std::fs::write(package.join("references").join("z.md"), "第三份").unwrap();
+        std::fs::write(package.join("references").join("a.md"), "第一份").unwrap();
+        std::fs::write(
+            package.join("references").join("nested").join("b.md"),
+            "第二份",
+        )
+        .unwrap();
+        write_skill_manifest(&package);
+        write_skill_index(
+            &data_dir,
+            &[SkillEntry {
+                id: "skill-camera".into(),
+                name: "镜头导演".into(),
+                source_url: String::new(),
+                notes: String::new(),
+                content: "过期缓存正文".into(),
+                directory: "camera-director".into(),
+                source_path: String::new(),
+                created_at: String::new(),
+                updated_at: String::new(),
+            }],
+        )
+        .unwrap();
+
+        let context = load_skill_context(&data_dir, "skill-camera").unwrap();
+        assert_eq!(context.content, content);
+        assert_eq!(context.references, vec!["第一份", "第二份", "第三份"]);
+        assert_eq!(context.manifest.name, "镜头导演");
+        recycle(&data_dir);
+    }
+
+    #[test]
+    fn use_skill_rejects_package_when_manifest_hash_is_stale() {
+        let data_dir = command_test_data_dir("use-skill-stale-manifest");
+        let package = data_dir.join("skills").join("camera-director");
+        std::fs::create_dir_all(&package).unwrap();
+        std::fs::write(package.join("SKILL.md"), "# 镜头导演\n原始正文").unwrap();
+        write_skill_manifest(&package);
+        std::fs::write(package.join("SKILL.md"), "# 镜头导演\n被改动的正文").unwrap();
+        write_skill_index(
+            &data_dir,
+            &[SkillEntry {
+                id: "skill-camera".into(),
+                name: "镜头导演".into(),
+                source_url: String::new(),
+                notes: String::new(),
+                content: String::new(),
+                directory: "camera-director".into(),
+                source_path: String::new(),
+                created_at: String::new(),
+                updated_at: String::new(),
+            }],
+        )
+        .unwrap();
+
+        let error = load_skill_context(&data_dir, "skill-camera").unwrap_err();
+        assert!(error.contains("manifest 哈希校验失败"));
+        recycle(&data_dir);
+    }
+
     fn command_test_data_dir(name: &str) -> PathBuf {
         let root = std::env::current_dir()
             .unwrap()
@@ -1849,6 +1965,17 @@ mod tests {
             .join(format!("{name}-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
         root
+    }
+
+    fn write_skill_manifest(package: &Path) {
+        let audit = audit_skill_directory(package).unwrap();
+        assert!(audit.allowed, "{:?}", audit.reasons);
+        let manifest = audit.manifest.unwrap();
+        std::fs::write(
+            package.join("manifest.json"),
+            serde_json::to_vec_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
     }
 
     fn recycle(path: &Path) {
