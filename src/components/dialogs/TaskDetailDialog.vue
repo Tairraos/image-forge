@@ -6,7 +6,14 @@
         <p>{{ task.prompt }}</p>
         <n-descriptions :column="3" size="small" bordered class="task-parameter-descriptions">
           <n-descriptions-item label="状态">{{ statusLabel(task.status) }}</n-descriptions-item>
+          <n-descriptions-item label="来源">{{ task.origin === "agent" ? "Agent" : "手工绘图" }}</n-descriptions-item>
           <n-descriptions-item label="模型">{{ task.model }}</n-descriptions-item>
+          <n-descriptions-item v-if="task.origin === 'agent'" label="任务组">
+            {{ task.taskGroupId || "未记录" }}
+          </n-descriptions-item>
+          <n-descriptions-item v-if="task.origin === 'agent' && task.skillId" label="Skill">
+            {{ task.skillId }}
+          </n-descriptions-item>
           <n-descriptions-item label="提示词模式">{{ task.params?.promptFidelity }}</n-descriptions-item>
           <n-descriptions-item label="分辨率">{{ task.params?.resolution }}</n-descriptions-item>
           <n-descriptions-item label="比例">{{ task.params?.ratio }}</n-descriptions-item>
