@@ -4,9 +4,17 @@
       <img :src="logoUrl" alt="Image Forge" />
     </div>
 
-    <n-button-group class="mode-switch" size="small">
-      <n-button :type="mode === 'drawing' ? 'primary' : 'default'" @click="$emit('update:mode', 'drawing')">绘画</n-button>
-      <n-button :type="mode === 'agent' ? 'primary' : 'default'" @click="$emit('update:mode', 'agent')">Agent</n-button>
+    <n-button-group class="mode-switch" size="small" aria-label="工作区模式">
+      <n-button
+        :type="mode === 'drawing' ? 'primary' : 'default'"
+        :aria-pressed="mode === 'drawing'"
+        @click="$emit('update:mode', 'drawing')"
+      >绘画</n-button>
+      <n-button
+        :type="mode === 'agent' ? 'primary' : 'default'"
+        :aria-pressed="mode === 'agent'"
+        @click="$emit('update:mode', 'agent')"
+      >Agent</n-button>
     </n-button-group>
 
     <div class="topbar-actions">

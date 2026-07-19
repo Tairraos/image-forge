@@ -484,6 +484,7 @@ const filteredSkills = computed(() => {
 
 onMounted(async () => {
   removeScrollbarVisibility = installAutoHideScrollbars();
+  window.addEventListener("keydown", handleWorkspaceShortcut);
   try {
     unlistenDragDrop = await listenDragDrop(handleReferenceDragDrop);
   } catch {
@@ -526,7 +527,16 @@ onUnmounted(() => {
   unlistenAgentProgress?.();
   unlistenAgentTaskGroup?.();
   removeScrollbarVisibility?.();
+  window.removeEventListener("keydown", handleWorkspaceShortcut);
 });
+
+function handleWorkspaceShortcut(event) {
+  if (event.defaultPrevented || event.altKey || event.shiftKey || (!event.metaKey && !event.ctrlKey)) return;
+  const mode = { 1: "drawing", 2: "agent" }[event.key];
+  if (!mode) return;
+  event.preventDefault();
+  workspaceMode.value = mode;
+}
 
 // 首次加载或重大变更后，重新拉取设置、历史、队列和模板。
 async function refreshAll() {

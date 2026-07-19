@@ -16,8 +16,8 @@
         "title": "Image Forge 1.0.23",
         "width": 1360,
         "height": 930,
-        "minWidth": 1200,
-        "minHeight": 900
+        "minWidth": 720,
+        "minHeight": 640
       }
     ],
     "security": {
