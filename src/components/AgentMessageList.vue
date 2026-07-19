@@ -32,11 +32,25 @@
         <button type="button" class="agent-task-group-open" @click="$emit('open-task-group', message.taskGroup)">
           <strong>绘图任务组 · {{ message.taskGroup.taskIds?.length || 0 }} 项</strong>
           <span>{{ message.taskGroup.titles?.join('、') || message.taskGroup.id }}</span>
-          <small>{{ message.taskGroup.status || 'queued' }} · 点击查看绘画</small>
+          <small>{{ taskGroupStatusLabel(message.taskGroup.status) }} · 点击查看绘画</small>
         </button>
         <div class="agent-task-group-actions">
-          <n-button size="tiny" secondary @click="$emit('cancel-task-group', message.taskGroup)">取消</n-button>
-          <n-button size="tiny" secondary @click="$emit('retry-task-group', message.taskGroup)">重试失败项</n-button>
+          <n-button
+            size="tiny"
+            secondary
+            :disabled="isTerminalStatus(message.taskGroup.status)"
+            @click="$emit('cancel-task-group', message.taskGroup)"
+          >
+            取消
+          </n-button>
+          <n-button
+            size="tiny"
+            secondary
+            :disabled="!canRetryStatus(message.taskGroup.status)"
+            @click="$emit('retry-task-group', message.taskGroup)"
+          >
+            重试失败项
+          </n-button>
         </div>
       </div>
       <n-button v-if="message.error" size="tiny" type="error" secondary @click="$emit('retry', message)">
@@ -73,5 +87,24 @@ function toolStatus(call) {
     completed: "执行完成",
     failed: "执行失败",
   }[call.status] || call.status || "已记录";
+}
+
+function taskGroupStatusLabel(status) {
+  return {
+    queued: "等待中",
+    running: "进行中",
+    cancelling: "取消中",
+    completed: "已完成",
+    failed: "已失败",
+    cancelled: "已取消",
+  }[status] || status || "未知状态";
+}
+
+function isTerminalStatus(status) {
+  return ["completed", "failed", "cancelled"].includes(status);
+}
+
+function canRetryStatus(status) {
+  return ["failed", "cancelled"].includes(status);
 }
 </script>

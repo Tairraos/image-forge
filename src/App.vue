@@ -342,6 +342,7 @@ const notice = reactive({
 });
 const effectViewer = reactive({ show: false, path: "", title: "" });
 const ACTIVE_QUEUE_POLL_INTERVAL = 5000;
+const AGENT_TASK_GROUP_POLL_INTERVAL = 5000;
 
 const templateDraft = reactive(emptyTemplate());
 const templateEditorMode = ref("edit");
@@ -383,6 +384,8 @@ let unlistenAgentProgress = null;
 let unlistenAgentTaskGroup = null;
 let queueRefreshInFlight = false;
 let queueRefreshQueued = false;
+let agentTaskGroupPollTimer = 0;
+let agentTaskGroupRefreshInFlight = false;
 
 const imageProviders = computed(() =>
   settings.value.providers.filter((provider) => provider.modelType !== "chat"),
@@ -508,12 +511,14 @@ onMounted(async () => {
   }
   await refreshAll();
   await refreshAgentSessions();
+  syncAgentTaskGroupPolling();
   historyScrollRequest.value += 1;
   scheduleTodayRollover();
 });
 
 onUnmounted(() => {
   window.clearInterval(pollTimer);
+  window.clearInterval(agentTaskGroupPollTimer);
   window.clearTimeout(todayRolloverTimer);
   unlistenDragDrop?.();
   unlistenQueueUpdated?.();
@@ -543,6 +548,7 @@ async function refreshAgentSessions() {
       agentProviderId.value = agentSessions.value[0].modelProviderId || form.chatProviderId;
     }
     if (!agentSessions.value.length && agentProviderId.value) await createAgentConversation();
+    syncAgentTaskGroupPolling();
   } catch {
     // Agent 会话在旧版本数据目录或浏览器预览中可能暂不可用。
   }
@@ -571,6 +577,8 @@ async function selectAgentConversation(sessionId) {
     agentProviderId.value = session.modelProviderId || agentProviderId.value;
     agentStreamText.value = "";
     agentToolStatus.value = "";
+    await refreshAgentTaskGroups();
+    syncAgentTaskGroupPolling();
   } catch (error) {
     setStatus(String(error), "error");
   }
@@ -609,6 +617,8 @@ async function sendAgentConversationMessage(payload) {
     agentSessions.value = [session, ...agentSessions.value.filter((item) => item.id !== session.id)];
     if (useReferences) agentAttachments.value = [];
     agentSkillId.value = "";
+    await refreshAgentTaskGroups();
+    syncAgentTaskGroupPolling();
   } catch (error) {
     setStatus(String(error), "error");
     if (currentAgentSessionId.value) {
@@ -740,6 +750,7 @@ async function cancelAgentTaskGroup(group) {
     await invoke("cancel_agent_task_group", { taskGroupId: group.id });
     await refreshQueueOnly();
     if (currentAgentSessionId.value) await selectAgentConversation(currentAgentSessionId.value);
+    await refreshAgentTaskGroups();
     setStatus("Agent 任务组已取消", "ok");
   } catch (error) {
     setStatus(String(error), "error");
@@ -752,6 +763,7 @@ async function retryAgentTaskGroup(group) {
     await invoke("retry_agent_task_group", { taskGroupId: group.id });
     await refreshQueueOnly();
     if (currentAgentSessionId.value) await selectAgentConversation(currentAgentSessionId.value);
+    await refreshAgentTaskGroups();
     setStatus("Agent 失败任务已重新排队", "ok");
   } catch (error) {
     setStatus(String(error), "error");
@@ -789,8 +801,96 @@ async function handleAgentTaskGroupEvent(event) {
   const first = group.tasks?.[0];
   if (first?.id) selectedTaskId.value = first.id;
   await refreshQueueOnly();
+  await refreshAgentTaskGroups();
+  syncAgentTaskGroupPolling();
   historyScrollRequest.value += 1;
   setStatus(`Agent 已创建 ${group.tasks?.length || 0} 个绘图任务`, "ok");
+}
+
+function singleLine(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+async function refreshAgentTaskGroups({ silent = true } = {}) {
+  if (agentTaskGroupRefreshInFlight) return;
+  const sessionId = currentAgentSessionId.value;
+  const groups = currentAgentTaskGroups();
+  if (!sessionId || !groups.length) return;
+  agentTaskGroupRefreshInFlight = true;
+  try {
+    const updates = await Promise.all(groups.map(async (group) => {
+      const tasks = await invoke("get_task_status", { taskGroupId: group.id, taskId: "" });
+      const records = Array.isArray(tasks) ? tasks : [];
+      return {
+        id: group.id,
+        status: summarizeTaskGroupStatus(records, group.status),
+        taskIds: records.map((task) => task.id).filter(Boolean),
+        titles: records.map((task) => singleLine(task.prompt)).filter(Boolean),
+      };
+    }));
+    if (sessionId !== currentAgentSessionId.value) return;
+    applyAgentTaskGroupUpdates(sessionId, updates);
+  } catch (error) {
+    if (!silent) setStatus(String(error), "error");
+  } finally {
+    agentTaskGroupRefreshInFlight = false;
+    syncAgentTaskGroupPolling();
+  }
+}
+
+function currentAgentTaskGroups() {
+  return currentAgentMessages.value
+    .map((message) => message.taskGroup)
+    .filter((group) => group?.id);
+}
+
+function applyAgentTaskGroupUpdates(sessionId, updates) {
+  const byId = new Map(updates.map((item) => [item.id, item]));
+  agentSessions.value = agentSessions.value.map((session) => {
+    if (session.id !== sessionId) return session;
+    return {
+      ...session,
+      messages: (session.messages || []).map((message) => {
+        const group = message.taskGroup;
+        const update = group?.id ? byId.get(group.id) : null;
+        if (!update) return message;
+        return {
+          ...message,
+          taskGroup: {
+            ...group,
+            status: update.status || group.status,
+            taskIds: update.taskIds.length ? update.taskIds : group.taskIds,
+            titles: update.titles.length ? update.titles : group.titles,
+          },
+        };
+      }),
+    };
+  });
+}
+
+function summarizeTaskGroupStatus(tasks, fallback = "queued") {
+  const statuses = tasks.map((task) => task.status).filter(Boolean);
+  if (!statuses.length) return fallback || "queued";
+  if (statuses.some((status) => status === "cancelling")) return "cancelling";
+  if (statuses.some((status) => status === "running")) return "running";
+  if (statuses.some((status) => status === "queued")) return "queued";
+  if (statuses.every((status) => status === "completed")) return "completed";
+  if (statuses.some((status) => status === "failed")) return "failed";
+  if (statuses.some((status) => status === "cancelled")) return "cancelled";
+  return statuses[0] || fallback || "queued";
+}
+
+function syncAgentTaskGroupPolling() {
+  window.clearInterval(agentTaskGroupPollTimer);
+  agentTaskGroupPollTimer = 0;
+  if (!currentAgentTaskGroups().some((group) => !isTerminalTaskGroupStatus(group.status))) return;
+  agentTaskGroupPollTimer = window.setInterval(() => {
+    void refreshAgentTaskGroups();
+  }, AGENT_TASK_GROUP_POLL_INTERVAL);
+}
+
+function isTerminalTaskGroupStatus(status) {
+  return ["completed", "failed", "cancelled"].includes(status);
 }
 
 // 只在队列活跃期间保留兜底轮询，平时由后端事件驱动刷新。
@@ -821,6 +921,9 @@ function handleQueueUpdatedEvent(event) {
   const snapshot = event?.payload;
   if (snapshot) {
     applyQueue(snapshot);
+    if (currentAgentTaskGroups().some((group) => !isTerminalTaskGroupStatus(group.status))) {
+      void refreshAgentTaskGroups();
+    }
     return;
   }
   void refreshQueueOnly();
