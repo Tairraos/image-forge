@@ -1,5 +1,5 @@
 <template>
-  <div class="agent-message-list">
+  <div ref="listRef" class="agent-message-list">
     <div v-if="!messages.length" class="agent-empty">
       <strong>开始一段对话</strong>
       <span>可以直接聊天，也可以要求 Agent 使用已安装 Skill 或创建绘图任务。</span>
@@ -65,7 +65,9 @@
 </template>
 
 <script setup>
-defineProps({
+import { nextTick, ref, watch } from "vue";
+
+const props = defineProps({
   messages: { type: Array, default: () => [] },
   busy: Boolean,
   streamText: { type: String, default: "" },
@@ -73,6 +75,25 @@ defineProps({
   answers: { type: Object, default: () => ({}) },
 });
 defineEmits(["open-task-group", "cancel-task-group", "retry-task-group", "retry", "update-answer", "answer-questions"]);
+
+const listRef = ref(null);
+
+watch(
+  () => [props.messages.length, props.busy, props.streamText, props.toolStatusText],
+  async () => {
+    await nextTick();
+    scrollToBottomIfNearBottom();
+  },
+  { immediate: true },
+);
+
+function scrollToBottomIfNearBottom() {
+  const element = listRef.value;
+  if (!element) return;
+  const distanceToBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
+  if (distanceToBottom > 120) return;
+  element.scrollTop = element.scrollHeight;
+}
 
 function roleLabel(role) {
   if (role === "user") return "你";
