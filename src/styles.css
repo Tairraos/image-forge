@@ -2429,6 +2429,7 @@ button:disabled {
   display: grid;
   grid-template-columns: 240px minmax(0, 1fr);
   min-height: 0;
+  overflow: hidden;
   flex: 1;
   border: 1px solid var(--line);
   background: var(--surface);
@@ -2537,6 +2538,8 @@ button:disabled {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .agent-chat-head,
@@ -2555,6 +2558,9 @@ button:disabled {
 }
 
 .agent-message-list {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
   padding: 22px clamp(18px, 8vw, 120px);
 }
 
@@ -2672,43 +2678,28 @@ button:disabled {
 }
 
 .agent-composer {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 0;
+  max-height: min(300px, 55vh);
+  overflow: hidden;
   border-top: 1px solid var(--line);
   border-bottom: 0;
+}
+
+.agent-composer-body {
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .agent-composer footer {
   margin-top: 8px;
 }
 
-.agent-attachments {
-  display: flex;
-  gap: 8px;
+.agent-reference-strip {
+  justify-content: flex-start;
   margin-bottom: 8px;
-}
-
-.agent-attachment {
-  position: relative;
-}
-
-.agent-attachment img {
-  width: 52px;
-  height: 52px;
-  object-fit: cover;
-  border-radius: 5px;
-}
-
-.agent-attachment button {
-  position: absolute;
-  top: -6px;
-  right: -6px;
-  width: 18px;
-  height: 18px;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: #222;
-  color: white;
-  cursor: pointer;
 }
 
 @media (max-width: 900px) {
