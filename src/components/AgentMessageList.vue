@@ -28,16 +28,17 @@
         </label>
         <n-button size="small" type="primary" @click="$emit('answer-questions', message)">提交回答</n-button>
       </div>
-      <button
-        v-if="message.taskGroup"
-        type="button"
-        class="agent-task-group-card"
-        @click="$emit('open-task-group', message.taskGroup)"
-      >
-        <strong>绘图任务组 · {{ message.taskGroup.taskIds?.length || 0 }} 项</strong>
-        <span>{{ message.taskGroup.titles?.join('、') || message.taskGroup.id }}</span>
-        <small>{{ message.taskGroup.status || 'queued' }} · 点击查看绘画</small>
-      </button>
+      <div v-if="message.taskGroup" class="agent-task-group-card">
+        <button type="button" class="agent-task-group-open" @click="$emit('open-task-group', message.taskGroup)">
+          <strong>绘图任务组 · {{ message.taskGroup.taskIds?.length || 0 }} 项</strong>
+          <span>{{ message.taskGroup.titles?.join('、') || message.taskGroup.id }}</span>
+          <small>{{ message.taskGroup.status || 'queued' }} · 点击查看绘画</small>
+        </button>
+        <div class="agent-task-group-actions">
+          <n-button size="tiny" secondary @click="$emit('cancel-task-group', message.taskGroup)">取消</n-button>
+          <n-button size="tiny" secondary @click="$emit('retry-task-group', message.taskGroup)">重试失败项</n-button>
+        </div>
+      </div>
       <n-button v-if="message.error" size="tiny" type="error" secondary @click="$emit('retry', message)">
         {{ message.error }} · 重试
       </n-button>
@@ -57,7 +58,7 @@ defineProps({
   toolStatusText: { type: String, default: "" },
   answers: { type: Object, default: () => ({}) },
 });
-defineEmits(["open-task-group", "retry", "update-answer", "answer-questions"]);
+defineEmits(["open-task-group", "cancel-task-group", "retry-task-group", "retry", "update-answer", "answer-questions"]);
 
 function roleLabel(role) {
   if (role === "user") return "你";

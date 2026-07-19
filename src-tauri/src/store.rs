@@ -45,6 +45,7 @@ pub(crate) fn ensure_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
     ] {
         ensure_private_directory(&dir)?;
     }
+    recover_generation_transactions(&data_dir)?;
     Ok(data_dir)
 }
 
@@ -275,12 +276,17 @@ pub(crate) fn read_history(data_dir: &Path) -> Result<Vec<TaskRecord>, String> {
 
 /// 写入历史记录，同时限制最大条数防止 JSON 无限膨胀。
 pub(crate) fn write_history(data_dir: &Path, history: &[TaskRecord]) -> Result<(), String> {
+    let history = normalized_history(history);
+    write_json(&history_path(data_dir), &history)
+}
+
+fn normalized_history(history: &[TaskRecord]) -> Vec<TaskRecord> {
     let mut history = history.to_vec();
     history.sort_by(|left, right| right.created_at.cmp(&left.created_at));
     if history.len() > MAX_HISTORY_ITEMS {
         history.truncate(MAX_HISTORY_ITEMS);
     }
-    write_json(&history_path(data_dir), &history)
+    history
 }
 
 pub(crate) fn refresh_history_output_sizes(history: &mut [TaskRecord]) -> bool {
@@ -377,17 +383,6 @@ pub(crate) fn write_generation_batch(
     }
     let mut history = read_history(data_dir)?;
     let mut queue = read_queue(data_dir)?;
-    let mut written_requests = Vec::new();
-    for (task_id, request) in requests {
-        let path = request_path(data_dir, task_id);
-        if let Err(error) = write_json(&path, request) {
-            for written in written_requests {
-                let _ = trash::delete(written);
-            }
-            return Err(error);
-        }
-        written_requests.push(path);
-    }
     for record in records {
         history.retain(|item| item.id != record.id);
         history.push(record.clone());
@@ -395,15 +390,241 @@ pub(crate) fn write_generation_batch(
         queue.waiting.retain(|task_id| task_id != &record.id);
         queue.waiting.push(record.id.clone());
     }
-    if let Err(error) =
-        write_history(data_dir, &history).and_then(|_| write_queue(data_dir, &queue))
-    {
-        for written in written_requests {
-            let _ = trash::delete(written);
+    history = normalized_history(&history);
+    queue.updated_at = utc_now();
+
+    let transaction_id = format!("generation-batch-{}", Uuid::new_v4());
+    let transaction_dir = data_dir.join(".staging").join(&transaction_id);
+    let mut targets = requests
+        .iter()
+        .map(|(task_id, _)| format!("requests/{task_id}.json"))
+        .collect::<Vec<_>>();
+    targets.push("history.json".into());
+    targets.push("queue.json".into());
+    let transaction = GenerationTransaction {
+        schema_version: 1,
+        targets,
+    };
+    if let Err(error) = prepare_generation_transaction(
+        data_dir,
+        &transaction_dir,
+        &transaction,
+        requests,
+        &history,
+        &queue,
+    ) {
+        move_transaction_to_trash(&transaction_dir, "准备生成任务事务");
+        return Err(error);
+    }
+    if let Err(error) = commit_generation_transaction(data_dir, &transaction_dir, &transaction) {
+        let rollback = rollback_generation_transaction(data_dir, &transaction_dir, &transaction);
+        return match rollback {
+            Ok(()) => Err(format!("原子写入任务组失败，已回滚: {error}")),
+            Err(rollback_error) => Err(format!(
+                "原子写入任务组失败且回滚不完整: {error}；{rollback_error}"
+            )),
+        };
+    }
+    fs::write(transaction_dir.join("committed"), b"ok")
+        .map_err(|error| format!("标记生成任务事务完成失败: {error}"))?;
+    move_transaction_to_trash(&transaction_dir, "清理已提交生成任务事务");
+    Ok(())
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GenerationTransaction {
+    schema_version: u32,
+    targets: Vec<String>,
+}
+
+fn prepare_generation_transaction(
+    data_dir: &Path,
+    transaction_dir: &Path,
+    transaction: &GenerationTransaction,
+    requests: &[(String, GenerateRequest)],
+    history: &[TaskRecord],
+    queue: &QueueState,
+) -> Result<(), String> {
+    fs::create_dir_all(transaction_dir.join("new/requests"))
+        .map_err(|error| format!("创建生成任务事务目录失败: {error}"))?;
+    write_json(&transaction_dir.join("transaction.json"), transaction)?;
+    for (task_id, request) in requests {
+        write_json(
+            &transaction_dir
+                .join("new/requests")
+                .join(format!("{task_id}.json")),
+            request,
+        )?;
+    }
+    write_json(&transaction_dir.join("new/history.json"), &history)?;
+    write_json(&transaction_dir.join("new/queue.json"), queue)?;
+    let _ = data_dir;
+    Ok(())
+}
+
+fn commit_generation_transaction(
+    data_dir: &Path,
+    transaction_dir: &Path,
+    transaction: &GenerationTransaction,
+) -> Result<(), String> {
+    for relative in &transaction.targets {
+        let relative = safe_transaction_relative_path(relative)?;
+        let target = data_dir.join(relative);
+        let staged = transaction_dir.join("new").join(relative);
+        let backup = transaction_dir.join("backups").join(relative);
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent).map_err(|error| format!("创建任务目标目录失败: {error}"))?;
         }
-        return Err(format!("原子写入任务组失败: {error}"));
+        if target.exists() {
+            if let Some(parent) = backup.parent() {
+                fs::create_dir_all(parent)
+                    .map_err(|error| format!("创建任务备份目录失败: {error}"))?;
+            }
+            fs::rename(&target, &backup)
+                .map_err(|error| format!("备份 {} 失败: {error}", target.display()))?;
+        }
+        fs::rename(&staged, &target)
+            .map_err(|error| format!("提交 {} 失败: {error}", target.display()))?;
     }
     Ok(())
+}
+
+fn rollback_generation_transaction(
+    data_dir: &Path,
+    transaction_dir: &Path,
+    transaction: &GenerationTransaction,
+) -> Result<(), String> {
+    let mut errors = Vec::new();
+    for relative in transaction.targets.iter().rev() {
+        let relative = match safe_transaction_relative_path(relative) {
+            Ok(relative) => relative,
+            Err(error) => {
+                errors.push(error);
+                continue;
+            }
+        };
+        let target = data_dir.join(relative);
+        let staged = transaction_dir.join("new").join(relative);
+        let backup = transaction_dir.join("backups").join(relative);
+        if backup.exists() {
+            if target.exists() {
+                let abandoned = transaction_dir.join("rollback-current").join(relative);
+                if let Some(parent) = abandoned.parent() {
+                    let _ = fs::create_dir_all(parent);
+                }
+                if let Err(error) = fs::rename(&target, &abandoned) {
+                    errors.push(format!("回收新文件 {} 失败: {error}", target.display()));
+                    continue;
+                }
+            }
+            if let Err(error) = fs::rename(&backup, &target) {
+                errors.push(format!("恢复备份 {} 失败: {error}", target.display()));
+            }
+        } else if !staged.exists() && target.exists() {
+            let abandoned = transaction_dir.join("rollback-current").join(relative);
+            if let Some(parent) = abandoned.parent() {
+                let _ = fs::create_dir_all(parent);
+            }
+            if let Err(error) = fs::rename(&target, &abandoned) {
+                errors.push(format!("回收新增文件 {} 失败: {error}", target.display()));
+            }
+        }
+    }
+    if errors.is_empty() {
+        fs::write(transaction_dir.join("rolled-back"), b"ok")
+            .map_err(|error| format!("标记生成任务事务已回滚失败: {error}"))?;
+        move_transaction_to_trash(transaction_dir, "清理已回滚生成任务事务");
+        Ok(())
+    } else {
+        Err(errors.join("；"))
+    }
+}
+
+fn recover_generation_transactions(data_dir: &Path) -> Result<(), String> {
+    let staging = data_dir.join(".staging");
+    if !staging.is_dir() {
+        return Ok(());
+    }
+    for entry in
+        fs::read_dir(&staging).map_err(|error| format!("读取生成任务事务目录失败: {error}"))?
+    {
+        let path = entry
+            .map_err(|error| format!("读取生成任务事务失败: {error}"))?
+            .path();
+        let name = path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default();
+        if !path.is_dir() || !name.starts_with("generation-batch-") {
+            continue;
+        }
+        if path.join("committed").is_file() || path.join("rolled-back").is_file() {
+            move_transaction_to_trash(&path, "恢复时清理生成任务事务");
+            continue;
+        }
+        let manifest_path = path.join("transaction.json");
+        if !manifest_path.is_file() {
+            move_transaction_to_trash(&path, "清理不完整生成任务事务");
+            continue;
+        }
+        let transaction: GenerationTransaction = read_json(&manifest_path)?;
+        if transaction.schema_version != 1 {
+            return Err(format!(
+                "无法恢复生成任务事务 {}：不支持 schemaVersion {}",
+                name, transaction.schema_version
+            ));
+        }
+        rollback_generation_transaction(data_dir, &path, &transaction)?;
+        record_operation(
+            "恢复生成任务事务",
+            "成功",
+            format!("transaction={name}"),
+            None,
+            None,
+        );
+    }
+    Ok(())
+}
+
+fn safe_transaction_relative_path(value: &str) -> Result<&Path, String> {
+    let path = Path::new(value);
+    if path.is_absolute()
+        || path.components().any(|component| {
+            matches!(
+                component,
+                std::path::Component::ParentDir
+                    | std::path::Component::RootDir
+                    | std::path::Component::Prefix(_)
+            )
+        })
+    {
+        Err(format!("生成任务事务包含不安全路径: {value}"))
+    } else {
+        Ok(path)
+    }
+}
+
+fn move_transaction_to_trash(path: &Path, operation: &str) {
+    if !path.exists() {
+        return;
+    }
+    match trash::delete(path) {
+        Ok(()) => record_operation(
+            operation,
+            "成功",
+            format!("path={}", path.display()),
+            None,
+            None,
+        ),
+        Err(error) => record_operation(
+            operation,
+            "失败",
+            format!("path={}", path.display()),
+            None,
+            Some(&error.to_string()),
+        ),
+    }
 }
 
 /// 把任务放到等待队列末尾，并去重运行/等待中的旧位置。
@@ -857,4 +1078,67 @@ fn queue_path(data_dir: &Path) -> PathBuf {
 
 fn history_path(data_dir: &Path) -> PathBuf {
     data_dir.join("history.json")
+}
+
+#[cfg(test)]
+mod transaction_tests {
+    use super::*;
+
+    fn temp_root(label: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!("image-forge-{label}-{}", Uuid::new_v4()));
+        fs::create_dir_all(root.join(".staging")).unwrap();
+        root
+    }
+
+    fn recycle(path: &Path) {
+        if path.exists() {
+            trash::delete(path).unwrap();
+        }
+    }
+
+    #[test]
+    fn generation_batch_commits_requests_history_and_queue_together() {
+        let root = temp_root("generation-batch");
+        let record = fallback_failed_record("task-a", "placeholder");
+        let request = GenerateRequest::default();
+        write_generation_batch(&root, &[("task-a".into(), request)], &[record]).unwrap();
+
+        assert!(request_path(&root, "task-a").is_file());
+        assert_eq!(read_history(&root).unwrap().len(), 1);
+        assert_eq!(read_queue(&root).unwrap().waiting, vec!["task-a"]);
+        assert!(!root.join(".staging").read_dir().unwrap().any(|entry| entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .starts_with("generation-batch-")));
+        recycle(&root);
+    }
+
+    #[test]
+    fn rollback_restores_old_files_after_a_partial_commit() {
+        let root = temp_root("generation-rollback");
+        let old_record = fallback_failed_record("old", "old");
+        write_history(&root, &[old_record.clone()]).unwrap();
+        write_queue(&root, &QueueState::default()).unwrap();
+        let transaction_dir = root.join(".staging").join("generation-batch-test");
+        let transaction = GenerationTransaction {
+            schema_version: 1,
+            targets: vec!["history.json".into(), "queue.json".into()],
+        };
+        prepare_generation_transaction(
+            &root,
+            &transaction_dir,
+            &transaction,
+            &[],
+            &[fallback_failed_record("new", "new")],
+            &QueueState::default(),
+        )
+        .unwrap();
+        commit_generation_transaction(&root, &transaction_dir, &transaction).unwrap();
+        rollback_generation_transaction(&root, &transaction_dir, &transaction).unwrap();
+
+        assert_eq!(read_history(&root).unwrap()[0].id, "old");
+        assert!(read_queue(&root).unwrap().waiting.is_empty());
+        recycle(&root);
+    }
 }

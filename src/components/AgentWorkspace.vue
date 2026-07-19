@@ -67,6 +67,8 @@
         :tool-status-text="toolStatusText"
         :answers="answers"
         @open-task-group="$emit('open-task-group', $event)"
+        @cancel-task-group="$emit('cancel-task-group', $event)"
+        @retry-task-group="$emit('retry-task-group', $event)"
         @retry="$emit('retry', $event)"
         @update-answer="$emit('update-answer', $event)"
         @answer-questions="$emit('answer-questions', $event)"
@@ -107,7 +109,7 @@ defineProps({
 const emit = defineEmits([
   "create", "select", "send", "stop", "add-reference", "remove-attachment", "update:provider-id",
   "install-skill", "use-skill",
-  "open-task-group", "retry", "paste-reference", "drop-reference", "update-answer", "answer-questions",
+  "open-task-group", "cancel-task-group", "retry-task-group", "retry", "paste-reference", "drop-reference", "update-answer", "answer-questions",
   "delete-session",
 ]);
 

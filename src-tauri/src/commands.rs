@@ -508,7 +508,6 @@ async fn execute_agent_tool(
         }
         "get_task_status" => {
             let data_dir = ensure_data_dir(app)?;
-            let history = read_history(&data_dir)?;
             let task_id = arguments
                 .get("taskId")
                 .and_then(serde_json::Value::as_str)
@@ -517,17 +516,53 @@ async fn execute_agent_tool(
                 .get("taskGroupId")
                 .and_then(serde_json::Value::as_str)
                 .unwrap_or_default();
-            let tasks = history
-                .into_iter()
-                .filter(|task| {
-                    (!task_id.is_empty() && task.id == task_id)
-                        || (!task_group_id.is_empty() && task.task_group_id == task_group_id)
-                })
-                .collect::<Vec<_>>();
+            let tasks = task_status_records(&data_dir, task_group_id, task_id)?;
             Ok(serde_json::json!({ "taskGroupId": task_group_id, "tasks": tasks }))
         }
         _ => Err(format!("不允许的 Agent 工具：{name}")),
     }
+}
+
+fn task_status_records(
+    data_dir: &Path,
+    task_group_id: &str,
+    task_id: &str,
+) -> Result<Vec<TaskRecord>, String> {
+    if task_group_id.trim().is_empty() && task_id.trim().is_empty() {
+        return Err("需要 taskGroupId 或 taskId".into());
+    }
+    Ok(read_history(data_dir)?
+        .into_iter()
+        .filter(|task| {
+            (!task_id.is_empty() && task.id == task_id)
+                || (!task_group_id.is_empty() && task.task_group_id == task_group_id)
+        })
+        .collect())
+}
+
+fn update_agent_task_group_summary(data_dir: &Path, task_group_id: &str, status: &str) {
+    let Ok(records) = read_history(data_dir) else {
+        return;
+    };
+    let Some(session_id) = records
+        .iter()
+        .find(|record| record.task_group_id == task_group_id)
+        .map(|record| record.agent_session_id.clone())
+        .filter(|value| !value.is_empty())
+    else {
+        return;
+    };
+    let Ok(mut agent_session) = session(data_dir, &session_id) else {
+        return;
+    };
+    for message in &mut agent_session.messages {
+        if let Some(summary) = &mut message.task_group {
+            if summary.id == task_group_id {
+                summary.status = status.into();
+            }
+        }
+    }
+    let _ = save_session(data_dir, agent_session);
 }
 
 fn explicit_confirmation(message: &str) -> bool {
@@ -753,6 +788,106 @@ pub(crate) fn create_agent_image_tasks(
         tasks,
         created_at: utc_now(),
     })
+}
+
+#[tauri::command]
+/// 按任务组或任务 ID 返回当前队列、运行和历史状态。
+pub(crate) fn get_task_status(
+    app: AppHandle,
+    task_group_id: String,
+    task_id: String,
+) -> Result<Vec<TaskRecord>, String> {
+    let data_dir = ensure_data_dir(&app)?;
+    task_status_records(&data_dir, &task_group_id, &task_id)
+}
+
+#[tauri::command]
+/// 取消 Agent 任务组；运行中的任务由 worker 收尾，失败/取消后仍可重试。
+pub(crate) fn cancel_agent_task_group(
+    app: AppHandle,
+    task_group_id: String,
+) -> Result<Vec<TaskRecord>, String> {
+    let data_dir = ensure_data_dir(&app)?;
+    let mut history = read_history(&data_dir)?;
+    let mut queue = read_queue(&data_dir)?;
+    let mut found = false;
+    let now = utc_now();
+    for record in history
+        .iter_mut()
+        .filter(|record| record.task_group_id == task_group_id)
+    {
+        found = true;
+        if matches!(record.status.as_str(), "queued" | "running" | "cancelling") {
+            app.state::<RuntimeState>()
+                .cancel_requests
+                .lock()
+                .map_err(|_| "取消状态锁定失败")?
+                .insert(record.id.clone());
+            if record.status == "queued" {
+                record.status = "cancelled".into();
+                record.error = Some("任务组已取消".into());
+                record.completed_at = Some(now.clone());
+                queue.waiting.retain(|id| id != &record.id);
+            } else {
+                record.status = "cancelling".into();
+            }
+            record.updated_at = now.clone();
+        }
+    }
+    if !found {
+        return Err("找不到任务组".into());
+    }
+    write_history(&data_dir, &history)?;
+    write_queue(&data_dir, &queue)?;
+    update_agent_task_group_summary(&data_dir, &task_group_id, "cancelling");
+    let _ = emit_queue_updated(&app, &data_dir);
+    Ok(history
+        .into_iter()
+        .filter(|record| record.task_group_id == task_group_id)
+        .collect())
+}
+
+#[tauri::command]
+/// 重试 Agent 任务组中失败或取消的任务，并一次性恢复到等待队列。
+pub(crate) fn retry_agent_task_group(
+    app: AppHandle,
+    task_group_id: String,
+) -> Result<Vec<TaskRecord>, String> {
+    let data_dir = ensure_data_dir(&app)?;
+    let mut history = read_history(&data_dir)?;
+    let settings = read_settings(&data_dir)?;
+    let mut requests = Vec::new();
+    let mut records = Vec::new();
+    let now = utc_now();
+    for record in history.iter_mut().filter(|record| {
+        record.task_group_id == task_group_id
+            && matches!(record.status.as_str(), "failed" | "cancelled")
+    }) {
+        let request: GenerateRequest = read_json(&request_path(&data_dir, &record.id))?;
+        let provider = provider_for_request(&settings, request.provider_id.as_deref())?;
+        record.status = "queued".into();
+        record.started_at = None;
+        record.completed_at = None;
+        record.error = None;
+        record.outputs.clear();
+        record.provider_id = provider.id.clone();
+        record.provider_name = provider.name.clone();
+        record.model = provider.image_model;
+        record.updated_at = now.clone();
+        requests.push((record.id.clone(), request));
+        records.push(record.clone());
+        if let Ok(mut cancelled) = app.state::<RuntimeState>().cancel_requests.lock() {
+            cancelled.remove(&record.id);
+        }
+    }
+    if records.is_empty() {
+        return Err("任务组没有可重试的失败或取消任务".into());
+    }
+    write_generation_batch(&data_dir, &requests, &records)?;
+    update_agent_task_group_summary(&data_dir, &task_group_id, "queued");
+    ensure_queue_worker(&app);
+    let _ = emit_queue_updated(&app, &data_dir);
+    Ok(records)
 }
 
 #[tauri::command]

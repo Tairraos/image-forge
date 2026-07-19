@@ -2826,12 +2826,28 @@ button:disabled {
 .agent-task-group-card {
   width: 100%;
   color: inherit;
-  cursor: pointer;
+  display: grid;
+  gap: 8px;
+  text-align: left;
 }
 
-.agent-task-group-card:hover {
+.agent-task-group-open {
+  width: 100%;
+  color: inherit;
+  cursor: pointer;
+  display: grid;
+  gap: 4px;
+  text-align: left;
+}
+
+.agent-task-group-open:hover {
   border-color: var(--primary);
   background: var(--primary-soft);
+}
+
+.agent-task-group-actions {
+  display: flex;
+  gap: 6px;
 }
 
 .agent-question-card label {

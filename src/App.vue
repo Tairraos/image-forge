@@ -99,6 +99,8 @@
         @install-skill="installAgentSkill"
         @use-skill="selectAgentSkill"
         @open-task-group="openAgentTaskGroup"
+        @cancel-task-group="cancelAgentTaskGroup"
+        @retry-task-group="retryAgentTaskGroup"
         @retry="retryAgentMessage"
         @paste-reference="pasteAgentReferenceImage"
         @drop-reference="addAgentReferencePaths"
@@ -749,6 +751,32 @@ function openAgentTaskGroup(group) {
   const firstId = group?.taskIds?.[0];
   if (firstId) selectedTaskId.value = firstId;
   void refreshQueueOnly();
+}
+
+async function cancelAgentTaskGroup(group) {
+  if (!group?.id) return;
+  const confirmed = await requestConfirmation("取消任务组", "确认取消这个 Agent 任务组？已完成的任务不会删除，失败项仍可重试。");
+  if (!confirmed) return;
+  try {
+    await invoke("cancel_agent_task_group", { taskGroupId: group.id });
+    await refreshQueueOnly();
+    if (currentAgentSessionId.value) await selectAgentConversation(currentAgentSessionId.value);
+    setStatus("Agent 任务组已取消", "ok");
+  } catch (error) {
+    setStatus(String(error), "error");
+  }
+}
+
+async function retryAgentTaskGroup(group) {
+  if (!group?.id) return;
+  try {
+    await invoke("retry_agent_task_group", { taskGroupId: group.id });
+    await refreshQueueOnly();
+    if (currentAgentSessionId.value) await selectAgentConversation(currentAgentSessionId.value);
+    setStatus("Agent 失败任务已重新排队", "ok");
+  } catch (error) {
+    setStatus(String(error), "error");
+  }
 }
 
 function retryAgentMessage(message) {

@@ -61,6 +61,7 @@ docs/technical-design.md
 - Skill 新增、编辑、URL 提取和本地包导入统一经过安全审查并生成 `manifest.json`；旧版无 manifest 的 Skill 首次读取时会安全迁移，审查失败则保留原包并显示具体原因。
 - Agent Skill 回复统一支持 `chat`、`needs_input`、`ready`、`rejected` 状态；问题会持久化到会话，完整图片计划由 Rust 转成受校验的任务调用，非原生 tools 模型使用同一 JSON 协议并在结构错误时自动修复一次。
 - Agent 工具进度事件现在携带真实调用标识；失败、停止和重试会重新读取会话状态，参考图附件增加本轮是否使用的明确开关。
+- Agent 多图任务组改为 staged transaction 原子提交，写入失败会恢复历史、队列和请求文件，应用重启会回滚未提交事务；任务组卡片支持整组取消、重试失败项和状态查询。
 
 ### v1.0.17
 
