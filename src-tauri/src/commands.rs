@@ -19,10 +19,11 @@ use crate::{
         TemplateImportResult,
     },
     services::{
+        agent::run_turn,
         agent_store::{append_message, create_session, save_session, session, sessions},
         chat::{
-            agent_response, fill_skill_prompt as generate_prompt_from_skill,
-            fill_template_response, plan_skill_response,
+            fill_skill_prompt as generate_prompt_from_skill, fill_template_response,
+            plan_skill_response,
         },
         images::reference_preview,
         provider_bundle::{export_providers_json, read_providers_json},
@@ -167,19 +168,24 @@ pub(crate) async fn send_agent_message(
         }
         context.push_str("</skill>");
     }
+    let mut chat_messages = vec![serde_json::json!({
+        "role": "system",
+        "content": agent_system_prompt(&context),
+    })];
+    chat_messages.extend(current.messages.iter().map(agent_message_to_chat_value));
     let task_provider = provider.clone();
-    let task_context = context.clone();
-    let task_content = content.clone();
+    let task_messages = chat_messages;
     let session_for_task = session_id.clone();
     let app_for_task = app.clone();
     let task = tokio::spawn(async move {
         let session_for_event = session_for_task.clone();
         let app_for_event = app_for_task.clone();
-        agent_response(
+        let mut messages = task_messages;
+        run_turn(
             &task_provider,
-            &task_context,
-            &task_content,
+            &mut messages,
             Some(app_for_task.state::<RuntimeState>().inner()),
+            |name, arguments| execute_agent_tool(&app_for_task, &session_for_task, name, arguments),
             move |event| {
                 let _ = app_for_event.emit(
                     "agent-progress",
@@ -212,14 +218,35 @@ pub(crate) async fn send_agent_message(
     }
     let result = match output {
         Ok(output) => {
+            for tool_call in output.tool_calls {
+                let content = serde_json::to_string(&serde_json::json!({
+                    "result": tool_call.result,
+                    "error": tool_call.error,
+                }))
+                .unwrap_or_default();
+                append_message(
+                    &data_dir,
+                    &session_id,
+                    AgentMessage {
+                        id: Uuid::new_v4().to_string(),
+                        role: "tool".into(),
+                        content,
+                        attachments: Vec::new(),
+                        tool_call: Some(tool_call),
+                        questions: Vec::new(),
+                        task_group: None,
+                        error: String::new(),
+                        created_at: utc_now(),
+                    },
+                )?;
+            }
             current = append_message(
                 &data_dir,
                 &session_id,
                 AgentMessage {
                     id: Uuid::new_v4().to_string(),
                     role: "assistant".into(),
-                    content: normalize_agent_output(&app, &data_dir, &session_id, &output.text)
-                        .await?,
+                    content: output.text,
                     attachments: Vec::new(),
                     tool_call: None,
                     questions: Vec::new(),
@@ -306,6 +333,132 @@ async fn normalize_agent_output(
         group.tasks.len(),
         group.id
     ))
+}
+
+fn agent_system_prompt(context: &str) -> String {
+    format!(
+        "你是 Image Forge 本地 Agent。普通聊天直接回答；需要 Skill 或绘图时必须调用已注册工具。禁止声称执行终端、脚本、任意文件读写、任意 HTTP、浏览器、数据库或插件。信息不足时返回 schemaVersion=1 的 assistant envelope，并在 questions 中提出最多 3 个简短问题。只有提示词、参数和参考图策略完整时才能调用 create_image_tasks。参考图策略必须逐图明确为 use、optional 或 none。\n\n当前会话上下文：\n{}",
+        context.trim()
+    )
+}
+
+fn agent_message_to_chat_value(message: &AgentMessage) -> serde_json::Value {
+    if let Some(call) = &message.tool_call {
+        if message.role == "tool" {
+            return serde_json::json!({
+                "role": "tool",
+                "tool_call_id": call.id,
+                "name": call.name,
+                "content": message.content,
+            });
+        }
+        return serde_json::json!({
+            "role": "assistant",
+            "content": if message.content.trim().is_empty() { serde_json::Value::Null } else { serde_json::Value::String(message.content.clone()) },
+            "tool_calls": [{
+                "id": call.id,
+                "type": "function",
+                "function": {
+                    "name": call.name,
+                    "arguments": serde_json::to_string(&call.arguments).unwrap_or_else(|_| "{}".into()),
+                }
+            }]
+        });
+    }
+    serde_json::json!({
+        "role": message.role,
+        "content": message.content,
+    })
+}
+
+fn execute_agent_tool(
+    app: &AppHandle,
+    session_id: &str,
+    name: &str,
+    arguments: &serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    match name {
+        "list_skills" => {
+            let data_dir = ensure_data_dir(app)?;
+            let query = arguments
+                .get("query")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .trim()
+                .to_lowercase();
+            let summaries = read_skills(&data_dir)?
+                .into_iter()
+                .filter(|skill| {
+                    query.is_empty()
+                        || [skill.name.as_str(), skill.notes.as_str(), skill.source_url.as_str()]
+                            .join(" ")
+                            .to_lowercase()
+                            .contains(&query)
+                })
+                .map(|skill| {
+                    let manifest = audit_skill_directory(&skills_dir(&data_dir).join(&skill.directory))
+                        .ok()
+                        .and_then(|audit| audit.manifest);
+                    serde_json::json!({
+                        "id": skill.id,
+                        "name": skill.name,
+                        "notes": skill.notes,
+                        "sourceUrl": skill.source_url,
+                        "capabilities": manifest.map(|value| value.capabilities).unwrap_or_default(),
+                    })
+                })
+                .collect::<Vec<_>>();
+            Ok(serde_json::Value::Array(summaries))
+        }
+        "install_skill" => Err("安装 Skill 需要用户在界面中确认来源后执行".into()),
+        "use_skill" => {
+            let skill_id = arguments
+                .get("skillId")
+                .and_then(serde_json::Value::as_str)
+                .ok_or("use_skill.skillId 不能为空")?;
+            serde_json::to_value(use_skill(app.clone(), skill_id.to_string())?)
+                .map_err(|error| format!("序列化 Skill 上下文失败: {error}"))
+        }
+        "create_image_tasks" => {
+            let plans = serde_json::from_value::<Vec<AgentImagePlan>>(
+                arguments.get("plans").cloned().unwrap_or_default(),
+            )
+            .map_err(|error| format!("解析图片计划失败: {error}"))?;
+            let skill_id = arguments
+                .get("skillId")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            serde_json::to_value(create_agent_image_tasks(
+                app.clone(),
+                session_id.to_string(),
+                skill_id,
+                plans,
+            )?)
+            .map_err(|error| format!("序列化任务组失败: {error}"))
+        }
+        "get_task_status" => {
+            let data_dir = ensure_data_dir(app)?;
+            let history = read_history(&data_dir)?;
+            let task_id = arguments
+                .get("taskId")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default();
+            let task_group_id = arguments
+                .get("taskGroupId")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default();
+            let tasks = history
+                .into_iter()
+                .filter(|task| {
+                    (!task_id.is_empty() && task.id == task_id)
+                        || (!task_group_id.is_empty() && task.task_group_id == task_group_id)
+                })
+                .collect::<Vec<_>>();
+            Ok(serde_json::json!({ "taskGroupId": task_group_id, "tasks": tasks }))
+        }
+        _ => Err(format!("不允许的 Agent 工具：{name}")),
+    }
 }
 
 #[tauri::command]

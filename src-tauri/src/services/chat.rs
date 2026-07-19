@@ -29,6 +29,262 @@ pub(crate) struct ChatProgressEventData {
     pub elapsed_ms: Option<u64>,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct AgentModelToolCall {
+    pub id: String,
+    pub name: String,
+    pub arguments: String,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct AgentModelResponse {
+    pub text: String,
+    pub tool_calls: Vec<AgentModelToolCall>,
+    pub mode: String,
+}
+
+/// 优先使用 OpenAI 兼容的原生 tools/function calling，并保留流式文本和参数增量。
+pub(crate) async fn agent_completion(
+    provider: &ApiProvider,
+    messages: &[Value],
+    tools: &[Value],
+    runtime_state: Option<&RuntimeState>,
+    mut on_event: impl FnMut(ChatProgressEventData),
+) -> Result<AgentModelResponse, String> {
+    let started = Instant::now();
+    let base_url = normalize_base_url(&provider.base_url)?;
+    let client = chat_completion_client(&provider.proxy_url, CHAT_COMPLETION_TIMEOUT_SECONDS)?;
+    let url = format!("{base_url}/chat/completions");
+    let payload = json!({
+        "model": provider.image_model,
+        "messages": messages,
+        "tools": tools,
+        "tool_choice": "auto",
+        "temperature": 0.2,
+        "stream": true
+    });
+    record_runtime_log(
+        runtime_state,
+        "agent_tools.request",
+        format!(
+            "provider_id={} model={} tools={} proxy={}",
+            provider.id,
+            provider.image_model,
+            tools.len(),
+            if provider.proxy_url.trim().is_empty() {
+                "off"
+            } else {
+                "on"
+            }
+        ),
+    );
+    let response = client
+        .post(&url)
+        .bearer_auth(provider.api_key.trim())
+        .header(ACCEPT, "*/*")
+        .header(ACCEPT_LANGUAGE, "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7")
+        .timeout(Duration::from_secs(CHAT_COMPLETION_TIMEOUT_SECONDS))
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|error| format!("Agent 请求失败: {error}"))?;
+    let status = response.status();
+    let is_stream = is_stream_content_type(response.headers().get(CONTENT_TYPE));
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        let message = if body.to_ascii_lowercase().contains("tool")
+            || body.to_ascii_lowercase().contains("function")
+        {
+            format!("AGENT_TOOLS_UNSUPPORTED: HTTP {} {}", status.as_u16(), body)
+        } else {
+            format!("Agent 请求失败: HTTP {} {}", status.as_u16(), body)
+        };
+        record_runtime_log(
+            runtime_state,
+            "agent_tools.error",
+            format!(
+                "elapsed_ms={} status={} error={}",
+                started.elapsed().as_millis(),
+                status,
+                message
+            ),
+        );
+        return Err(message);
+    }
+    if is_stream {
+        return consume_agent_tool_stream(response, started, runtime_state, &mut on_event).await;
+    }
+    let body = response
+        .text()
+        .await
+        .map_err(|error| format!("读取 Agent 响应失败: {error}"))?;
+    parse_agent_tool_response(&body, "non-stream", runtime_state, &mut on_event)
+}
+
+async fn consume_agent_tool_stream(
+    mut response: reqwest::Response,
+    started: Instant,
+    runtime_state: Option<&RuntimeState>,
+    on_event: &mut impl FnMut(ChatProgressEventData),
+) -> Result<AgentModelResponse, String> {
+    let mut buffer = Vec::new();
+    let mut text = String::new();
+    let mut calls = std::collections::BTreeMap::<usize, AgentModelToolCall>::new();
+    loop {
+        let chunk = response
+            .chunk()
+            .await
+            .map_err(|error| format!("读取 Agent 流式响应失败: {error}"))?;
+        let Some(chunk) = chunk else { break };
+        buffer.extend_from_slice(&chunk);
+        while let Some((index, separator_len)) = find_sse_separator(&buffer) {
+            let block = buffer.drain(..index + separator_len).collect::<Vec<_>>();
+            let payload = String::from_utf8_lossy(&block)
+                .lines()
+                .filter_map(|line| line.trim().strip_prefix("data:"))
+                .map(str::trim)
+                .collect::<Vec<_>>()
+                .join("\n");
+            if payload.is_empty() || payload == "[DONE]" {
+                continue;
+            }
+            let value: Value = serde_json::from_str(&payload)
+                .map_err(|error| format!("解析 Agent 流式 JSON 失败: {error}"))?;
+            let Some(delta) = value.pointer("/choices/0/delta") else {
+                continue;
+            };
+            if let Some(content) = delta.get("content").and_then(content_value_to_text) {
+                text.push_str(&content);
+                on_event(ChatProgressEventData {
+                    phase: "delta",
+                    mode: "stream",
+                    chunk: content,
+                    message: String::new(),
+                    elapsed_ms: Some(started.elapsed().as_millis() as u64),
+                });
+            }
+            if let Some(items) = delta.get("tool_calls").and_then(Value::as_array) {
+                for item in items {
+                    let index = item.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
+                    let entry = calls.entry(index).or_insert_with(|| AgentModelToolCall {
+                        id: String::new(),
+                        name: String::new(),
+                        arguments: String::new(),
+                    });
+                    if let Some(id) = item.get("id").and_then(Value::as_str) {
+                        entry.id.push_str(id);
+                    }
+                    if let Some(function) = item.get("function").and_then(Value::as_object) {
+                        if let Some(name) = function.get("name").and_then(Value::as_str) {
+                            entry.name.push_str(name);
+                        }
+                        if let Some(arguments) = function.get("arguments").and_then(Value::as_str) {
+                            entry.arguments.push_str(arguments);
+                        }
+                    }
+                    on_event(ChatProgressEventData {
+                        phase: "tool_delta",
+                        mode: "stream",
+                        chunk: String::new(),
+                        message: format!("准备调用 {}", entry.name),
+                        elapsed_ms: Some(started.elapsed().as_millis() as u64),
+                    });
+                }
+            }
+        }
+    }
+    let tool_calls = calls.into_values().collect::<Vec<_>>();
+    if text.trim().is_empty() && tool_calls.is_empty() {
+        return Err("Agent 没有返回文本或 Tool Call".into());
+    }
+    Ok(AgentModelResponse {
+        text,
+        tool_calls,
+        mode: "stream".into(),
+    })
+}
+
+fn parse_agent_tool_response(
+    body: &str,
+    mode: &str,
+    _runtime_state: Option<&RuntimeState>,
+    _on_event: &mut impl FnMut(ChatProgressEventData),
+) -> Result<AgentModelResponse, String> {
+    let value: Value =
+        serde_json::from_str(body).map_err(|error| format!("Agent 返回无效 JSON: {error}"))?;
+    let message = value
+        .pointer("/choices/0/message")
+        .cloned()
+        .unwrap_or_default();
+    let text = message
+        .get("content")
+        .and_then(content_value_to_text)
+        .unwrap_or_default();
+    let mut tool_calls = Vec::new();
+    if let Some(items) = message.get("tool_calls").and_then(Value::as_array) {
+        for item in items {
+            let function = item.get("function").cloned().unwrap_or_default();
+            tool_calls.push(AgentModelToolCall {
+                id: item
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .into(),
+                name: function
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .into(),
+                arguments: function
+                    .get("arguments")
+                    .and_then(Value::as_str)
+                    .unwrap_or("{}")
+                    .into(),
+            });
+        }
+    }
+    if text.trim().is_empty() && tool_calls.is_empty() {
+        return Err("Agent 没有返回内容".into());
+    }
+    Ok(AgentModelResponse {
+        text,
+        tool_calls,
+        mode: mode.into(),
+    })
+}
+
+#[cfg(test)]
+mod agent_tool_tests {
+    use super::parse_agent_tool_response;
+
+    #[test]
+    fn non_stream_tool_call_is_parsed_with_arguments() {
+        let response = parse_agent_tool_response(
+            r#"{"choices":[{"message":{"content":null,"tool_calls":[{"id":"call-1","type":"function","function":{"name":"list_skills","arguments":"{\"query\":\"图像\"}"}}]}}]}"#,
+            "non-stream",
+            None,
+            &mut |_| {},
+        )
+        .unwrap();
+        assert_eq!(response.tool_calls.len(), 1);
+        assert_eq!(response.tool_calls[0].name, "list_skills");
+        assert!(response.tool_calls[0].arguments.contains("query"));
+    }
+
+    #[test]
+    fn non_stream_plain_text_remains_an_assistant_response() {
+        let response = parse_agent_tool_response(
+            r#"{"choices":[{"message":{"content":"你好","tool_calls":[]}}]}"#,
+            "non-stream",
+            None,
+            &mut |_| {},
+        )
+        .unwrap();
+        assert_eq!(response.text, "你好");
+        assert!(response.tool_calls.is_empty());
+    }
+}
+
 pub(crate) async fn fill_template_response<F>(
     provider: &ApiProvider,
     template: &str,

@@ -493,6 +493,25 @@ pub struct AgentSkillContext {
     pub references: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentSkillSummary {
+    pub id: String,
+    pub name: String,
+    pub notes: String,
+    pub source_url: String,
+    #[serde(default)]
+    pub capabilities: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentTaskStatus {
+    pub task_group_id: String,
+    #[serde(default)]
+    pub tasks: Vec<TaskRecord>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentImagePlan {
