@@ -8,6 +8,7 @@ dist/
 .vite/
 coverage/
 release/
+.codegraph/
 
 # Agent 改造期间的本地临时任务清单
 docs/agent-implementation-tasks.md
