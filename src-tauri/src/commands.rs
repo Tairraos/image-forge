@@ -227,7 +227,13 @@ pub(crate) async fn send_agent_message(
         .insert(session_id.clone(), task.abort_handle());
     let output = match task.await {
         Ok(result) => result,
-        Err(error) if error.is_cancelled() => Err("Agent 对话已停止".into()),
+        Err(error) if error.is_cancelled() => {
+            app.state::<RuntimeState>().push_log(
+                "agent.cancel.complete",
+                format!("session_id={session_id} resources=released"),
+            );
+            Err("Agent 对话已停止".into())
+        }
         Err(error) => Err(format!("Agent 对话任务失败: {error}")),
     };
     if let Ok(mut tasks) = app.state::<RuntimeState>().agent_tasks.lock() {
@@ -333,6 +339,10 @@ pub(crate) fn cancel_agent_turn(app: AppHandle, session_id: String) -> Result<bo
         .remove(&session_id);
     if let Some(handle) = handle {
         handle.abort();
+        app.state::<RuntimeState>().push_log(
+            "agent.cancel.request",
+            format!("session_id={session_id} request=abort_requested"),
+        );
         record_operation(
             "停止 Agent 对话",
             "成功",

@@ -51,8 +51,46 @@ pub(crate) async fn agent_completion(
     mut on_event: impl FnMut(ChatProgressEventData),
 ) -> Result<AgentModelResponse, String> {
     let started = Instant::now();
-    let base_url = normalize_base_url(&provider.base_url)?;
-    let client = chat_completion_client(&provider.proxy_url, CHAT_COMPLETION_TIMEOUT_SECONDS)?;
+    let proxy = if provider.proxy_url.trim().is_empty() {
+        "off"
+    } else {
+        "on"
+    };
+    record_runtime_log(
+        runtime_state,
+        "agent_tools.request",
+        format!(
+            "provider_id={} model={} tools={} proxy={} timeout_seconds={}",
+            provider.id,
+            provider.image_model,
+            tools.len(),
+            proxy,
+            CHAT_COMPLETION_TIMEOUT_SECONDS
+        ),
+    );
+    let base_url = normalize_base_url(&provider.base_url).map_err(|error| {
+        record_request_error(
+            runtime_state,
+            "agent_tools.error",
+            &started,
+            None,
+            CHAT_COMPLETION_TIMEOUT_SECONDS,
+            &error,
+        );
+        error
+    })?;
+    let client = chat_completion_client(&provider.proxy_url, CHAT_COMPLETION_TIMEOUT_SECONDS)
+        .map_err(|error| {
+            record_request_error(
+                runtime_state,
+                "agent_tools.error",
+                &started,
+                None,
+                CHAT_COMPLETION_TIMEOUT_SECONDS,
+                &error,
+            );
+            error
+        })?;
     let url = format!("{base_url}/chat/completions");
     let payload = json!({
         "model": provider.image_model,
@@ -62,21 +100,6 @@ pub(crate) async fn agent_completion(
         "temperature": 0.2,
         "stream": true
     });
-    record_runtime_log(
-        runtime_state,
-        "agent_tools.request",
-        format!(
-            "provider_id={} model={} tools={} proxy={}",
-            provider.id,
-            provider.image_model,
-            tools.len(),
-            if provider.proxy_url.trim().is_empty() {
-                "off"
-            } else {
-                "on"
-            }
-        ),
-    );
     let response = client
         .post(&url)
         .bearer_auth(provider.api_key.trim())
@@ -86,9 +109,35 @@ pub(crate) async fn agent_completion(
         .json(&payload)
         .send()
         .await
-        .map_err(|error| format!("Agent 请求失败: {error}"))?;
+        .map_err(|error| {
+            let message = if error.is_timeout() {
+                format!("Agent 请求超时：超过 {CHAT_COMPLETION_TIMEOUT_SECONDS} 秒未返回结果")
+            } else {
+                format!("Agent 请求失败: {error}")
+            };
+            record_request_error(
+                runtime_state,
+                "agent_tools.error",
+                &started,
+                None,
+                CHAT_COMPLETION_TIMEOUT_SECONDS,
+                &message,
+            );
+            message
+        })?;
     let status = response.status();
     let is_stream = is_stream_content_type(response.headers().get(CONTENT_TYPE));
+    record_runtime_log(
+        runtime_state,
+        "agent_tools.response",
+        format!(
+            "elapsed_ms={} status={} timeout_seconds={} stream={}",
+            started.elapsed().as_millis(),
+            status,
+            CHAT_COMPLETION_TIMEOUT_SECONDS,
+            is_stream
+        ),
+    );
     if !status.is_success() {
         let body = response.text().await.unwrap_or_default();
         let message = if looks_like_agent_tools_unsupported(status, &body) {
@@ -109,13 +158,43 @@ pub(crate) async fn agent_completion(
         return Err(message);
     }
     if is_stream {
-        return consume_agent_tool_stream(response, started, runtime_state, &mut on_event).await;
+        return consume_agent_tool_stream(response, started, runtime_state, &mut on_event)
+            .await
+            .map_err(|error| {
+                record_request_error(
+                    runtime_state,
+                    "agent_tools.error",
+                    &started,
+                    Some(status),
+                    CHAT_COMPLETION_TIMEOUT_SECONDS,
+                    &error,
+                );
+                error
+            });
     }
-    let body = response
-        .text()
-        .await
-        .map_err(|error| format!("读取 Agent 响应失败: {error}"))?;
-    parse_agent_tool_response(&body, "non-stream", runtime_state, &mut on_event)
+    let body = response.text().await.map_err(|error| {
+        let message = format!("读取 Agent 响应失败: {error}");
+        record_request_error(
+            runtime_state,
+            "agent_tools.error",
+            &started,
+            Some(status),
+            CHAT_COMPLETION_TIMEOUT_SECONDS,
+            &message,
+        );
+        message
+    })?;
+    parse_agent_tool_response(&body, "non-stream", runtime_state, &mut on_event).map_err(|error| {
+        record_request_error(
+            runtime_state,
+            "agent_tools.error",
+            &started,
+            Some(status),
+            CHAT_COMPLETION_TIMEOUT_SECONDS,
+            &error,
+        );
+        error
+    })
 }
 
 async fn consume_agent_tool_stream(
@@ -501,7 +580,7 @@ where
         runtime_state,
         &format!("{event_prefix}.start"),
         format!(
-            "provider_id={} provider_name={} model={} {} proxy={} prefer_stream={}",
+            "provider_id={} provider_name={} model={} {} proxy={} timeout_seconds={} prefer_stream={}",
             provider.id,
             provider.name,
             provider.image_model,
@@ -511,6 +590,7 @@ where
             } else {
                 "on"
             },
+            timeout_seconds,
             prefer_stream
         ),
     );
@@ -571,6 +651,9 @@ where
             user_content,
             true,
             timeout_seconds,
+            started,
+            event_prefix,
+            runtime_state,
         )
         .await
         {
@@ -578,6 +661,16 @@ where
                 if response.status().is_success()
                     && is_stream_content_type(response.headers().get(CONTENT_TYPE))
                 {
+                    record_runtime_log(
+                        runtime_state,
+                        &format!("{event_prefix}.response"),
+                        format!(
+                            "elapsed_ms={} status={} timeout_seconds={} stream=true",
+                            started.elapsed().as_millis(),
+                            response.status(),
+                            timeout_seconds
+                        ),
+                    );
                     on_event(ChatProgressEventData {
                         phase: "mode",
                         mode: "stream",
@@ -635,6 +728,9 @@ where
                         user_content,
                         false,
                         timeout_seconds,
+                        started,
+                        event_prefix,
+                        runtime_state,
                     )
                     .await?;
                     let fallback_text = read_response_body(
@@ -696,6 +792,9 @@ where
         user_content,
         false,
         timeout_seconds,
+        started,
+        event_prefix,
+        runtime_state,
     )
     .await?;
     on_event(ChatProgressEventData {
@@ -734,6 +833,9 @@ async fn send_chat_request(
     user_content: &str,
     stream: bool,
     timeout_seconds: u64,
+    started: Instant,
+    event_prefix: &str,
+    runtime_state: Option<&RuntimeState>,
 ) -> Result<reqwest::Response, String> {
     let payload = json!({
         "model": provider.image_model,
@@ -761,11 +863,20 @@ async fn send_chat_request(
         .send()
         .await
         .map_err(|error| {
-            if error.is_timeout() {
+            let message = if error.is_timeout() {
                 format!("请求超时：超过 {timeout_seconds} 秒未返回结果")
             } else {
                 format!("请求失败: {error}")
-            }
+            };
+            record_request_error(
+                runtime_state,
+                &format!("{event_prefix}.request_error"),
+                &started,
+                None,
+                timeout_seconds,
+                &message,
+            );
+            message
         })
 }
 
@@ -1170,6 +1281,27 @@ fn record_runtime_log(runtime_state: Option<&RuntimeState>, event: &str, message
     if let Some(runtime_state) = runtime_state {
         runtime_state.push_log(event, message);
     }
+}
+
+fn record_request_error(
+    runtime_state: Option<&RuntimeState>,
+    event: &str,
+    started: &Instant,
+    status: Option<StatusCode>,
+    timeout_seconds: u64,
+    error: &str,
+) {
+    record_runtime_log(
+        runtime_state,
+        event,
+        format!(
+            "elapsed_ms={} status={} timeout_seconds={} error={}",
+            started.elapsed().as_millis(),
+            status.map_or_else(|| "none".into(), |status| status.to_string()),
+            timeout_seconds,
+            error
+        ),
+    );
 }
 
 fn placeholder_count(value: &str) -> usize {
