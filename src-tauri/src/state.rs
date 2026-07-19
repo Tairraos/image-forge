@@ -171,7 +171,24 @@ fn simplify_path(value: &str) -> String {
 }
 
 fn sanitize(value: &str) -> String {
-    value.replace(['\n', '\r'], " ").trim().to_string()
+    let value = value.replace(['\n', '\r'], " ");
+    redact_data_root(value.trim())
+}
+
+fn redact_data_root(value: &str) -> String {
+    let Some(home) = std::env::var_os("HOME") else {
+        return value.to_string();
+    };
+    redact_path_prefix(value, &Path::new(&home).join(".image-forge"))
+}
+
+fn redact_path_prefix(value: &str, root: &Path) -> String {
+    let root = root.to_string_lossy();
+    if root.is_empty() {
+        value.to_string()
+    } else {
+        value.replace(root.as_ref(), "<data-dir>")
+    }
 }
 
 fn non_empty(value: &str) -> String {
@@ -211,6 +228,8 @@ fn proxy_from_message(message: &str) -> Option<bool> {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::format_log_line;
 
     #[test]
@@ -242,6 +261,28 @@ mod tests {
         assert_eq!(
             line,
             "07-17 18:48:14 - 读取数据文件 - 成功 - path=queue.json, bytes=87"
+        );
+    }
+
+    #[test]
+    fn log_redacts_data_root_inside_error_messages() {
+        let home = std::env::var_os("HOME").expect("测试环境需要 HOME");
+        let root = Path::new(&home).join(".image-forge");
+        let error = format!(
+            "读取 {} 失败",
+            root.join("agent/sessions/session.json").display()
+        );
+        let line = format_log_line(
+            "07-17 18:48:14",
+            "读取数据文件",
+            "失败",
+            "",
+            None,
+            Some(&error),
+        );
+        assert_eq!(
+            line,
+            "07-17 18:48:14 - 读取数据文件 - 失败 - 错误=读取 <data-dir>/agent/sessions/session.json 失败"
         );
     }
 }
