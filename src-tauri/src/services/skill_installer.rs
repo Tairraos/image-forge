@@ -1043,6 +1043,31 @@ mod tests {
     }
 
     #[test]
+    fn local_install_can_preserve_source_url_in_saved_entry() {
+        let source = fixture(
+            "source-url",
+            "---\nname: 来源 URL Skill\n---\n# 来源 URL Skill\n## 规则\n只生成图片计划",
+        );
+        let data_dir = fixture("source-url-data", "# placeholder");
+        fs::create_dir_all(data_dir.join("skills")).unwrap();
+        fs::create_dir_all(data_dir.join(".staging")).unwrap();
+        fs::write(data_dir.join("skills.json"), "[]").unwrap();
+        let (skill, _) = install_local_skill(
+            &data_dir,
+            &source,
+            false,
+            Some("https://example.com/skills/source-url"),
+        )
+        .unwrap();
+        assert_eq!(
+            skill.source_url,
+            "https://example.com/skills/source-url"
+        );
+        recycle(&source);
+        recycle(&data_dir);
+    }
+
+    #[test]
     fn loading_a_legacy_package_creates_manifest_without_touching_rejected_content() {
         let data_dir = fixture("legacy-data", "# placeholder");
         let package = data_dir.join("skills").join("legacy-skill");
