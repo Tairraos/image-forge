@@ -158,27 +158,47 @@ pub(crate) async fn send_agent_message(
         }
         context.push_str("</skill>");
     }
-    let session_for_event = session_id.clone();
-    let app_for_event = app.clone();
-    let output = agent_response(
-        &provider,
-        &context,
-        &content,
-        Some(app.state::<RuntimeState>().inner()),
-        move |event| {
-            let _ = app_for_event.emit(
-                "agent-progress",
-                AgentProgressEvent {
-                    session_id: session_for_event.clone(),
-                    phase: event.phase.into(),
-                    mode: event.mode.into(),
-                    chunk: event.chunk,
-                    message: event.message,
-                },
-            );
-        },
-    )
-    .await;
+    let task_provider = provider.clone();
+    let task_context = context.clone();
+    let task_content = content.clone();
+    let session_for_task = session_id.clone();
+    let app_for_task = app.clone();
+    let task = tokio::spawn(async move {
+        let session_for_event = session_for_task.clone();
+        let app_for_event = app_for_task.clone();
+        agent_response(
+            &task_provider,
+            &task_context,
+            &task_content,
+            Some(app_for_task.state::<RuntimeState>().inner()),
+            move |event| {
+                let _ = app_for_event.emit(
+                    "agent-progress",
+                    AgentProgressEvent {
+                        session_id: session_for_event.clone(),
+                        phase: event.phase.into(),
+                        mode: event.mode.into(),
+                        chunk: event.chunk,
+                        message: event.message,
+                    },
+                );
+            },
+        )
+        .await
+    });
+    app.state::<RuntimeState>()
+        .agent_tasks
+        .lock()
+        .map_err(|_| "Agent 任务状态锁定失败")?
+        .insert(session_id.clone(), task.abort_handle());
+    let output = match task.await {
+        Ok(result) => result,
+        Err(error) if error.is_cancelled() => Err("Agent 对话已停止".into()),
+        Err(error) => Err(format!("Agent 对话任务失败: {error}")),
+    };
+    if let Ok(mut tasks) = app.state::<RuntimeState>().agent_tasks.lock() {
+        tasks.remove(&session_id);
+    }
     let result = match output {
         Ok(output) => {
             current = append_message(
@@ -205,6 +225,23 @@ pub(crate) async fn send_agent_message(
         &result,
     );
     result
+}
+
+#[tauri::command]
+pub(crate) fn cancel_agent_turn(app: AppHandle, session_id: String) -> Result<bool, String> {
+    let handle = app
+        .state::<RuntimeState>()
+        .agent_tasks
+        .lock()
+        .map_err(|_| "Agent 任务状态锁定失败")?
+        .remove(&session_id);
+    if let Some(handle) = handle {
+        handle.abort();
+        record_operation("停止 Agent 对话", "成功", format!("session_id={session_id}"), None, None);
+        Ok(true)
+    } else {
+        Ok(false)
+    }
 }
 
 async fn normalize_agent_output(

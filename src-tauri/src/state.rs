@@ -1,5 +1,5 @@
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     path::Path,
     sync::{Mutex, OnceLock},
 };
@@ -12,6 +12,7 @@ pub struct RuntimeState {
     pub worker_active: Mutex<bool>,
     pub cancel_requests: Mutex<HashSet<String>>,
     pub deleted_tasks: Mutex<HashSet<String>>,
+    pub agent_tasks: Mutex<HashMap<String, tokio::task::AbortHandle>>,
 }
 
 impl RuntimeState {
@@ -20,6 +21,7 @@ impl RuntimeState {
             worker_active: Mutex::new(false),
             cancel_requests: Mutex::new(HashSet::new()),
             deleted_tasks: Mutex::new(HashSet::new()),
+            agent_tasks: Mutex::new(HashMap::new()),
         }
     }
 

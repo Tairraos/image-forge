@@ -20,6 +20,7 @@ pub fn run() {
             commands::create_agent_session,
             commands::create_agent_image_tasks,
             commands::cleanup_data_files,
+            commands::cancel_agent_turn,
             commands::delete_task,
             commands::delete_skill,
             commands::delete_template,

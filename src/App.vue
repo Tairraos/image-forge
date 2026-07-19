@@ -614,7 +614,14 @@ async function installAgentSkill() {
   }
 }
 
-function stopAgentConversation() {
+async function stopAgentConversation() {
+  if (currentAgentSessionId.value) {
+    try {
+      await invoke("cancel_agent_turn", { sessionId: currentAgentSessionId.value });
+    } catch (error) {
+      setStatus(String(error), "error");
+    }
+  }
   agentBusy.value = false;
   agentStreamText.value = "";
 }
