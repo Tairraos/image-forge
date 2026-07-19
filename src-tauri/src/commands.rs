@@ -37,8 +37,9 @@ use crate::{
         enqueue_task, ensure_data_dir, next_template_id, normalize_request, normalize_settings,
         normalize_skill, normalize_template, params_from_request, provider_for_request,
         read_history, read_json, read_queue, read_settings, read_skills, read_templates,
-        refresh_history_output_sizes, request_path, skills_path, templates_path, upsert_history,
-        write_history, write_json, write_queue, write_settings,
+        refresh_history_output_sizes, request_path, templates_path, upsert_history,
+        is_safe_skill_directory, skill_directory_name, skill_package_path, skills_dir,
+        write_history, write_json, write_queue, write_settings, write_skill_index,
     },
     utils::utc_now,
 };
@@ -131,11 +132,20 @@ pub(crate) fn read_api_providers_file(_app: AppHandle, path: String) -> Result<S
 }
 
 #[tauri::command]
-/// 读取拖入的 Markdown Skill 文件，限制为 1 MB 以内的本地文件。
+/// 读取拖入的 Markdown Skill 文件或包含 SKILL.md 的目录。
 pub(crate) fn read_skill_markdown_file(_app: AppHandle, path: String) -> Result<String, String> {
-    let path = Path::new(path.trim());
-    let params = format!("path={}", path.display());
+    let input_path = Path::new(path.trim());
+    let params = format!("path={}", input_path.display());
     let result = (|| {
+        let path = if input_path.is_dir() {
+            ["SKILL.md", "skill.md"]
+                .into_iter()
+                .map(|name| input_path.join(name))
+                .find(|candidate| candidate.is_file())
+                .ok_or("目录中没有找到 SKILL.md")?
+        } else {
+            input_path.to_path_buf()
+        };
         if !path.is_file() {
             return Err("找不到拖入的文件".into());
         }
@@ -147,11 +157,11 @@ pub(crate) fn read_skill_markdown_file(_app: AppHandle, path: String) -> Result<
             return Err("只支持拖入 .md 文件".into());
         }
         let metadata =
-            fs::metadata(path).map_err(|error| format!("读取 Skill 文件失败: {error}"))?;
+            fs::metadata(&path).map_err(|error| format!("读取 Skill 文件失败: {error}"))?;
         if metadata.len() > 1_048_576 {
             return Err("Skill 文件超过 1 MB".into());
         }
-        fs::read_to_string(path).map_err(|error| format!("读取 Skill 文件失败: {error}"))
+        fs::read_to_string(&path).map_err(|error| format!("读取 Skill 文件失败: {error}"))
     })();
     record_result("读取 Skill Markdown 文件", &params, None, &result);
     result
@@ -525,10 +535,42 @@ pub(crate) fn save_skill(app: AppHandle, skill: SkillEntry) -> Result<Vec<SkillE
     let data_dir = ensure_data_dir(&app)?;
     let mut skills = read_skills(&data_dir)?;
     let mut next = normalize_skill(skill)?;
+    let previous_directory = skills
+        .iter()
+        .find(|item| item.id == next.id)
+        .map(|item| item.directory.clone());
     if next.id.is_empty() {
         next.id = Uuid::new_v4().to_string();
         next.created_at = utc_now();
     }
+    let mut directory = skill_directory_name(&next.name, &next.id);
+    let base_directory = directory.clone();
+    let mut suffix = 2;
+    while skills
+        .iter()
+        .any(|item| item.id != next.id && item.directory == directory)
+    {
+        directory = format!("{}-{}", base_directory, suffix);
+        suffix += 1;
+    }
+    next.directory = directory;
+    let package_dir = skills_dir(&data_dir).join(&next.directory);
+    if let Some(previous_directory) = previous_directory
+        .filter(|value| value != &next.directory && is_safe_skill_directory(value))
+    {
+        let previous_package_dir = skills_dir(&data_dir).join(previous_directory);
+        if previous_package_dir.is_dir() {
+            if package_dir.exists() {
+                return Err(format!("Skill 目录已存在：{}", package_dir.display()));
+            }
+            fs::rename(previous_package_dir, &package_dir)
+                .map_err(|error| format!("重命名 Skill 目录失败: {error}"))?;
+        }
+    }
+    fs::create_dir_all(&package_dir).map_err(|error| format!("创建 Skill 目录失败: {error}"))?;
+    fs::write(skill_package_path(&data_dir, &next.directory), format!("{}\n", next.content))
+        .map_err(|error| format!("写入 SKILL.md 失败: {error}"))?;
+    copy_skill_references(&next.source_path, &package_dir)?;
     next.updated_at = utc_now();
     if let Some(index) = skills.iter().position(|item| item.id == next.id) {
         next.created_at = skills[index].created_at.clone();
@@ -536,7 +578,7 @@ pub(crate) fn save_skill(app: AppHandle, skill: SkillEntry) -> Result<Vec<SkillE
     } else {
         skills.push(next);
     }
-    write_json(&skills_path(&data_dir), &skills)?;
+    write_skill_index(&data_dir, &skills)?;
     Ok(skills)
 }
 
@@ -545,9 +587,106 @@ pub(crate) fn save_skill(app: AppHandle, skill: SkillEntry) -> Result<Vec<SkillE
 pub(crate) fn delete_skill(app: AppHandle, skill_id: String) -> Result<Vec<SkillEntry>, String> {
     let data_dir = ensure_data_dir(&app)?;
     let mut skills = read_skills(&data_dir)?;
+    if let Some(skill) = skills
+        .iter()
+        .find(|skill| skill.id == skill_id && is_safe_skill_directory(&skill.directory))
+    {
+        let package_dir = skills_dir(&data_dir).join(&skill.directory);
+        if package_dir.starts_with(skills_dir(&data_dir)) && package_dir.is_dir() {
+            fs::remove_dir_all(package_dir).map_err(|error| format!("删除 Skill 目录失败: {error}"))?;
+        }
+    }
     skills.retain(|skill| skill.id != skill_id);
-    write_json(&skills_path(&data_dir), &skills)?;
+    write_skill_index(&data_dir, &skills)?;
     Ok(skills)
+}
+
+fn copy_skill_references(source_path: &str, package_dir: &Path) -> Result<(), String> {
+    let source_path = source_path.trim();
+    if source_path.is_empty() {
+        return Ok(());
+    }
+    let source = Path::new(source_path);
+    let source_dir = if source.is_dir() {
+        source.to_path_buf()
+    } else {
+        source.parent().unwrap_or_else(|| Path::new(".")).to_path_buf()
+    };
+    let source_references = source_dir.join("references");
+    if !source_references.is_dir() {
+        return Ok(());
+    }
+    let target_references = package_dir.join("references");
+    fs::create_dir_all(&target_references)
+        .map_err(|error| format!("创建 Skill references 目录失败: {error}"))?;
+    for entry in fs::read_dir(&source_references)
+        .map_err(|error| format!("读取 Skill references 目录失败: {error}"))?
+    {
+        let entry = entry.map_err(|error| format!("读取 Skill reference 文件失败: {error}"))?;
+        let path = entry.path();
+        if !path.is_file()
+            || !path
+                .extension()
+                .and_then(|value| value.to_str())
+                .is_some_and(|value| value.eq_ignore_ascii_case("md"))
+        {
+            continue;
+        }
+        let file_name = path
+            .file_name()
+            .ok_or("Skill reference 文件名无效")?;
+        let bytes = fs::read(&path).map_err(|error| format!("读取 Skill reference 失败: {error}"))?;
+        if bytes.len() > 1_048_576 {
+            return Err(format!("Skill reference 文件超过 1 MB：{}", path.display()));
+        }
+        fs::write(target_references.join(file_name), bytes)
+            .map_err(|error| format!("写入 Skill reference 失败: {error}"))?;
+    }
+    Ok(())
+}
+
+fn load_skill_package_content(data_dir: &Path, skill: &SkillEntry) -> Result<String, String> {
+    let entry_path = skill_package_path(data_dir, &skill.directory);
+    let content = if entry_path.is_file() {
+        fs::read_to_string(&entry_path)
+            .map_err(|error| format!("读取 Skill.md 失败: {error}"))?
+    } else {
+        skill.content.clone()
+    };
+    let references_dir = entry_path
+        .parent()
+        .map(|path| path.join("references"))
+        .unwrap_or_default();
+    if !references_dir.is_dir() {
+        return Ok(content.trim().to_string());
+    }
+    let mut reference_paths = fs::read_dir(&references_dir)
+        .map_err(|error| format!("读取 Skill references 目录失败: {error}"))?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.is_file()
+                && path
+                    .extension()
+                    .and_then(|value| value.to_str())
+                    .is_some_and(|value| value.eq_ignore_ascii_case("md"))
+        })
+        .collect::<Vec<_>>();
+    reference_paths.sort();
+    let mut routed = content.trim().to_string();
+    for path in reference_paths {
+        let reference = fs::read_to_string(&path)
+            .map_err(|error| format!("读取 Skill reference 失败: {error}"))?;
+        if reference.trim().is_empty() {
+            continue;
+        }
+        routed.push_str("\n\n<skill_reference path=\"");
+        routed.push_str(&path.file_name().unwrap_or_default().to_string_lossy());
+        routed.push_str("\">\n");
+        routed.push_str(reference.trim());
+        routed.push_str("\n</skill_reference>");
+    }
+    Ok(routed)
 }
 
 #[tauri::command]
@@ -791,7 +930,8 @@ pub(crate) async fn plan_skill_generation(
         .ok_or("找不到指定的 Skill")?;
 
     let conversation = normalize_skill_conversation(conversation);
-    let routed_skill = route_skill_content(&skill.content, &prompt, &conversation);
+    let skill_content = load_skill_package_content(&data_dir, &skill)?;
+    let routed_skill = route_skill_content(&skill_content, &prompt, &conversation);
     let system_prompt = build_skill_planner_system_prompt(&skill.name, &routed_skill);
     let user_content =
         build_skill_planner_user_content(&prompt, &conversation, has_reference_images);
@@ -1364,6 +1504,32 @@ fn normalize_skill_image(image: SkillImagePlan) -> Option<SkillImagePlan> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn skill_package_content_includes_markdown_references() {
+        let root = std::env::temp_dir().join(format!("image-forge-skill-{}", Uuid::new_v4()));
+        let package = root.join("skills").join("image-director");
+        fs::create_dir_all(package.join("references")).unwrap();
+        fs::write(package.join("SKILL.md"), "# Image Director\n\nMain rules").unwrap();
+        fs::write(package.join("references").join("camera.md"), "# Camera\n\nUse 50mm").unwrap();
+        let skill = SkillEntry {
+            id: "skill-id".into(),
+            name: "image-director".into(),
+            source_url: String::new(),
+            notes: String::new(),
+            content: String::new(),
+            directory: "image-director".into(),
+            source_path: String::new(),
+            created_at: String::new(),
+            updated_at: String::new(),
+        };
+
+        let content = load_skill_package_content(&root, &skill).unwrap();
+        assert!(content.contains("Main rules"));
+        assert!(content.contains("<skill_reference path=\"camera.md\">"));
+        assert!(content.contains("Use 50mm"));
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn imported_templates_skip_duplicates_and_continue_numeric_ids() {

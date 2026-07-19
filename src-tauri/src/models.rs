@@ -338,8 +338,14 @@ pub struct SkillEntry {
     pub source_url: String,
     #[serde(default)]
     pub notes: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub content: String,
+    /// `skills/` 下的包目录名，通常与 Skill 名称相同或是其文件名安全化形式。
+    #[serde(default)]
+    pub directory: String,
+    /// 仅用于保存时接收用户拖入的本地 Skill 路径，不写回 skills.json。
+    #[serde(default, skip_serializing)]
+    pub source_path: String,
     #[serde(default = "utc_now")]
     pub created_at: String,
     #[serde(default = "utc_now")]

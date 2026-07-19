@@ -1,6 +1,6 @@
 # Image Forge Skill 处理流程
 
-本文描述 Image Forge `1.0.1` 代码中的 Skill 真实处理流程，并在后半部分给出一套更一致、可扩展的新流程建议。这里的 Skill 指保存在本机 `skills.json` 中、由 Markdown 描述且不依赖外部脚本的图片工作流规范。
+本文描述 Image Forge `1.0.17` 代码中的 Skill 真实处理流程，并在后半部分给出一套更一致、可扩展的新流程建议。这里的 Skill 指保存在 `~/.image-forge/skills/<skill-name>/` 中、由 Markdown 描述且不依赖外部脚本的图片工作流规范。
 
 ## 一、当前实现
 
@@ -10,7 +10,7 @@ Skill 可以通过三种方式进入编辑器：
 
 1. 手工粘贴 Markdown；
 2. 从 HTTP、HTTPS 或 GitHub URL 提取 Markdown；
-3. 把本地 `.md` 文件拖到 URL 区或内容区。
+3. 把本地 `.md` 文件或包含 `SKILL.md` 的目录拖到 URL 区或内容区。
 
 前端把草稿交给 Rust 命令 `save_skill`。后端在保存前调用 `normalize_skill`：
 
@@ -19,9 +19,10 @@ Skill 可以通过三种方式进入编辑器：
 - 检查 Markdown 是否引用外部脚本；
 - 按 frontmatter 的 `name`、一级标题、首个非空行的顺序自动提取名称；
 - 新 Skill 生成 UUID，写入创建和更新时间；
-- 最终保存到应用数据目录中的 `skills.json`。
+- 自动生成 `skills/<skill-name>/SKILL.md`；如果拖入的是本地 Skill 目录，同级 `references/*.md` 也会复制到包内；
+- `skills.json` 只保存 Skill 索引元数据，正文在运行时从 `SKILL.md` 读取。
 
-当前实现只接受纯 Markdown Skill，不执行 Skill 自带的脚本、命令或外部工具。
+当前实现只接受 Markdown Skill 包，不执行 Skill 自带的脚本、命令或外部工具。执行时会把包内 `references/*.md` 作为补充上下文加载。
 
 ### 2. Skill 的引用
 
@@ -67,7 +68,7 @@ Skill 可以通过三种方式进入编辑器：
 Rust 后端依次完成以下工作：
 
 1. 验证 session ID、对话模型和 API Key；
-2. 从 `skills.json` 重新读取指定 Skill；
+2. 从 `skills.json` 找到指定 Skill，再从 `skills/<skill-name>/SKILL.md` 和 `references/*.md` 读取内容；
 3. 清理补充对话中的空消息；
 4. 根据用户任务和补充回答选择需要交给模型的 Skill 内容；
 5. 生成系统提示词和用户提示词；

@@ -7,7 +7,7 @@
 ![Image Forge 1.0.1 运行界面](docs/image-forge-running.png)
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-1.0.16-9B7BEE?style=flat-square">
+  <img alt="version" src="https://img.shields.io/badge/version-1.0.17-9B7BEE?style=flat-square">
   <img alt="platform desktop" src="https://img.shields.io/badge/platform-desktop-111827?style=flat-square">
   <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white">
   <img alt="Vue" src="https://img.shields.io/badge/Vue-3-42B883?style=flat-square&logo=vuedotjs&logoColor=white">
@@ -17,7 +17,7 @@
 
 ## 简介
 
-Image Forge 是一个本地桌面生图工作台。它把 GPT、Gemini、Grok、Seedream 四套并不完全兼容的生图协议收进同一个工作台，同时管理 API 源、生成历史、结果预览、提示词模板和纯 Markdown Skill。
+Image Forge 是一个本地桌面生图工作台。它把 GPT、Gemini、Grok、Seedream 四套并不完全兼容的生图协议收进同一个工作台，同时管理 API 源、生成历史、结果预览、提示词模板和 Markdown Skill 包。
 
 它不是又一个只会转发提示词的薄壳：队列、参考图去重、协议分发、模板资产和 Skill 工作流都在本机真正跑起来。它不依赖 Python WebUI，也不把数据丢给外部数据库；除调用用户配置的模型 API 外，核心数据始终掌握在自己手里。
 
@@ -28,11 +28,11 @@ Image Forge 是一个本地桌面生图工作台。它把 GPT、Gemini、Grok、
 - 生图历史：任务入队、后台执行、刷新、重试、删除、运行状态轮询和失败自动重试，历史卡片显示真实图片尺寸；
 - 结果预览：选择历史任务后预览输出图片，支持复制、下载到 Downloads 和在 Finder 中定位；
 - 提示词模板：支持增删查改、参考图、单张效果图、从历史任务快速建模、流式 AI 填充 `{}` 占位和引用到提示词光标位置；
-- 纯 Markdown Skill：支持手动录入、Markdown 拖放导入，以及从 URL/GitHub 提取，自动识别名称并拒绝脚本依赖；可通过引用弹窗或 `@skill名` 调用，对话模型执行 Skill 时会在需要时弹窗追问，明确产出单图或多图提示词，并说明是否需要配合参考图，随后自动按 API 源并发进入画图队列；
+- Markdown Skill 包：支持手动录入、拖入 `.md` 或包含 `SKILL.md` 的目录，以及从 URL/GitHub 提取；以 `~/.image-forge/skills/<skill-name>/SKILL.md` 保存，自动读取同包 `references/*.md`，拒绝脚本依赖并从正文提取名称；可通过引用弹窗或 `@skill名` 调用，对话模型执行 Skill 时会在需要时弹窗追问，明确产出单图或多图提示词，并说明是否需要配合参考图，随后自动按 API 源并发进入画图队列；
 - 模板包导入导出：ZIP 同时包含版本化清单、可读 Markdown 和哈希图片，可直接导回并跳过重复模板；
 - 参考图工作流：支持文件选择、剪贴板图片、Finder 文件复制/剪切粘贴和文件拖放，按 SHA-256 去重持久化，历史重用和模板引用会恢复参考图；
 - 安全删除：历史、模板和 API 源删除前需要确认；参考图可直接从当前草稿移除；生成图及无人引用的参考图进入系统回收站；
-- 本地持久化：设置、队列、历史、请求、模板、Skill 和参考图都保存在本机应用数据目录；
+- 本地持久化：设置、队列、历史、请求、模板、Skill 包、生成图和参考图都保存在 `~/.image-forge`；
 - 马卡龙偏紫界面：三栏工作台、小型按钮、可拖拽调整 panel 宽度，默认把弹性空间留给结果预览。
 
 ## 界面结构
@@ -54,6 +54,11 @@ docs/technical-design.md
 ## 版本记录
 
 版本记录只保留影响产品能力、数据兼容或开发流程的里程碑，零散的样式微调和内部重构不再单独列出。
+
+### v1.0.17
+
+- 应用数据根目录迁移到 `~/.image-forge`，设置、队列、历史、请求、模板、生成图、参考图和剪贴板资源统一存放，并使用仅当前用户可读写的目录权限。
+- Skill 按 `skills/<skill-name>/SKILL.md` 保存，支持拖入包含 `SKILL.md` 的 Skill 目录，并在执行时加载同包 `references/*.md`；`skills.json` 改为只保存索引元数据。
 
 ### v1.0.16
 
@@ -81,7 +86,7 @@ docs/technical-design.md
 - Skill 维护列表按名称、备注、来源、操作分列，固定名称、来源和操作列宽。
 - 新增 Skill 备注、Markdown 拖放导入、`@` 补全和引用 Skill 弹窗；品牌区域支持使用自定义标题图片。
 - 生图 API 源扩展为 GPT、Gemini、Grok、Seedream 四种协议和对话模型，生成、参考图编辑与模型列表按类型使用对应请求结构。
-- 新增纯 Markdown Skill 管理、URL/GitHub 提取、名称自动识别和脚本依赖拦截。
+- 新增 Markdown Skill 包管理、URL/GitHub 提取、名称自动识别、同包 references 文档加载和脚本依赖拦截。
 - 新增 Skill 调用工作流：对话模型读取 Skill 和用户任务后生成最终生图提示词。
 - 模板维护支持持久化排序、标题查看、提示词悬浮预览和参考图缩略图预览。
 - 全局滚动条改为按需显示的细样式，减少滚动区域对内容布局的占用。

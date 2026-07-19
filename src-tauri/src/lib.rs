@@ -58,7 +58,8 @@ mod tests {
     use super::models::SkillEntry;
     use super::services::{images::reference_preview, references::persist_reference_bytes};
     use super::store::{
-        default_template_title, normalize_model_type, normalize_skill, skill_name_from_markdown,
+        default_template_title, is_safe_skill_directory, normalize_model_type, normalize_skill,
+        skill_directory_name, skill_name_from_markdown,
     };
     use super::utils::{
         image_prompt_for_transport, normalize_base_url, prompt_with_ratio_instruction, sanitize_id,
@@ -134,6 +135,14 @@ mod tests {
     }
 
     #[test]
+    fn skill_directory_names_are_codex_style_and_path_safe() {
+        assert_eq!(skill_directory_name("Image Director", "abc"), "image-director");
+        assert_eq!(skill_directory_name("构图 导演", "abc"), "构图-导演");
+        assert!(is_safe_skill_directory("image-director"));
+        assert!(!is_safe_skill_directory("../image-director"));
+    }
+
+    #[test]
     fn markdown_only_skills_reject_script_references() {
         let skill = SkillEntry {
             id: String::new(),
@@ -141,6 +150,8 @@ mod tests {
             source_url: String::new(),
             notes: String::new(),
             content: "# 测试\n\n运行 [脚本](scripts/render.py)".into(),
+            directory: String::new(),
+            source_path: String::new(),
             created_at: String::new(),
             updated_at: String::new(),
         };

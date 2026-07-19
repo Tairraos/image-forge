@@ -50,7 +50,7 @@
           :readonly="readonly"
           :autosize="{ minRows: 12, maxRows: 12 }"
           :resizable="false"
-          placeholder="粘贴 SKILL.md 内容，或拖入 .md 文件"
+          placeholder="粘贴 SKILL.md 内容，或拖入 Skill 目录 / .md 文件"
         />
       </div>
     </div>

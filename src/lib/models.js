@@ -87,6 +87,8 @@ export function emptySkill() {
     sourceUrl: "",
     notes: "",
     content: "",
+    directory: "",
+    sourcePath: "",
     createdAt: "",
     updatedAt: "",
   };

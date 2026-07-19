@@ -25,21 +25,38 @@ use crate::{
     },
 };
 
-/// 确保应用数据目录和必要子目录存在，并返回数据根路径。
+/// 确保应用数据目录和必要子目录存在，并返回 `~/.image-forge`。
 pub(crate) fn ensure_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let data_dir = app
         .path()
-        .app_data_dir()
-        .map_err(|error| format!("找不到应用数据目录: {error}"))?;
+        .home_dir()
+        .map_err(|error| format!("找不到用户 Home 目录: {error}"))?
+        .join(".image-forge");
+    ensure_private_directory(&data_dir)?;
     for dir in [
         data_dir.join("outputs"),
         data_dir.join("requests"),
         data_dir.join("clipboard"),
         data_dir.join("references"),
+        data_dir.join("skills"),
     ] {
-        fs::create_dir_all(dir).map_err(|error| format!("创建应用目录失败: {error}"))?;
+        ensure_private_directory(&dir)?;
     }
     Ok(data_dir)
+}
+
+fn ensure_private_directory(path: &Path) -> Result<(), String> {
+    if path.is_dir() {
+        return Ok(());
+    }
+    fs::create_dir_all(path).map_err(|error| format!("创建应用目录失败: {error}"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o700))
+            .map_err(|error| format!("设置应用目录权限失败: {error}"))?;
+    }
+    Ok(())
 }
 
 /// 根据用户设置解析输出目录，未配置时使用应用数据目录下的 outputs。
@@ -486,13 +503,67 @@ pub(crate) fn next_template_id(templates: &[PromptTemplate]) -> String {
 }
 
 pub(crate) fn read_skills(data_dir: &Path) -> Result<Vec<SkillEntry>, String> {
-    read_json(&skills_path(data_dir))
+    let mut skills: Vec<SkillEntry> = read_json(&skills_path(data_dir))?;
+    for skill in &mut skills {
+        if !is_safe_skill_directory(&skill.directory) {
+            skill.directory = skill_directory_name(&skill.name, &skill.id);
+        }
+        let path = skill_package_path(data_dir, &skill.directory);
+        if path.is_file() {
+            skill.content = fs::read_to_string(path)
+                .map_err(|error| format!("读取 Skill 包失败: {error}"))?
+                .trim()
+                .to_string();
+        } else if skill.content.is_empty() {
+            return Err(format!("Skill「{}」缺少 SKILL.md", skill.name));
+        }
+    }
+    Ok(skills)
+}
+
+pub(crate) fn write_skill_index(data_dir: &Path, skills: &[SkillEntry]) -> Result<(), String> {
+    let mut stored_skills = skills.to_vec();
+    for skill in &mut stored_skills {
+        skill.content.clear();
+        skill.source_path.clear();
+    }
+    write_json(&skills_path(data_dir), &stored_skills)
+}
+
+/// 将展示名称转换成安全、稳定的 Skill 包目录名。
+pub(crate) fn skill_directory_name(name: &str, id: &str) -> String {
+    let mut result = String::new();
+    for ch in name.trim().chars() {
+        if ch.is_alphanumeric() || matches!(ch, '-' | '_') {
+            result.push(ch.to_ascii_lowercase());
+        } else if !result.ends_with('-') {
+            result.push('-');
+        }
+    }
+    let result = result.trim_matches('-').to_string();
+    if result.is_empty() {
+        format!("skill-{}", id.trim().chars().take(12).collect::<String>())
+    } else {
+        result.chars().take(96).collect()
+    }
+}
+
+pub(crate) fn is_safe_skill_directory(value: &str) -> bool {
+    let value = value.trim();
+    !value.is_empty()
+        && value != "."
+        && value != ".."
+        && value
+            .chars()
+            .all(|ch| ch.is_alphanumeric() || matches!(ch, '-' | '_'))
 }
 
 /// 清理 Skill 内容，自动提取名称，并拒绝依赖外部脚本的定义。
 pub(crate) fn normalize_skill(mut skill: SkillEntry) -> Result<SkillEntry, String> {
     skill.id = skill.id.trim().to_string();
     skill.source_url = skill.source_url.trim().to_string();
+    skill.directory = skill.directory.trim().to_string();
+    skill.source_path = skill.source_path.trim().to_string();
     skill.notes = skill.notes.trim().to_string();
     skill.content = skill.content.trim().to_string();
     if skill.content.is_empty() {
@@ -724,6 +795,14 @@ pub(crate) fn skills_path(data_dir: &Path) -> PathBuf {
     data_dir.join("skills.json")
 }
 
+pub(crate) fn skills_dir(data_dir: &Path) -> PathBuf {
+    data_dir.join("skills")
+}
+
+pub(crate) fn skill_package_path(data_dir: &Path, directory: &str) -> PathBuf {
+    skills_dir(data_dir).join(directory).join("SKILL.md")
+}
+
 /// 归一化单个 API 源，隐藏并固定不再由界面维护的字段。
 fn normalize_provider(provider: ApiProvider, index: usize) -> ApiProvider {
     let fallback_id;
@@ -746,7 +825,9 @@ fn normalize_provider(provider: ApiProvider, index: usize) -> ApiProvider {
         api_key: provider.api_key.trim().to_string(),
         proxy_url: provider.proxy_url.trim().to_string(),
         image_model: clean_text(provider.image_model, DEFAULT_IMAGE_MODEL),
-        images_concurrency: provider.images_concurrency.max(default_provider_concurrency()),
+        images_concurrency: provider
+            .images_concurrency
+            .max(default_provider_concurrency()),
         enabled: provider.enabled,
         notes: String::new(),
     }

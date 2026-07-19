@@ -1113,12 +1113,12 @@ async function fetchSkillContent() {
 
 async function handleSkillMarkdownDrop(event) {
   const file = Array.from(event?.dataTransfer?.files || [])[0];
-  if (file?.name && !file.name.toLowerCase().endsWith(".md")) {
-    setStatus("只支持拖入 .md 文件", "error");
-    return;
-  }
   if (file?.path) {
     await loadSkillMarkdownPath(file.path);
+    return;
+  }
+  if (file?.name && !file.name.toLowerCase().endsWith(".md")) {
+    setStatus("只支持拖入 Skill 目录或 .md 文件", "error");
     return;
   }
   if (file?.text) {
@@ -1133,6 +1133,7 @@ async function handleSkillMarkdownDrop(event) {
 async function loadSkillMarkdownPath(path) {
   try {
     skillDraft.content = await invoke("read_skill_markdown_file", { path });
+    skillDraft.sourcePath = path;
     setStatus("已读取 Markdown Skill", "ok");
   } catch (error) {
     setStatus(String(error), "error");
