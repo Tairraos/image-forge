@@ -1065,11 +1065,6 @@ button:disabled {
   max-height: calc(100vh - 48px);
 }
 
-.skill-reference-modal {
-  width: min(1040px, calc(100vw - 48px));
-  max-height: calc(100vh - 48px);
-}
-
 .about-modal {
   width: min(520px, calc(100vw - 48px));
   max-height: calc(100vh - 48px);
@@ -1085,7 +1080,6 @@ button:disabled {
 .template-editor-modal .n-card,
 .skill-manager-modal .n-card,
 .skill-editor-modal .n-card,
-.skill-reference-modal .n-card,
 .about-modal .n-card,
 .runtime-log-modal .n-card {
   max-height: calc(100vh - 48px);
@@ -1096,7 +1090,6 @@ button:disabled {
 .template-editor-modal .n-card__content,
 .skill-manager-modal .n-card__content,
 .skill-editor-modal .n-card__content,
-.skill-reference-modal .n-card__content,
 .about-modal .n-card__content,
 .runtime-log-modal .n-card__content {
   min-height: 0;
@@ -1353,61 +1346,6 @@ button:disabled {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12px;
   line-height: 1.6;
-}
-
-.skill-reference-table-wrap {
-  max-height: 456px;
-  overflow: auto;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-}
-
-.skill-reference-table {
-  width: 100%;
-  border-collapse: collapse;
-  table-layout: fixed;
-}
-
-.skill-reference-table th,
-.skill-reference-table td {
-  height: 38px;
-  border-bottom: 1px solid #eee9fb;
-  padding: 0;
-  text-align: left;
-}
-
-.skill-reference-table th {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  padding: 9px 10px;
-  background: #f8f5ff;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.skill-reference-table th:first-child {
-  width: 220px;
-}
-
-.skill-reference-table button {
-  display: block;
-  overflow: hidden;
-  width: 100%;
-  height: 38px;
-  border: 0;
-  padding: 9px 10px;
-  background: transparent;
-  color: #514464;
-  text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.skill-reference-table button:hover,
-.skill-reference-table button:focus-visible {
-  background: var(--primary-soft);
-  color: var(--primary);
 }
 
 .template-toolbar {
@@ -2409,109 +2347,6 @@ button:disabled {
   min-width: 86px;
 }
 
-.skill-run-modal {
-  width: min(760px, calc(100vw - 48px));
-  max-height: calc(100vh - 48px);
-}
-
-.skill-run-modal .n-card {
-  display: flex;
-  flex-direction: column;
-  max-height: calc(100vh - 48px);
-}
-
-.skill-run-modal .n-card__header,
-.skill-run-modal .n-card__footer {
-  flex: 0 0 auto;
-}
-
-.skill-run-modal .n-card__content {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-}
-
-.skill-run-layout {
-  display: grid;
-  gap: 12px;
-  min-height: 0;
-}
-
-.skill-run-summary,
-.skill-run-status,
-.skill-run-questions,
-.skill-run-preview {
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 12px;
-  background: rgba(255, 255, 255, 0.78);
-}
-
-.skill-run-summary {
-  display: grid;
-  gap: 10px;
-}
-
-.skill-run-label {
-  display: block;
-  margin-bottom: 4px;
-  color: #736883;
-  font-size: 12px;
-}
-
-.skill-run-summary strong,
-.skill-run-question-head strong,
-.skill-run-status strong {
-  color: #31254f;
-}
-
-.skill-run-summary p {
-  margin: 0;
-  color: #514464;
-  line-height: 1.65;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.skill-run-status {
-  display: grid;
-  gap: 5px;
-  background:
-    radial-gradient(circle at top right, rgba(255, 240, 214, 0.8), transparent 34%),
-    rgba(255, 252, 247, 0.94);
-}
-
-.skill-run-status[data-mode="stream"] {
-  border-color: #c9b6ff;
-}
-
-.skill-run-status[data-mode="non-stream"] {
-  border-color: #efd4a5;
-}
-
-.skill-run-status small,
-.skill-run-question-head small {
-  color: #736883;
-}
-
-.skill-run-question-head {
-  display: grid;
-  gap: 3px;
-  margin-bottom: 10px;
-}
-
-.skill-run-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  width: 100%;
-}
-
-.skill-run-questions,
-.skill-run-preview {
-  min-height: 0;
-}
-
 @media (max-width: 1320px) {
   .control-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2547,17 +2382,7 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 
-  .skill-reference-toolbar,
-  .skill-reference-editors {
-    grid-template-columns: 1fr;
-  }
-
   .template-reference-footer {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .skill-reference-footer {
     align-items: stretch;
     flex-direction: column;
   }
