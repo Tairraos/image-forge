@@ -13,7 +13,7 @@ use crate::{
     models::{
         AboutInfo, AgentAttachment, AgentMessage, AgentProgressEvent, AgentSession, ApiProvider, AppState,
         CleanupCandidate, GenerateRequest, PromptTemplate, QueueSnapshot, ReferencePreview, Settings,
-        SkillAuditResult, SkillConversationMessage, SkillEntry, SkillFetchResult,
+        AgentSkillContext, SkillAuditResult, SkillConversationMessage, SkillEntry, SkillFetchResult,
         SkillImagePlan, SkillPlanResult, SkillPlannerEvent, SkillPlannerQuestion, TaskRecord,
         TemplateFillEvent, TemplateImportResult,
     },
@@ -32,7 +32,7 @@ use crate::{
             prune_unreferenced_files_with_data, scan_orphan_files,
         },
         skill::fetch_skill_markdown as fetch_skill_markdown_from_url,
-        skill_installer::audit_skill_directory,
+        skill_installer::{audit_skill_directory, install_local_skill},
         agent_store::{append_message, create_session, session, sessions},
         template_bundle::{export_templates_archive, import_templates_archive},
     },
@@ -91,11 +91,15 @@ pub(crate) fn get_agent_session(app: AppHandle, session_id: String) -> Result<Ag
 pub(crate) async fn send_agent_message(
     app: AppHandle,
     session_id: String,
+    provider_id: String,
     content: String,
     attachments: Vec<AgentAttachment>,
 ) -> Result<AgentSession, String> {
     let data_dir = ensure_data_dir(&app)?;
     let mut current = session(&data_dir, &session_id)?;
+    if !provider_id.trim().is_empty() {
+        current.model_provider_id = provider_id.trim().to_string();
+    }
     let user = AgentMessage {
         id: Uuid::new_v4().to_string(),
         role: "user".into(),
@@ -178,6 +182,45 @@ pub(crate) fn audit_skill_package(app: AppHandle, path: String) -> Result<SkillA
     let result = audit_skill_directory(&root);
     record_result("审查 Skill 包", format!("path={}", root.display()).as_str(), None, &result);
     result
+}
+
+#[tauri::command]
+pub(crate) fn install_skill(app: AppHandle, path: String) -> Result<SkillEntry, String> {
+    let data_dir = ensure_data_dir(&app)?;
+    let root = PathBuf::from(path.trim());
+    let result = install_local_skill(&data_dir, &root).map(|(skill, _)| skill);
+    record_result("安装 Skill", format!("path={}", root.display()).as_str(), None, &result);
+    result
+}
+
+#[tauri::command]
+pub(crate) fn use_skill(app: AppHandle, skill_id: String) -> Result<AgentSkillContext, String> {
+    let data_dir = ensure_data_dir(&app)?;
+    let skills = read_skills(&data_dir)?;
+    let skill = skills.iter().find(|item| item.id == skill_id).ok_or("找不到 Skill")?;
+    let package_dir = skills_dir(&data_dir).join(&skill.directory);
+    let audit = audit_skill_directory(&package_dir)?;
+    if !audit.allowed {
+        return Err(format!("Skill 审查失败：{}", audit.reasons.join("；")));
+    }
+    let manifest = audit.manifest.ok_or("Skill manifest 缺失")?;
+    let mut references = Vec::new();
+    let references_dir = package_dir.join("references");
+    if references_dir.is_dir() {
+        for entry in fs::read_dir(references_dir).map_err(|error| format!("读取 Skill references 失败: {error}"))? {
+            let path = entry.map_err(|error| format!("读取 Skill references 失败: {error}"))?.path();
+            if path.extension().and_then(|value| value.to_str()).map(|value| value.eq_ignore_ascii_case("md")).unwrap_or(false) {
+                references.push(fs::read_to_string(path).map_err(|error| format!("读取 Skill reference 失败: {error}"))?);
+            }
+        }
+    }
+    Ok(AgentSkillContext {
+        skill_id: skill.id.clone(),
+        name: skill.name.clone(),
+        content: skill.content.clone(),
+        manifest,
+        references,
+    })
 }
 
 #[tauri::command]

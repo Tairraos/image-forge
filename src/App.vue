@@ -60,10 +60,8 @@
           :references="references"
           :submitting="submitting"
           :reference-drag-active="referenceDragActive"
-          :skills="skills"
           @submit="submitTask"
           @show-template="showTemplateReferenceDialog = true"
-          @show-skill="openSkillReference"
           @clear-prompt="clearPrompt"
           @prompt-focus="capturePromptCursor"
           @prompt-cursor="capturePromptCursor"
@@ -170,12 +168,6 @@
         @drop-markdown="handleSkillMarkdownDrop"
       />
 
-      <SkillReferenceDialog
-        v-model:show="showSkillReferenceDialog"
-        :skills="skills"
-        @reference="referenceSkill"
-      />
-
       <TemplateEditorDialog
         v-model:show="showTemplateEditor"
         :template="templateDraft"
@@ -245,22 +237,6 @@
         @close="resolveNotice"
       />
 
-      <SkillRunDialog
-        v-model:show="skillRun.show"
-        :skill-name="skillRun.skillName"
-        :original-prompt="skillRun.originalPrompt"
-        :status-text="skillRun.statusText"
-        :response-mode="skillRun.responseMode"
-        :busy="skillRun.busy"
-        :elapsed-seconds="skillRun.elapsedSeconds"
-        :timeout-seconds="SKILL_DIALOG_TIMEOUT_SECONDS"
-        :questions="skillRun.questions"
-        :answers="skillRun.answers"
-        :preview="skillRun.preview"
-        @update-answer="updateSkillRunAnswer"
-        @continue="continueSkillRun"
-        @cancel="cancelSkillRun"
-      />
     </main>
   </n-config-provider>
 </template>
@@ -281,8 +257,6 @@ import NoticeDialog from "./components/dialogs/NoticeDialog.vue";
 import RuntimeLogDialog from "./components/dialogs/RuntimeLogDialog.vue";
 import SkillEditorDialog from "./components/dialogs/SkillEditorDialog.vue";
 import SkillManagerDialog from "./components/dialogs/SkillManagerDialog.vue";
-import SkillReferenceDialog from "./components/dialogs/SkillReferenceDialog.vue";
-import SkillRunDialog from "./components/dialogs/SkillRunDialog.vue";
 import TaskDetailDialog from "./components/dialogs/TaskDetailDialog.vue";
 import TemplateEditorDialog from "./components/dialogs/TemplateEditorDialog.vue";
 import TemplateManagerDialog from "./components/dialogs/TemplateManagerDialog.vue";
@@ -344,24 +318,6 @@ const templateFilling = ref(false);
 const templateFillSessionId = ref("");
 const skillFetching = ref(false);
 const promptCursor = ref(0);
-const SKILL_DIALOG_TIMEOUT_SECONDS = 180;
-const skillRun = reactive({
-  show: false,
-  sessionId: "",
-  skillId: "",
-  skillName: "",
-  originalPrompt: "",
-  sanitizedPrompt: "",
-  statusText: "",
-  responseMode: "pending",
-  busy: false,
-  elapsedSeconds: 0,
-  questions: [],
-  answers: {},
-  preview: "",
-  conversation: [],
-  cancelled: false,
-});
 
 const showApiDialog = ref(false);
 const showTemplateManagerDialog = ref(false);
@@ -369,7 +325,6 @@ const showTemplateReferenceDialog = ref(false);
 const showTemplateEditor = ref(false);
 const showSkillManagerDialog = ref(false);
 const showSkillEditor = ref(false);
-const showSkillReferenceDialog = ref(false);
 const showTaskDetail = ref(false);
 const showAboutDialog = ref(false);
 const showRuntimeLogDialog = ref(false);
@@ -421,12 +376,10 @@ const workspaceStyle = computed(() => ({
 }));
 
 let pollTimer = 0;
-let skillRunTimer = 0;
 let todayRolloverTimer = 0;
 let removeScrollbarVisibility = null;
 let unlistenDragDrop = null;
 let unlistenQueueUpdated = null;
-let unlistenSkillPlanner = null;
 let unlistenTemplateFill = null;
 let unlistenAgentProgress = null;
 let queueRefreshInFlight = false;
@@ -538,11 +491,6 @@ onMounted(async () => {
     // 预览环境可能没有事件通道。
   }
   try {
-    unlistenSkillPlanner = await listenEvent("skill-planner", handleSkillPlannerEvent);
-  } catch {
-    // 预览环境可能没有事件通道。
-  }
-  try {
     unlistenTemplateFill = await listenEvent("template-fill", handleTemplateFillEvent);
   } catch {
     // 预览环境可能没有事件通道。
@@ -560,11 +508,9 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.clearInterval(pollTimer);
-  window.clearInterval(skillRunTimer);
   window.clearTimeout(todayRolloverTimer);
   unlistenDragDrop?.();
   unlistenQueueUpdated?.();
-  unlistenSkillPlanner?.();
   unlistenTemplateFill?.();
   unlistenAgentProgress?.();
   removeScrollbarVisibility?.();
@@ -803,26 +749,6 @@ async function submitTask() {
     showApiDialog.value = true;
     return;
   }
-  const mention = detectSkillMention(form.prompt);
-  if (mention) {
-    const matchedSkill = resolveSkillByMention(mention.name);
-    if (!matchedSkill) {
-      const message = `没有找到 ${mention.token} 对应的 Skill，请检查名称或先到 Skill 维护里创建。`;
-      await showNotice("Skill 不存在", message);
-      setStatus(message, "error");
-      return;
-    }
-    if (!form.chatProviderId) {
-      const message = "使用 Skill 前请先选择对话模型";
-      await showNotice("缺少对话模型", message);
-      setStatus(message, "error");
-      showApiDialog.value = true;
-      return;
-    }
-    await startSkillRun(matchedSkill, stripSkillMention(form.prompt, mention).trim());
-    return;
-  }
-
   submitting.value = true;
   try {
     const request = buildImageRequest(form.prompt, form.promptMode);
@@ -1316,231 +1242,6 @@ async function deleteSkill(skillId) {
   } catch (error) {
     setStatus(String(error), "error");
   }
-}
-
-async function openSkillReference() {
-  showSkillReferenceDialog.value = true;
-}
-
-function referenceSkill(skill) {
-  insertTextAtCursor(`@${skill.name} `);
-  showSkillReferenceDialog.value = false;
-  setStatus(`已引用 Skill：${skill.name}`, "ok");
-}
-
-function detectSkillMention(prompt) {
-  const match = /(^|\s)@([^\s@#，。！？；,!?;:：]+)/u.exec(prompt);
-  if (!match) return null;
-  return {
-    token: `@${match[2]}`,
-    name: match[2],
-    start: match.index + match[1].length,
-    end: match.index + match[0].length,
-  };
-}
-
-function stripSkillMention(prompt, mention) {
-  return `${prompt.slice(0, mention.start)}${prompt.slice(mention.end)}`.replace(/\s{2,}/g, " ").trim();
-}
-
-function resolveSkillByMention(name) {
-  const target = normalizeSkillHandle(name);
-  return skills.value.find((skill) =>
-    skillMentionAliases(skill).some((alias) => normalizeSkillHandle(alias) === target),
-  ) || null;
-}
-
-function skillMentionAliases(skill) {
-  const shortName = String(skill.name || "")
-    .split(/[\s/|：:（）()【】\[\]<>-]+/u)
-    .find(Boolean);
-  const aliases = new Set([
-    skill.id,
-    skill.name,
-    shortName,
-    skill.name?.replace(/\s+/g, "-"),
-    skill.name?.replace(/\s+/g, ""),
-  ].filter(Boolean));
-  return Array.from(aliases);
-}
-
-function normalizeSkillHandle(value) {
-  return String(value || "").trim().toLowerCase();
-}
-
-async function startSkillRun(skill, sanitizedPrompt) {
-  skillRun.show = true;
-  skillRun.skillId = skill.id;
-  skillRun.skillName = skill.name || skill.id;
-  skillRun.originalPrompt = form.prompt;
-  skillRun.sanitizedPrompt = sanitizedPrompt;
-  skillRun.preview = "";
-  skillRun.questions = [];
-  skillRun.answers = {};
-  skillRun.conversation = [];
-  skillRun.cancelled = false;
-  await runSkillPlanningRound();
-}
-
-async function continueSkillRun() {
-  if (!skillRun.questions.length) return;
-  const answerLines = skillRun.questions
-    .map((question) => `${question.label}：${String(skillRun.answers[question.key] || "").trim()}`)
-    .join("\n");
-  if (!answerLines.trim()) return;
-  skillRun.conversation.push({
-    role: "assistant",
-    content: skillRun.questions.map((question) => question.label).join("\n"),
-  });
-  skillRun.conversation.push({
-    role: "user",
-    content: answerLines,
-  });
-  skillRun.questions = [];
-  skillRun.answers = {};
-  await runSkillPlanningRound();
-}
-
-function updateSkillRunAnswer({ key, value }) {
-  skillRun.answers = {
-    ...skillRun.answers,
-    [key]: value,
-  };
-}
-
-function cancelSkillRun() {
-  skillRun.cancelled = true;
-  stopSkillRunTimer();
-  resetSkillRunState();
-}
-
-async function runSkillPlanningRound() {
-  skillRun.sessionId = createSkillRunSessionId();
-  const sessionId = skillRun.sessionId;
-  skillRun.busy = true;
-  skillRun.statusText = "Skill 正在规划图片任务…";
-  skillRun.responseMode = "pending";
-  skillRun.preview = "";
-  startSkillRunTimer();
-  try {
-    const result = await invoke("plan_skill_generation", {
-      sessionId,
-      providerId: form.chatProviderId,
-      skillId: skillRun.skillId,
-      prompt: skillRun.sanitizedPrompt,
-        conversation: deepClone(skillRun.conversation),
-        hasReferenceImages: references.value.length > 0,
-    });
-    if (skillRun.cancelled || sessionId !== skillRun.sessionId) return;
-    stopSkillRunTimer();
-    skillRun.busy = false;
-    skillRun.responseMode = result.streamMode || skillRun.responseMode;
-    skillRun.statusText = result.message || skillRun.statusText;
-    if (result.referenceImageUsage === "use") {
-      skillRun.statusText += " · 提示词需要配合参考图";
-    } else if (result.referenceImageUsage === "optional") {
-      skillRun.statusText += " · 参考图可选";
-    }
-    if (result.status === "needs_input") {
-      skillRun.questions = result.questions || [];
-      skillRun.answers = Object.fromEntries(
-        skillRun.questions.map((question) => [question.key, ""]),
-      );
-      setStatus(result.message || "Skill 需要补充信息", "busy");
-      return;
-    }
-    await enqueueSkillImages(result);
-  } catch (error) {
-    if (skillRun.cancelled || sessionId !== skillRun.sessionId) return;
-    stopSkillRunTimer();
-    skillRun.busy = false;
-    const message = String(error);
-    skillRun.statusText = message;
-    await showNotice("Skill 执行失败", message);
-    setStatus(message, "error");
-  }
-}
-
-async function enqueueSkillImages(result) {
-  const promptFidelity = result.promptFidelity || (result.promptDepth === "deep" ? "strict" : form.promptMode);
-  const requests = (result.images || []).map((image) => buildImageRequest(image.prompt, promptFidelity));
-  const tasks = await invoke("enqueue_generation_batch", { requests });
-  selectedTaskId.value = tasks.at(-1)?.id || selectedTaskId.value;
-  await refreshQueueOnly();
-  historyScrollRequest.value += 1;
-  const promptPreview = (result.images || [])
-    .map((image, index) => `【${index + 1}】${image.title || "图片"}\n${image.prompt}`)
-    .join("\n\n");
-  skillRun.preview = promptPreview;
-  skillRun.statusText = `Skill 已明确输出 ${tasks.length} 条提示词，已加入画图队列`;
-  skillRun.responseMode = "non-stream";
-  setStatus(`Skill 已创建 ${tasks.length} 个任务`, "ok");
-}
-
-function handleSkillPlannerEvent(event) {
-  const payload = event?.payload || {};
-  if (!skillRun.show || payload.sessionId !== skillRun.sessionId) return;
-  if (payload.phase === "start") {
-    skillRun.statusText = "Skill 正在准备规划…";
-    return;
-  }
-  if (payload.phase === "mode") {
-    if (payload.mode) skillRun.responseMode = payload.mode;
-    if (payload.message) skillRun.statusText = payload.message;
-    return;
-  }
-  if (payload.phase === "delta") {
-    skillRun.responseMode = "stream";
-    skillRun.preview += payload.chunk || "";
-    skillRun.statusText = "Skill 正在流式返回规划结果…";
-    return;
-  }
-  if (payload.phase === "result" && payload.message) {
-    skillRun.statusText = payload.message;
-    return;
-  }
-  if (payload.phase === "error" && payload.message) {
-    skillRun.statusText = payload.message;
-  }
-}
-
-function startSkillRunTimer() {
-  window.clearInterval(skillRunTimer);
-  skillRun.elapsedSeconds = 0;
-  skillRunTimer = window.setInterval(() => {
-    skillRun.elapsedSeconds += 1;
-  }, 1000);
-}
-
-function stopSkillRunTimer() {
-  window.clearInterval(skillRunTimer);
-  skillRunTimer = 0;
-}
-
-function resetSkillRunState() {
-  stopSkillRunTimer();
-  skillRun.show = false;
-  skillRun.sessionId = "";
-  skillRun.skillId = "";
-  skillRun.skillName = "";
-  skillRun.originalPrompt = "";
-  skillRun.sanitizedPrompt = "";
-  skillRun.statusText = "";
-  skillRun.responseMode = "pending";
-  skillRun.busy = false;
-  skillRun.elapsedSeconds = 0;
-  skillRun.questions = [];
-  skillRun.answers = {};
-  skillRun.preview = "";
-  skillRun.conversation = [];
-  skillRun.cancelled = false;
-}
-
-function createSkillRunSessionId() {
-  if (globalThis.crypto?.randomUUID) {
-    return `skill-${globalThis.crypto.randomUUID()}`;
-  }
-  return `skill-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 async function addTemplateDraftReferenceImages() {

@@ -46,6 +46,8 @@ pub fn run() {
             commands::runtime_logs,
             commands::list_agent_sessions,
             commands::get_agent_session,
+            commands::install_skill,
+            commands::use_skill,
             commands::send_agent_message,
             commands::scan_cleanup_candidates,
             commands::save_settings,

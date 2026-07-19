@@ -400,6 +400,17 @@ pub struct SkillAuditResult {
     pub manifest: Option<SkillManifest>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentSkillContext {
+    pub skill_id: String,
+    pub name: String,
+    pub content: String,
+    pub manifest: SkillManifest,
+    #[serde(default)]
+    pub references: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReferencePreview {

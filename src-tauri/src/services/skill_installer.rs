@@ -2,7 +2,7 @@ use std::{fs, path::{Path, PathBuf}};
 
 use sha2::{Digest, Sha256};
 
-use crate::models::{SkillAuditResult, SkillManifest};
+use crate::{models::{SkillAuditResult, SkillEntry, SkillManifest}, store::{skill_directory_name, skills_dir, write_skill_index, read_skills}, utils::utc_now};
 
 const ALLOWED_CAPABILITIES: &[&str] = &["chat", "image_plan", "reference_images"];
 const SCRIPT_EXTENSIONS: &[&str] = &[
@@ -163,4 +163,63 @@ fn extract_name(content: &str) -> String {
 
 pub(crate) fn staging_skill_path(data_dir: &Path, id: &str) -> PathBuf {
     data_dir.join(".staging").join(id)
+}
+
+pub(crate) fn install_local_skill(data_dir: &Path, source: &Path) -> Result<(SkillEntry, SkillAuditResult), String> {
+    let root = if source.is_file() {
+        source.parent().ok_or("无法确定 Skill 包目录")?
+    } else {
+        source
+    };
+    let audit = audit_skill_directory(root)?;
+    if !audit.allowed {
+        return Err(format!("Skill 安装被拒绝：{}", audit.reasons.join("；")));
+    }
+    let manifest = audit.manifest.clone().ok_or("Skill 审查未生成 manifest")?;
+    let id = uuid::Uuid::new_v4().to_string();
+    let directory = skill_directory_name(&manifest.name, &id);
+    let staging = staging_skill_path(data_dir, &id);
+    copy_tree(root, &staging)?;
+    if !staging.join("SKILL.md").is_file() && staging.join("skill.md").is_file() {
+        fs::rename(staging.join("skill.md"), staging.join("SKILL.md"))
+            .map_err(|error| format!("规范化 Skill 入口文件失败: {error}"))?;
+    }
+    let destination = skills_dir(data_dir).join(&directory);
+    if destination.exists() {
+        return Err("同名 Skill 已存在，覆盖安装需要用户确认".into());
+    }
+    fs::rename(&staging, &destination).map_err(|error| format!("安装 Skill 包失败: {error}"))?;
+    let mut skills = read_skills(data_dir).unwrap_or_default();
+    let now = utc_now();
+    let skill = SkillEntry {
+        id,
+        name: manifest.name.clone(),
+        source_url: String::new(),
+        notes: String::new(),
+        content: fs::read_to_string(destination.join("SKILL.md")).unwrap_or_default(),
+        directory,
+        source_path: String::new(),
+        created_at: now.clone(),
+        updated_at: now,
+    };
+    skills.retain(|item| item.directory != skill.directory);
+    skills.push(skill.clone());
+    write_skill_index(data_dir, &skills)?;
+    Ok((skill, audit))
+}
+
+fn copy_tree(source: &Path, destination: &Path) -> Result<(), String> {
+    fs::create_dir_all(destination).map_err(|error| format!("创建 Skill staging 目录失败: {error}"))?;
+    for entry in fs::read_dir(source).map_err(|error| format!("读取 Skill 目录失败: {error}"))? {
+        let entry = entry.map_err(|error| format!("读取 Skill 条目失败: {error}"))?;
+        let from = entry.path();
+        let to = destination.join(entry.file_name());
+        let metadata = fs::symlink_metadata(&from).map_err(|error| format!("读取 Skill 条目失败: {error}"))?;
+        if metadata.is_dir() {
+            copy_tree(&from, &to)?;
+        } else if metadata.is_file() {
+            fs::copy(&from, &to).map_err(|error| format!("复制 Skill 文件失败: {error}"))?;
+        }
+    }
+    Ok(())
 }
