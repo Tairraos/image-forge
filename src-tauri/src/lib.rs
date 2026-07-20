@@ -1,5 +1,7 @@
 mod commands;
 mod defaults;
+#[doc(hidden)]
+pub mod integration_checks;
 mod models;
 mod services;
 mod state;

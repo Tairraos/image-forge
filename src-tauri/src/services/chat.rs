@@ -316,7 +316,7 @@ fn consume_agent_tool_stream_block(
     Ok(false)
 }
 
-fn parse_agent_tool_response(
+pub(crate) fn parse_agent_tool_response(
     body: &str,
     mode: &str,
     _runtime_state: Option<&RuntimeState>,

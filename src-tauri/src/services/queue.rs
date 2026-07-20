@@ -231,7 +231,7 @@ mod tests {
     }
 }
 
-fn recover_stale_records(
+pub(crate) fn recover_stale_records(
     data_dir: &Path,
     history: &mut [TaskRecord],
     queue: &mut crate::models::QueueState,
