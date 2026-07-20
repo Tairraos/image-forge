@@ -37,6 +37,9 @@
       "app",
       "dmg"
     ],
+    "macOS": {
+      "infoPlist": "Info.plist"
+    },
     "icon": [
       "icons/icon.png"
     ]
