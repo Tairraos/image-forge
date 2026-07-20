@@ -28,4 +28,26 @@ describe("AgentWorkspace", () => {
     await wrapper.get(".open-group").trigger("click");
     expect(wrapper.emitted("open-task-group")).toEqual([[{ id: "group-1" }]]);
   });
+
+  it("同时提供生图与对话模型选择", async () => {
+    const wrapper = mount(AgentWorkspace, {
+      props: {
+        providerId: "chat-1",
+        providerOptions: [{ label: "对话模型", value: "chat-1" }],
+        imageProviderId: "image-1",
+        imageProviderOptions: [{ label: "生图模型", value: "image-1" }],
+      },
+      global: { stubs: { AgentComposer: true, AgentMessageList: true } },
+    });
+    const selects = wrapper.findAll(".agent-provider-select");
+    expect(selects).toHaveLength(2);
+    await wrapper.setProps({
+      imageProviderOptions: [{ label: "生图模型 2", value: "image-2" }],
+      providerOptions: [{ label: "对话模型 2", value: "chat-2" }],
+    });
+    await selects[0].setValue("image-2");
+    await selects[1].setValue("chat-2");
+    expect(wrapper.emitted("update:image-provider-id")).toEqual([["image-2"]]);
+    expect(wrapper.emitted("update:provider-id")).toEqual([["chat-2"]]);
+  });
 });

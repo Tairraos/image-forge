@@ -16,6 +16,10 @@ config.global.stubs = {
     emits: ["update:value"],
     template: '<textarea :value="value" @input="$emit(\'update:value\', $event.target.value)" @keydown="$emit(\'keydown\', $event)" @paste="$emit(\'paste\', $event)" />',
   },
-  "n-select": { template: "<select />" },
+  "n-select": {
+    props: ["value", "options"],
+    emits: ["update:value"],
+    template: '<select :value="value" @change="$emit(\'update:value\', $event.target.value)"><option v-for="option in options" :key="option.value" :value="option.value">{{ option.label }}</option></select>',
+  },
   "n-dropdown": { template: "<div><slot /></div>" },
 };
