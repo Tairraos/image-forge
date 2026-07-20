@@ -6,24 +6,30 @@
         <n-button size="tiny" type="primary" @click="$emit('create')">新建</n-button>
       </div>
       <div class="agent-session-list">
-        <button
+        <div
           v-for="session in sessions"
           :key="session.id"
-          type="button"
-          class="agent-session-item"
+          class="agent-session-row"
           :class="{ active: session.id === currentSession?.id }"
-          @click="$emit('select', session.id)"
         >
-          <span>{{ session.title || "新对话" }}</span>
-          <small>{{ formatTime(session.updatedAt) }}</small>
-        </button>
-        <n-button
-          v-if="currentSession"
-          size="tiny"
-          type="error"
-          quaternary
-          @click="$emit('delete-session', currentSession.id)"
-        >删除当前对话</n-button>
+          <button
+            type="button"
+            class="agent-session-item"
+            @click="$emit('select', session.id)"
+          >
+            <span class="agent-session-title">{{ session.title || "新对话" }}</span>
+            <small>{{ formatTime(session.updatedAt || session.createdAt) }}</small>
+          </button>
+          <button
+            type="button"
+            class="agent-session-delete"
+            title="删除对话"
+            aria-label="删除对话"
+            @click.stop="$emit('delete-session', session.id)"
+          >
+            <Trash2 :size="14" />
+          </button>
+        </div>
       </div>
     </aside>
 
@@ -73,6 +79,7 @@
 <script setup>
 import AgentComposer from "./AgentComposer.vue";
 import AgentMessageList from "./AgentMessageList.vue";
+import { Trash2 } from "@lucide/vue";
 
 defineProps({
   sessions: { type: Array, default: () => [] },

@@ -8,6 +8,12 @@ importers:
 
   .:
     dependencies:
+      '@iconify-icons/icon-park-solid':
+        specifier: ^1.2.8
+        version: 1.2.8
+      '@iconify/vue':
+        specifier: ^5.0.1
+        version: 5.0.1(vue@3.5.39)
       '@lucide/vue':
         specifier: ^1.23.0
         version: 1.23.0(vue@3.5.39)
@@ -74,6 +80,17 @@ packages:
 
   '@emotion/hash@0.8.0':
     resolution: {integrity: sha512-kBJtf7PH6aWwZ6fka3zQ0p6SBYzx4fl1LoZXE2RrnYST9Xljm7WfKJrU4g/Xr3Beg72MLrp1AWNUmuYJTL7Cow==}
+
+  '@iconify-icons/icon-park-solid@1.2.8':
+    resolution: {integrity: sha512-sFah2K4qxm+0QztoUT7zlL7KB8BWcvmHBqt2MucuDg7NYuwDx9b4M4hNCE1vB2Q5fUixY5iKc68QgF+2bYcYrg==}
+
+  '@iconify/types@2.0.0':
+    resolution: {integrity: sha512-+wluvCrRhXrhyOmRDJ3q8mux9JkKy5SJ/v8ol2tu4FVjyYvtEzkc/3pK15ET6RKg4b4w4BmTk1+gsCUhf21Ykg==}
+
+  '@iconify/vue@5.0.1':
+    resolution: {integrity: sha512-aumwwooJlFJ5H5qYWB6ZTAyM0C8hpfcSVLB9/a3qnH1GGvIJ+FEbpEs4s/HfErYe/M5qZeLjwmESR5fFm3lXEw==}
+    peerDependencies:
+      vue: '>=3.0.0'
 
   '@jridgewell/sourcemap-codec@1.5.5':
     resolution: {integrity: sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og==}
@@ -626,6 +643,17 @@ snapshots:
     optional: true
 
   '@emotion/hash@0.8.0': {}
+
+  '@iconify-icons/icon-park-solid@1.2.8':
+    dependencies:
+      '@iconify/types': 2.0.0
+
+  '@iconify/types@2.0.0': {}
+
+  '@iconify/vue@5.0.1(vue@3.5.39)':
+    dependencies:
+      '@iconify/types': 2.0.0
+      vue: 3.5.39
 
   '@jridgewell/sourcemap-codec@1.5.5': {}
 

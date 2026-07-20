@@ -558,7 +558,7 @@ async function refreshAll() {
 async function refreshAgentSessions() {
   try {
     const list = await invoke("list_agent_sessions");
-    agentSessions.value = Array.isArray(list) ? list : [];
+    agentSessions.value = sortAgentSessions(Array.isArray(list) ? list : []);
     if (!currentAgentSessionId.value && agentSessions.value[0]) {
       currentAgentSessionId.value = agentSessions.value[0].id;
       agentProviderId.value = agentSessions.value[0].modelProviderId || form.chatProviderId;
@@ -575,11 +575,26 @@ async function refreshAgentSessions() {
   }
 }
 
+function sortAgentSessions(sessions) {
+  return [...sessions].sort((a, b) => {
+    const aTime = a.updatedAt || a.createdAt || "";
+    const bTime = b.updatedAt || b.createdAt || "";
+    return aTime.localeCompare(bTime);
+  });
+}
+
+function setAgentSession(session) {
+  agentSessions.value = sortAgentSessions([
+    ...agentSessions.value.filter((item) => item.id !== session.id),
+    session,
+  ]);
+}
+
 async function createAgentConversation() {
   if (!agentProviderId.value) agentProviderId.value = form.chatProviderId;
   try {
     const session = await invoke("create_agent_session", { providerId: agentProviderId.value || "" });
-    agentSessions.value = [session, ...agentSessions.value.filter((item) => item.id !== session.id)];
+    setAgentSession(session);
     currentAgentSessionId.value = session.id;
   } catch (error) {
     setStatus(String(error), "error");
@@ -589,7 +604,7 @@ async function createAgentConversation() {
 async function selectAgentConversation(sessionId) {
   try {
     const session = await invoke("get_agent_session", { sessionId });
-    agentSessions.value = [session, ...agentSessions.value.filter((item) => item.id !== session.id)];
+    setAgentSession(session);
     currentAgentSessionId.value = session.id;
     agentProviderId.value = session.modelProviderId || agentProviderId.value;
     agentStreamText.value = "";
@@ -606,7 +621,7 @@ async function deleteAgentConversation(sessionId) {
   if (!confirmed) return;
   try {
     await invoke("delete_agent_session", { sessionId });
-    currentAgentSessionId.value = "";
+    if (currentAgentSessionId.value === sessionId) currentAgentSessionId.value = "";
     await refreshAgentSessions();
     setStatus("Agent 对话已移入回收站", "ok");
   } catch (error) {
@@ -633,7 +648,7 @@ async function sendAgentConversationMessage(payload) {
       content,
       attachments: agentAttachments.value.map(({ dataUrl, ...attachment }) => attachment),
     });
-    agentSessions.value = [session, ...agentSessions.value.filter((item) => item.id !== session.id)];
+    setAgentSession(session);
     agentAttachments.value = [];
     await refreshAgentTaskGroups();
     syncAgentTaskGroupPolling();

@@ -51,8 +51,8 @@ export async function restoreWindowState() {
     && state.y < workArea.position.y + workArea.size.height
   ) || monitors[0];
   const area = monitor?.workArea;
-  const width = Math.max(720, Math.min(numberOr(state.width, 720), area?.size.width || Infinity));
-  const height = Math.max(640, Math.min(numberOr(state.height, 640), area?.size.height || Infinity));
+  const width = Math.max(1200, Math.min(numberOr(state.width, 1200), area?.size.width || Infinity));
+  const height = Math.max(800, Math.min(numberOr(state.height, 800), area?.size.height || Infinity));
   await appWindow.setSize(new PhysicalSize(width, height));
   if (area) {
     const x = Math.max(area.position.x, Math.min(numberOr(state.x, area.position.x), area.position.x + area.size.width - width));
