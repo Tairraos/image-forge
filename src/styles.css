@@ -1146,8 +1146,8 @@ button:disabled {
   line-height: 1.55;
 }
 
-.cleanup-modal .n-card {
-  width: min(720px, calc(100vw - 48px));
+.cleanup-modal {
+  width: min(750px, calc(100vw - 48px));
 }
 
 .cleanup-content {
