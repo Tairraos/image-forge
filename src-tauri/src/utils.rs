@@ -10,6 +10,18 @@ use crate::defaults::{APP_USER_AGENT, DEFAULT_BASE_URL, DEFAULT_PROVIDER_ID};
 
 pub(crate) const REQUEST_TIMEOUT_SECONDS: u64 = 300;
 
+pub(crate) fn recycle_path(path: &Path) -> Result<(), String> {
+    #[cfg(not(test))]
+    return trash::delete(path).map_err(|error| error.to_string());
+
+    #[cfg(test)]
+    if path.is_dir() {
+        std::fs::remove_dir_all(path).map_err(|error| error.to_string())
+    } else {
+        std::fs::remove_file(path).map_err(|error| error.to_string())
+    }
+}
+
 pub(crate) fn image_size_from_bytes(bytes: &[u8]) -> Option<String> {
     let image = image::load_from_memory(bytes).ok()?;
     Some(format!("{}x{}", image.width(), image.height()))

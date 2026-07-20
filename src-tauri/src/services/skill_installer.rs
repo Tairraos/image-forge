@@ -14,7 +14,7 @@ use crate::{
     models::{SkillAuditResult, SkillEntry, SkillManifest, AGENT_SCHEMA_VERSION},
     services::skill::fetch_skill_markdown,
     store::{read_skills, skill_directory_name, skills_dir, write_skill_index},
-    utils::utc_now,
+    utils::{recycle_path, utc_now},
 };
 
 const MAX_MARKDOWN_BYTES: u64 = 1024 * 1024;
@@ -464,7 +464,7 @@ pub(crate) fn save_skill_entry(
         return Err(format!("写入 Skill manifest 失败: {error}"));
     }
     if destination.exists() {
-        if let Err(error) = trash::delete(&destination) {
+        if let Err(error) = recycle_path(&destination) {
             move_to_trash_if_exists(&staging);
             return Err(format!("将旧 Skill 移入回收站失败: {error}"));
         }
@@ -473,7 +473,7 @@ pub(crate) fn save_skill_entry(
         .as_ref()
         .filter(|path| *path != &destination && path.exists())
     {
-        if let Err(error) = trash::delete(previous) {
+        if let Err(error) = recycle_path(previous) {
             move_to_trash_if_exists(&staging);
             return Err(format!("将改名前的 Skill 移入回收站失败: {error}"));
         }
@@ -546,7 +546,7 @@ pub(crate) fn install_local_skill(
         if !replace {
             return Err("CONFIRM_REPLACE_SKILL:同名 Skill 已存在，是否覆盖安装？".into());
         }
-        trash::delete(&destination)
+        recycle_path(&destination)
             .map_err(|error| format!("将旧 Skill 移入回收站失败: {error}"))?;
     }
     let manifest_path = staging.join("manifest.json");
@@ -861,7 +861,7 @@ fn relative_components_include_script_dir(relative: &str) -> bool {
 
 fn move_to_trash_if_exists(path: &Path) {
     if path.exists() {
-        let _ = trash::delete(path);
+        let _ = recycle_path(path);
     }
 }
 
@@ -944,7 +944,7 @@ mod tests {
 
     fn recycle(path: &std::path::Path) {
         if path.exists() {
-            let _ = trash::delete(path);
+            let _ = fs::remove_dir_all(path);
         }
     }
 

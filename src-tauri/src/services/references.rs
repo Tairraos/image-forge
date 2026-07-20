@@ -11,7 +11,7 @@ use crate::{
     models::{CleanupCandidate, PromptTemplate, TaskRecord},
     state::record_operation,
     store::{read_history, read_json, read_queue, read_templates},
-    utils::image_mime_type,
+    utils::{image_mime_type, recycle_path},
 };
 
 const CLEANUP_DIRECTORIES: [&str; 4] = ["outputs", "references", "requests", "clipboard"];
@@ -67,7 +67,7 @@ pub(crate) fn cleanup_orphan_files(data_dir: &Path) -> Result<Vec<CleanupCandida
         if !allowed {
             return Err(format!("拒绝清理数据目录外的文件：{}", path.display()));
         }
-        if let Err(error) = trash::delete(&path) {
+        if let Err(error) = recycle_path(&path) {
             let message = format!("将孤岛文件移到回收站失败（{}）: {error}", path.display());
             record_operation(
                 "清理孤岛文件",
@@ -326,7 +326,7 @@ pub(crate) fn prune_unreferenced_files_with_data(
         }
         let canonical = fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
         if !used.contains(&canonical) {
-            if let Err(error) = trash::delete(&path) {
+            if let Err(error) = recycle_path(&path) {
                 let message = format!(
                     "将未引用参考图移到回收站失败（{}）: {error}",
                     path.display()
@@ -417,7 +417,11 @@ mod tests {
 
     #[test]
     fn orphan_scan_keeps_json_paths_and_queue_request_files() {
-        let root = std::env::temp_dir().join(format!("image-forge-cleanup-{}", Uuid::new_v4()));
+        let root = std::env::current_dir()
+            .unwrap()
+            .join("target")
+            .join("reference-tests")
+            .join(format!("cleanup-{}", Uuid::new_v4()));
         let outputs = root.join("outputs");
         let requests = root.join("requests");
         fs::create_dir_all(&outputs).unwrap();
@@ -450,12 +454,16 @@ mod tests {
         assert!(paths.contains("requests/orphan.json"));
         assert!(!paths.contains("outputs/kept.png"));
         assert!(!paths.contains("requests/task-1.json"));
-        let _ = trash::delete(&root);
+        let _ = fs::remove_dir_all(&root);
     }
 
     #[test]
     fn automatic_prune_keeps_agent_session_attachments() {
-        let root = std::env::temp_dir().join(format!("image-forge-agent-ref-{}", Uuid::new_v4()));
+        let root = std::env::current_dir()
+            .unwrap()
+            .join("target")
+            .join("reference-tests")
+            .join(format!("agent-ref-{}", Uuid::new_v4()));
         let references = root.join("references");
         let sessions = root.join("agent").join("sessions");
         fs::create_dir_all(&references).unwrap();
@@ -477,6 +485,6 @@ mod tests {
 
         assert!(kept.exists());
         assert!(!orphan.exists());
-        let _ = trash::delete(&root);
+        let _ = fs::remove_dir_all(&root);
     }
 }

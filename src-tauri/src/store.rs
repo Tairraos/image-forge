@@ -22,7 +22,7 @@ use crate::{
     utils::{
         clean_text, image_size_from_path, normalize_base_url, normalize_output_format,
         normalize_prompt_fidelity, normalize_quality, normalize_ratio, normalize_resolution,
-        orientation_for_ratio, sanitize_id, size_for_preset, utc_now,
+        orientation_for_ratio, recycle_path, sanitize_id, size_for_preset, utc_now,
     },
 };
 
@@ -630,7 +630,7 @@ fn move_transaction_to_trash(path: &Path, operation: &str) {
     if !path.exists() {
         return;
     }
-    match trash::delete(path) {
+    match recycle_path(path) {
         Ok(()) => record_operation(
             operation,
             "成功",
@@ -1192,14 +1192,18 @@ mod transaction_tests {
     use super::*;
 
     fn temp_root(label: &str) -> PathBuf {
-        let root = std::env::temp_dir().join(format!("image-forge-{label}-{}", Uuid::new_v4()));
+        let root = std::env::current_dir()
+            .unwrap()
+            .join("target")
+            .join("store-tests")
+            .join(format!("{label}-{}", Uuid::new_v4()));
         fs::create_dir_all(root.join(".staging")).unwrap();
         root
     }
 
     fn recycle(path: &Path) {
         if path.exists() {
-            let _ = trash::delete(path);
+            let _ = fs::remove_dir_all(path);
         }
     }
 
