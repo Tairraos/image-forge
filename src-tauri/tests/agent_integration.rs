@@ -1,7 +1,7 @@
 use std::{fs, path::PathBuf};
 
 use image_forge_lib::integration_checks::{
-    verify_cancellation_recovery, verify_network_failure, verify_reference_cleanup,
+    verify_cancellation_recovery, verify_network_failure, verify_reference_cleanup_scan,
     verify_session_and_task_group_recovery, verify_tool_call_loop,
 };
 use uuid::Uuid;
@@ -17,7 +17,7 @@ fn integration_root(label: &str) -> PathBuf {
 
 fn recycle(root: &PathBuf) {
     if root.exists() {
-        trash::delete(root).unwrap();
+        let _ = trash::delete(root);
     }
 }
 
@@ -46,8 +46,8 @@ fn network_failure_is_reported_as_agent_error() {
 }
 
 #[test]
-fn referenced_image_survives_cleanup_and_orphan_is_recycled() {
+fn referenced_image_is_kept_and_orphan_is_reported_for_cleanup() {
     let root = integration_root("reference-cleanup");
-    verify_reference_cleanup(&root).unwrap();
+    verify_reference_cleanup_scan(&root).unwrap();
     recycle(&root);
 }

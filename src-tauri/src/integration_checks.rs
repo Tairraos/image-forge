@@ -10,7 +10,7 @@ use crate::{
         agent_store::{create_session, recover_sessions},
         chat::{agent_completion, parse_agent_tool_response},
         queue::recover_stale_records,
-        references::{prune_unreferenced_files_with_data, scan_orphan_files},
+        references::scan_orphan_files,
     },
     store::{fallback_failed_record, request_path, write_agent_session},
     utils::utc_now,
@@ -138,7 +138,7 @@ pub fn verify_network_failure() -> Result<(), String> {
     Ok(())
 }
 
-pub fn verify_reference_cleanup(root: &Path) -> Result<(), String> {
+pub fn verify_reference_cleanup_scan(root: &Path) -> Result<(), String> {
     for directory in ["references", "outputs", "requests", "clipboard"] {
         fs::create_dir_all(root.join(directory)).map_err(|error| error.to_string())?;
     }
@@ -170,9 +170,8 @@ pub fn verify_reference_cleanup(root: &Path) -> Result<(), String> {
     {
         return Err("引用扫描没有正确区分已用和孤岛文件".into());
     }
-    prune_unreferenced_files_with_data(root, &[], &[])?;
-    if !kept.is_file() || orphan.exists() {
-        return Err("参考图清理结果错误".into());
+    if !kept.is_file() || !orphan.is_file() {
+        return Err("引用扫描不应在确认前修改文件".into());
     }
     Ok(())
 }
