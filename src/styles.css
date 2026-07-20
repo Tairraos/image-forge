@@ -2716,6 +2716,22 @@ button:disabled {
   border-color: #e1a4a4;
 }
 
+.agent-tool-card.compact {
+  display: flex;
+  align-items: center;
+  padding-block: 6px;
+}
+
+.agent-tool-card.compact span {
+  white-space: nowrap;
+}
+
+.agent-tool-card small {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .agent-tool-card span,
 .agent-tool-card small,
 .agent-task-group-card span,
@@ -2733,7 +2749,12 @@ button:disabled {
 }
 
 .agent-task-group-open {
+  box-sizing: border-box;
   width: 100%;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 4px;
+  background: transparent;
   color: inherit;
   cursor: pointer;
   display: grid;
@@ -2799,8 +2820,15 @@ button:disabled {
   margin: 0;
 }
 
-.agent-composer-actions .n-checkbox,
-.agent-send-button {
+.agent-send-stack {
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+  flex: none;
+}
+
+.agent-send-stack .n-checkbox,
+.agent-send-stack .n-button {
   flex: none;
 }
 

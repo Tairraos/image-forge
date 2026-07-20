@@ -31,6 +31,30 @@ describe("AgentMessageList", () => {
     expect(wrapper.text()).toContain("工具");
   });
 
+  it("隐藏成功工具的原始结果，只显示可换行的错误", () => {
+    const wrapper = mount(AgentMessageList, {
+      props: {
+        messages: [
+          {
+            id: "skills",
+            role: "tool",
+            content: '{"error":null,"result":[]}',
+            toolCall: { name: "list_skills", status: "completed", error: null },
+          },
+          {
+            id: "failed",
+            role: "tool",
+            content: '{"error":"请求失败","result":null}',
+            toolCall: { name: "use_skill", status: "failed", error: "很长的错误信息" },
+          },
+        ],
+      },
+    });
+    expect(wrapper.text()).not.toContain('{"error"');
+    expect(wrapper.get(".agent-tool-card.compact").text()).toContain("list_skills");
+    expect(wrapper.text()).toContain("很长的错误信息");
+  });
+
   it("提交交互问题并打开任务组", async () => {
     const questionMessage = {
       ...baseMessage,

@@ -20,8 +20,13 @@
         class="agent-message-body agent-message-markdown"
         v-html="renderMarkdown(message.content)"
       ></div>
-      <div v-else-if="message.content" class="agent-message-body">{{ message.content }}</div>
-      <div v-if="message.toolCall" class="agent-tool-card" :data-status="message.toolCall.status">
+      <div v-else-if="message.content && !message.toolCall" class="agent-message-body">{{ message.content }}</div>
+      <div
+        v-if="message.toolCall"
+        class="agent-tool-card"
+        :class="{ compact: message.toolCall.name === 'list_skills' && !message.toolCall.error }"
+        :data-status="message.toolCall.status"
+      >
         <strong>{{ message.toolCall.name }}</strong>
         <span>{{ toolStatus(message.toolCall) }}</span>
         <small v-if="message.toolCall.error">{{ message.toolCall.error }}</small>
