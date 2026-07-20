@@ -9,7 +9,7 @@ export function fileName(path) {
 }
 
 export function fileUrl(path) {
-  return `${convertFileSrc(path)}?v=${encodeURIComponent(path)}`;
+  return convertFileSrc(path);
 }
 
 export function statusLabel(status) {
