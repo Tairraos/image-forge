@@ -23,7 +23,7 @@ const releaseDir = join(root, "release");
 const outputPath = join(releaseDir, `${productName}-${version}-${archName()}.app`);
 
 try {
-  moveToTrash(bundleDir);
+  moveToTrash(bundleDir, false);
   cleanIcons();
   run("pnpm", ["tauri", "icon", "src-tauri/icons/app-icon.png"]);
   run("pnpm", ["tauri", "build", "--bundles", "app"]);
@@ -88,22 +88,23 @@ function cleanIcons() {
   const iconDir = join(root, "src-tauri", "icons");
   for (const entry of readdirSync(iconDir)) {
     if (!["app-icon.png", "icon.png"].includes(entry)) {
-      moveToTrash(join(iconDir, entry));
+      moveToTrash(join(iconDir, entry), false);
     }
   }
 }
 
 function cleanProcessFiles() {
-  moveToTrash(join(root, "dist"));
-  moveToTrash(join(root, "src-tauri", "target"));
-  moveToTrash(join(root, "src-tauri", "gen"));
+  moveToTrash(join(root, "dist"), false);
+  moveToTrash(join(root, "src-tauri", "target"), false);
+  moveToTrash(join(root, "src-tauri", "gen"), false);
   cleanIcons();
 }
 
-function moveToTrash(path) {
+function moveToTrash(path, required = true) {
   if (!existsSync(path)) return;
   const result = spawnSync("trash", [path], { cwd: root, stdio: "inherit" });
   if (result.status !== 0) {
-    throw new Error(`无法将路径移入系统回收站：${path}`);
+    if (required) throw new Error(`无法将路径移入系统回收站：${path}`);
+    console.warn(`无法移入系统回收站，已保留：${path}`);
   }
 }
