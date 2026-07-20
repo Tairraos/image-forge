@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "ImageForge",
-  "version": "1.0.43",
+  "version": "1.0.44",
   "identifier": "com.xiaole.imageforge",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Image Forge 1.0.43",
+        "title": "Image Forge 1.0.44",
         "width": 1360,
         "height": 930,
         "minWidth": 1200,
