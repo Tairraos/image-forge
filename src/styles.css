@@ -253,7 +253,35 @@ button:disabled {
 }
 
 .status-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   min-width: 0;
+}
+
+.status-api-name {
+  max-width: 220px;
+  overflow: hidden;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: #4d4260;
+  font: inherit;
+  font-weight: 750;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.status-api-name:hover,
+.status-api-name:focus-visible {
+  color: var(--primary);
+}
+
+.status-api-separator {
+  color: var(--muted);
 }
 
 .status-count {
@@ -548,38 +576,6 @@ button:disabled {
   min-width: 0;
 }
 
-.model-form-item {
-  grid-column: auto;
-}
-
-.model-form-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.model-help-icon {
-  color: #7c6b91;
-  cursor: help;
-}
-
-.model-select-menu {
-  min-width: 420px;
-  width: max-content;
-  max-width: min(680px, calc(100vw - 32px));
-}
-
-.model-select-menu .n-base-select-option {
-  min-height: 34px;
-  height: auto;
-}
-
-.model-select-menu .n-base-select-option__content {
-  overflow: visible;
-  white-space: normal;
-  text-overflow: clip;
-  word-break: break-word;
-}
 
 .task-stack,
 .history-stack,
@@ -1574,10 +1570,6 @@ button:disabled {
   width: 100%;
 }
 
-.reference-chat-select {
-  width: 260px;
-}
-
 .template-fill-editor {
   position: relative;
   min-height: 0;
@@ -2400,8 +2392,7 @@ button:disabled {
     flex-direction: column;
   }
 
-  .template-fill-controls,
-  .reference-chat-select {
+  .template-fill-controls {
     width: 100%;
   }
 
@@ -2577,16 +2568,6 @@ button:disabled {
   gap: 3px;
 }
 
-.agent-model-selects {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.agent-provider-select {
-  width: 200px;
-  flex: none;
-}
 
 .agent-message-list {
   min-height: 0;
@@ -2914,14 +2895,6 @@ button:disabled {
   .agent-chat-head {
     align-items: stretch;
     flex-direction: column;
-  }
-
-  .agent-model-selects {
-    width: 100%;
-  }
-
-  .agent-provider-select {
-    width: calc(50% - 4px);
   }
 
   .agent-message-list {

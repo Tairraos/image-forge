@@ -38,24 +38,6 @@
         <div>
           <strong>{{ currentSession?.title || "Agent" }}</strong>
         </div>
-        <div class="agent-model-selects">
-          <n-select
-            :value="imageProviderId"
-            :options="imageProviderOptions"
-            placeholder="选择生图模型"
-            aria-label="生图模型"
-            class="agent-provider-select"
-            @update:value="$emit('update:image-provider-id', $event)"
-          />
-          <n-select
-            :value="providerId"
-            :options="providerOptions"
-            placeholder="选择对话模型"
-            aria-label="对话模型"
-            class="agent-provider-select"
-            @update:value="$emit('update:provider-id', $event)"
-          />
-        </div>
       </header>
 
       <AgentMessageList
@@ -96,9 +78,7 @@ defineProps({
   sessions: { type: Array, default: () => [] },
   currentSession: { type: Object, default: null },
   messages: { type: Array, default: () => [] },
-  providerOptions: { type: Array, default: () => [] },
   providerId: { type: String, default: "" },
-  imageProviderOptions: { type: Array, default: () => [] },
   imageProviderId: { type: String, default: "" },
   busy: Boolean,
   streamText: { type: String, default: "" },
@@ -107,7 +87,7 @@ defineProps({
   answers: { type: Object, default: () => ({}) },
 });
 const emit = defineEmits([
-  "create", "select", "send", "stop", "add-reference", "remove-attachment", "update:provider-id", "update:image-provider-id",
+  "create", "select", "send", "stop", "add-reference", "remove-attachment",
   "open-task-group", "cancel-task-group", "retry-task-group", "retry", "paste-reference", "drop-reference", "update-answer", "answer-questions",
   "delete-session",
 ]);

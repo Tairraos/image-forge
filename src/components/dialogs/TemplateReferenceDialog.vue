@@ -87,16 +87,6 @@
 
     <template #footer>
       <div class="template-reference-footer">
-        <n-select
-          :value="chatProviderId"
-          :options="chatProviderOptions"
-          size="small"
-          placement="top-start"
-          class="reference-chat-select"
-          placeholder="选择对话模型"
-          :disabled="!chatProviderOptions.length"
-          @update:value="$emit('update:chat-provider-id', $event)"
-        />
         <n-button size="small" secondary :loading="filling" @click="$emit('ai-fill')">AI 填充</n-button>
         <n-button size="small" type="primary" @click="$emit('insert')">引用模板</n-button>
       </div>
@@ -117,8 +107,6 @@ const generatedContent = defineModel("generatedContent", { type: String, default
 const props = defineProps({
   templates: { type: Array, default: () => [] },
   selectedTemplateId: { type: String, default: "" },
-  chatProviderId: { type: String, default: "" },
-  chatProviderOptions: { type: Array, default: () => [] },
   filledRanges: { type: Array, default: () => [] },
   filling: { type: Boolean, default: false },
   references: { type: Array, default: () => [] },
@@ -126,7 +114,6 @@ const props = defineProps({
 });
 
 const emit = defineEmits([
-  "update:chat-provider-id",
   "select-template",
   "update:source-content",
   "update:generated-content",

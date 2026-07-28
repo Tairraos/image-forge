@@ -20,8 +20,6 @@
         :selected-task="selectedTask"
         :current-outputs="currentOutputs"
         :form="form"
-        :image-provider-options="imageProviderOptions"
-        :chat-provider-options="chatProviderOptions"
         :references="references"
         :submitting="submitting"
         :reference-drag-active="referenceDragActive"
@@ -58,9 +56,7 @@
         :sessions="agentSessions"
         :current-session="currentAgentSession"
         :messages="currentAgentMessages"
-        :provider-options="chatProviderOptions"
-        :provider-id="agentProviderId"
-        :image-provider-options="imageProviderOptions"
+        :provider-id="form.chatProviderId"
         :image-provider-id="activeProvider?.id || ''"
         :busy="agentBusy"
         :stream-text="agentStreamText"
@@ -73,8 +69,6 @@
         @stop="stopAgentConversation"
         @add-reference="addAgentReferenceImages"
         @remove-attachment="removeAgentAttachment"
-        @update:provider-id="agentProviderId = $event"
-        @update:image-provider-id="form.providerId = $event"
         @open-task-group="openAgentTaskGroup"
         @cancel-task-group="cancelAgentTaskGroup"
         @retry-task-group="retryAgentTaskGroup"
@@ -87,15 +81,21 @@
       />
 
       <template #footer>
-        <footer class="status-bar">
-          <span class="status-pill" :data-tone="statusTone">{{ statusText }}</span>
-          <div class="status-summary">
-            <span class="status-meta">当前 API：{{ activeProvider?.name || "未配置" }} · Images API</span>
-            <span class="status-count">{{ queue.running.length }} 运行</span>
-            <span class="status-count">{{ queue.waiting.length }} 排队</span>
-            <span v-if="activeProvider && !activeProvider.apiKey" class="warn-text">API Key 未设置</span>
-          </div>
-        </footer>
+        <AppFooterBar
+          :status-text="statusText"
+          :status-tone="statusTone"
+          :image-provider-id="activeProvider?.id || ''"
+          :image-provider-name="activeProvider?.name || ''"
+          :image-provider-options="imageProviderOptions"
+          :chat-provider-id="activeChatProvider?.id || ''"
+          :chat-provider-name="activeChatProvider?.name || ''"
+          :chat-provider-options="chatProviderOptions"
+          :running-count="queue.running.length"
+          :waiting-count="queue.waiting.length"
+          :image-provider-missing-key="Boolean(activeProvider && !activeProvider.apiKey)"
+          @select-image-provider="selectApiProvider('image', $event)"
+          @select-chat-provider="selectApiProvider('chat', $event)"
+        />
       </template>
 
       <template #dialogs>
@@ -126,13 +126,10 @@
         :generated-content="templateReferenceGeneratedContent"
         :templates="filteredReferenceTemplates"
         :selected-template-id="selectedReferenceTemplateId"
-        :chat-provider-id="form.chatProviderId"
-        :chat-provider-options="chatProviderOptions"
         :filled-ranges="templateFilledRanges"
         :filling="templateFilling"
         :references="templateReferenceReferences"
         :effect-image="templateReferenceEffectImage"
-        @update:chat-provider-id="form.chatProviderId = $event"
         @update:source-content="updateTemplateReferenceSource"
         @update:generated-content="updateTemplateReferenceGenerated"
         @select-template="selectReferenceTemplate"
@@ -240,6 +237,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import AgentWorkspace from "./components/AgentWorkspace.vue";
+import AppFooterBar from "./components/AppFooterBar.vue";
 import AppShell from "./components/AppShell.vue";
 import DrawingWorkspace from "./components/DrawingWorkspace.vue";
 import AboutDialog from "./components/dialogs/AboutDialog.vue";
@@ -279,7 +277,6 @@ const statusTone = ref("busy");
 const workspaceMode = ref(localStorage.getItem("image-forge-workspace-mode") || "drawing");
 const agentSessions = ref([]);
 const currentAgentSessionId = ref("");
-const agentProviderId = ref("");
 const agentBusy = ref(false);
 const agentStreamText = ref("");
 const agentToolStatus = ref("");
@@ -414,6 +411,12 @@ const activeProvider = computed(() =>
   imageProviders.value.find((provider) => provider.id === form.providerId)
   || imageProviders.value.find((provider) => provider.id === settings.value.activeImageProviderId)
   || imageProviders.value[0],
+);
+
+const activeChatProvider = computed(() =>
+  chatProviders.value.find((provider) => provider.id === form.chatProviderId)
+  || chatProviders.value.find((provider) => provider.id === settings.value.activeChatProviderId)
+  || chatProviders.value[0],
 );
 
 const currentAgentSession = computed(() =>
@@ -563,7 +566,7 @@ async function refreshAgentSessions() {
     agentSessions.value = sortAgentSessions(Array.isArray(list) ? list : []);
     if (!currentAgentSessionId.value && agentSessions.value[0]) {
       currentAgentSessionId.value = agentSessions.value[0].id;
-      agentProviderId.value = agentSessions.value[0].modelProviderId || form.chatProviderId;
+      form.chatProviderId = agentSessions.value[0].modelProviderId || form.chatProviderId;
     }
     if (!agentSessions.value.length) await createAgentConversation();
     if (currentAgentSessionId.value) {
@@ -593,9 +596,8 @@ function setAgentSession(session) {
 }
 
 async function createAgentConversation() {
-  if (!agentProviderId.value) agentProviderId.value = form.chatProviderId;
   try {
-    const session = await invoke("create_agent_session", { providerId: agentProviderId.value || "" });
+    const session = await invoke("create_agent_session", { providerId: form.chatProviderId || "" });
     setAgentSession(session);
     currentAgentSessionId.value = session.id;
   } catch (error) {
@@ -608,7 +610,7 @@ async function selectAgentConversation(sessionId) {
     const session = await invoke("get_agent_session", { sessionId });
     setAgentSession(session);
     currentAgentSessionId.value = session.id;
-    agentProviderId.value = session.modelProviderId || agentProviderId.value;
+    form.chatProviderId = session.modelProviderId || form.chatProviderId;
     agentStreamText.value = "";
     agentToolStatus.value = "";
     await refreshAgentTaskGroups();
@@ -645,7 +647,7 @@ async function sendAgentConversationMessage(payload) {
   try {
     const session = await invoke("send_agent_message", {
       sessionId: currentAgentSessionId.value,
-      providerId: agentProviderId.value,
+      providerId: form.chatProviderId,
       skillId: "",
       content,
       attachments: agentAttachments.value.map(({ dataUrl, ...attachment }) => attachment),
@@ -1400,6 +1402,24 @@ async function saveApiSettings(nextSettings) {
     settings.value = normalizeSettingsForUi(saved);
     ensureSelectedModels(true);
     setStatus("API 源已保存", "ok");
+  } catch (error) {
+    setStatus(String(error), "error");
+  }
+}
+
+async function selectApiProvider(kind, providerId) {
+  if (kind === "image") {
+    form.providerId = providerId;
+    settings.value.activeImageProviderId = providerId;
+    settings.value.activeProviderId = providerId;
+  } else {
+    form.chatProviderId = providerId;
+    settings.value.activeChatProviderId = providerId;
+  }
+  try {
+    const saved = await invoke("save_settings", { settings: deepClone(settings.value) });
+    settings.value = normalizeSettingsForUi(saved);
+    setStatus("当前 API 已切换", "ok");
   } catch (error) {
     setStatus(String(error), "error");
   }

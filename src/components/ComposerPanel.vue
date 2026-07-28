@@ -15,37 +15,6 @@
           <n-form-item label="质量">
             <n-select v-model:value="form.quality" :options="qualityOptions" size="small" />
           </n-form-item>
-          <n-form-item label="生图模型" class="model-form-item">
-            <n-select
-              v-model:value="form.providerId"
-              :options="imageProviderOptions"
-              :consistent-menu-width="false"
-              :menu-props="modelSelectMenuProps"
-              size="small"
-              placeholder="选择生图模型"
-            />
-          </n-form-item>
-          <n-form-item class="model-form-item">
-            <template #label>
-              <span class="model-form-label">
-                对话模型
-                <n-tooltip trigger="hover">
-                  <template #trigger>
-                    <CircleAlert :size="14" class="model-help-icon" />
-                  </template>
-                  对话模型用于模板 AI 填充
-                </n-tooltip>
-              </span>
-            </template>
-            <n-select
-              v-model:value="form.chatProviderId"
-              :options="chatProviderOptions"
-              :consistent-menu-width="false"
-              :menu-props="modelSelectMenuProps"
-              size="small"
-              placeholder="选择对话模型"
-            />
-          </n-form-item>
         </div>
       </n-form>
     </div>
@@ -122,7 +91,7 @@
 </template>
 
 <script setup>
-import { CircleAlert, Plus, WandSparkles, X } from "@lucide/vue";
+import { Plus, WandSparkles, X } from "@lucide/vue";
 import { ref } from "vue";
 import ClipboardImageMenu from "./ClipboardImageMenu.vue";
 import {
@@ -134,8 +103,6 @@ import {
 
 const props = defineProps({
   form: { type: Object, required: true },
-  imageProviderOptions: { type: Array, default: () => [] },
-  chatProviderOptions: { type: Array, default: () => [] },
   references: { type: Array, default: () => [] },
   submitting: { type: Boolean, default: false },
   referenceDragActive: { type: Boolean, default: false },
@@ -157,7 +124,6 @@ const emit = defineEmits([
 ]);
 
 const promptInput = ref(null);
-const modelSelectMenuProps = { class: "model-select-menu" };
 
 function handlePromptFocus(event) {
   emit("prompt-focus", event);

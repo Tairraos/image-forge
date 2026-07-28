@@ -43,8 +43,6 @@
 
     <ComposerPanel
       :form="form"
-      :image-provider-options="imageProviderOptions"
-      :chat-provider-options="chatProviderOptions"
       :references="references"
       :submitting="submitting"
       :reference-drag-active="referenceDragActive"
@@ -78,8 +76,6 @@ defineProps({
   selectedTask: { type: Object, default: null },
   currentOutputs: { type: Array, default: () => [] },
   form: { type: Object, required: true },
-  imageProviderOptions: { type: Array, default: () => [] },
-  chatProviderOptions: { type: Array, default: () => [] },
   references: { type: Array, default: () => [] },
   submitting: { type: Boolean, default: false },
   referenceDragActive: { type: Boolean, default: false },
