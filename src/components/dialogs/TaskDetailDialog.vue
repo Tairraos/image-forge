@@ -11,12 +11,6 @@
           <n-descriptions-item v-if="task.origin === 'agent'" label="任务组">
             {{ task.taskGroupId || "未记录" }}
           </n-descriptions-item>
-          <n-descriptions-item v-if="task.origin === 'agent' && task.skillId" label="Skill">
-            {{ task.skillId }}
-          </n-descriptions-item>
-          <n-descriptions-item v-if="task.origin === 'agent' && task.skillContentHash" label="Skill 哈希">
-            <code :title="task.skillContentHash">{{ shortHash(task.skillContentHash) }}</code>
-          </n-descriptions-item>
           <n-descriptions-item v-if="task.origin === 'agent' && task.agentPlan" label="参考策略">
             {{ referencePolicyLabel(task.agentPlan.referencePolicy) }}
           </n-descriptions-item>
@@ -67,8 +61,4 @@ function referencePolicyLabel(policy) {
   return { use: "使用指定参考图", optional: "可选参考图", none: "不使用参考图" }[policy] || policy || "未记录";
 }
 
-function shortHash(value) {
-  const text = String(value || "");
-  return text.length > 16 ? `${text.slice(0, 16)}...` : text;
-}
 </script>

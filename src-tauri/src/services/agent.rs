@@ -21,8 +21,6 @@ pub(crate) struct AgentTurnResult {
     pub text: String,
     pub status: String,
     pub questions: Vec<AgentQuestion>,
-    pub skill_id: String,
-    pub skill_content_hash: String,
     pub tool_calls: Vec<AgentToolCall>,
 }
 
@@ -95,8 +93,6 @@ where
                 response.text,
                 "chat".into(),
                 Vec::new(),
-                String::new(),
-                String::new(),
                 completed_tool_calls,
             ));
         }
@@ -233,11 +229,9 @@ fn envelope_step(
             message,
             questions: _,
             plans,
-            skill_id,
-            skill_content_hash: _,
             ..
         } if status == "ready" => {
-            let arguments = json!({ "skillId": skill_id, "plans": plans });
+            let arguments = json!({ "plans": plans });
             validate_tool_arguments("create_image_tasks", &arguments)?;
             Ok(EnvelopeStep::Continue(AgentModelResponse {
                 text: message,
@@ -253,15 +247,11 @@ fn envelope_step(
             status,
             message,
             questions,
-            skill_id,
-            skill_content_hash,
             ..
         } => Ok(EnvelopeStep::Final(final_result(
             message,
             status,
             questions,
-            skill_id,
-            skill_content_hash,
             completed_tool_calls.to_vec(),
         ))),
         AgentEnvelope::ToolCall {
@@ -290,41 +280,12 @@ fn final_result(
     text: String,
     status: String,
     questions: Vec<AgentQuestion>,
-    mut skill_id: String,
-    mut skill_content_hash: String,
     tool_calls: Vec<AgentToolCall>,
 ) -> AgentTurnResult {
-    if skill_id.trim().is_empty() || skill_content_hash.trim().is_empty() {
-        for call in tool_calls
-            .iter()
-            .rev()
-            .filter(|call| call.name == "use_skill")
-        {
-            let Some(result) = call.result.as_ref() else {
-                continue;
-            };
-            if skill_id.trim().is_empty() {
-                skill_id = result
-                    .get("skillId")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string();
-            }
-            if skill_content_hash.trim().is_empty() {
-                skill_content_hash = result
-                    .pointer("/manifest/contentHash")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string();
-            }
-        }
-    }
     AgentTurnResult {
         text,
         status,
         questions,
-        skill_id,
-        skill_content_hash,
         tool_calls,
     }
 }

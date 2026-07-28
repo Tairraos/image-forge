@@ -24,7 +24,6 @@
       <div
         v-if="message.toolCall"
         class="agent-tool-card"
-        :class="{ compact: message.toolCall.name === 'list_skills' && !message.toolCall.error }"
         :data-status="message.toolCall.status"
       >
         <strong>{{ message.toolCall.name }}</strong>

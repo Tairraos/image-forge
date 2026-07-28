@@ -1,6 +1,6 @@
 # Image Forge 技术设计
 
-本文档描述当前实现，而不是未来路线图。Image Forge 是一款 Tauri 2 桌面应用：Vue 3 负责交互，Rust 负责本地数据、队列、协议适配、Skill 安全审查和文件生命周期。
+本文档描述当前实现，而不是未来路线图。Image Forge 是一款 Tauri 2 桌面应用：Vue 3 负责交互，Rust 负责本地数据、队列、协议适配和文件生命周期。
 
 ## 设计目标与边界
 
@@ -15,7 +15,6 @@
 ### 非目标
 
 - 不提供终端、脚本、任意文件系统、浏览器、数据库或插件执行能力。
-- 不在绘画模式解析 `@skill`；Skill 只通过 Agent 工作流进入上下文。
 - 不把每个模型厂商的细节泄漏到 Vue 组件中。
 
 ## 系统总览
@@ -28,19 +27,17 @@ flowchart LR
   AgentUI --> Bridge
   Bridge --> Commands["commands.rs\nTauri 命令边界"]
   Commands --> Store["store.rs\nJSON 与事务"]
-  Commands --> Services["services/\n队列、图片、聊天、Skill"]
+  Commands --> Services["services/\n队列、图片、聊天"]
   Services --> Queue["queue.rs\n单 worker + 并发控制"]
   Services --> Images["images.rs\n协议分发 + 输出落盘"]
   Services --> Chat["chat.rs\nChat Completions"]
   Services --> Agent["agent.rs\n上下文与 Tool Loop"]
-  Services --> Skills["skill_installer.rs\n审查 + 原子安装"]
   Images --> Providers["GPT / Gemini / Grok / Seedream"]
-  Queue --> Data["~/.image-forge\nJSON / 图片 / Skill 包"]
+  Queue --> Data["~/.image-forge\nJSON / 图片"]
   Agent --> Queue
-  Agent --> Skills
 ```
 
-应用只有一个业务状态源：`src/App.vue` 持有设置、历史、队列、模板、Skill、参考图、绘画表单和 Agent 会话状态；子组件通过 props 接收状态，通过事件把动作交回 `App.vue`。模式切换只改变可见工作区，不销毁另一模式的临时状态。
+应用只有一个业务状态源：`src/App.vue` 持有设置、历史、队列、模板、参考图、绘画表单和 Agent 会话状态；子组件通过 props 接收状态，通过事件把动作交回 `App.vue`。模式切换只改变可见工作区，不销毁另一模式的临时状态。
 
 ## 前端架构
 
@@ -50,7 +47,7 @@ flowchart LR
 | --- | --- |
 | `src/App.vue` | 启动加载、模式切换、轮询、Tauri 命令调用、绘画动作、Agent 会话动作和全局弹窗。 |
 | `src/components/AppShell.vue` | 页面骨架、顶部区域、工作区切换和全局状态栏。 |
-| `src/components/AppTopbar.vue` | 品牌、`绘画/Agent` 切换、API 源、模板、Skill、关于入口。 |
+| `src/components/AppTopbar.vue` | 品牌、`绘画/Agent` 切换、API 源、模板和关于入口。 |
 | `src/components/DrawingWorkspace.vue` | 绘画模式的队列、结果预览和参数工作台组合。 |
 | `src/components/AgentWorkspace.vue` | Agent 会话列表、模型选择、消息列表和输入区组合。 |
 | `src/components/QueuePanel.vue` | 历史任务筛选、任务卡片、刷新、重用、下载、定位和删除。 |
@@ -63,10 +60,9 @@ flowchart LR
 ### Agent 交互约束
 
 - Agent 没有会话时，应用自动创建一个新会话。
-- 左侧会话历史只展示会话，不展示 Skill；会话按时间稳定排列，不因选择而重新排序。
+- 左侧会话历史按时间稳定排列，不因选择而重新排序。
 - 用户和 Agent 消息使用独立图标，双方名称和时间在消息角色区域展示。
 - Agent 回复通过 `markdown-it` 渲染 Markdown；工具成功结果不把原始 JSON 直接塞进对话，只有错误以可换行文本显示。
-- `list_skills` 的完成结果使用紧凑的单行工具卡，降低长对话高度。
 - 任务组按钮预留固定边框和内边距，hover 只改变颜色，不改变盒模型尺寸。
 - 输入框默认 Enter 发送，Command/Ctrl+Enter 也发送，Shift+Enter 保留换行，输入法组合态不会误发送。
 - “直接绘画”位于发送按钮下方。勾选后提示词使用生图模型；未勾选时使用对话模型。
@@ -98,18 +94,16 @@ flowchart LR
 
 | 模块 | 职责 |
 | --- | --- |
-| `commands.rs` | 前端可调用命令：设置、模板、Skill、Agent、任务和清理操作。 |
-| `models.rs` | Vue 与 Rust 共享的 serde 数据结构，包括任务、输出、Agent envelope 和 Skill manifest。 |
+| `commands.rs` | 前端可调用命令：设置、模板、Agent、任务和清理操作。 |
+| `models.rs` | Vue 与 Rust 共享的 serde 数据结构，包括任务、输出和 Agent envelope。 |
 | `state.rs` | 运行期状态：队列 worker 标记、取消/删除集合和运行日志。 |
-| `store.rs` | 数据目录、JSON 读写、请求/历史/队列/模板/Skill 归一化和事务。 |
+| `store.rs` | 数据目录、JSON 读写、请求/历史/队列/模板归一化和事务。 |
 | `services/queue.rs` | 单 worker 调度、provider 并发限制、取消、重试和异常恢复。 |
 | `services/images.rs` | GPT/Gemini/Grok/Seedream 请求组装、响应解析和输出落盘。 |
 | `services/chat.rs` | OpenAI 兼容 Chat Completions、流式回复和模板填充。 |
 | `services/agent.rs` | Agent 上下文、对话循环、Tool Call、取消和错误归一化。 |
 | `services/agent_tools.rs` | 工具注册、JSON schema 校验、参数限制和工具结果。 |
 | `services/agent_store.rs` | Agent 会话保存、恢复、摘要和状态迁移。 |
-| `services/skill.rs` | HTTP(S)/GitHub Markdown 读取、候选 URL、大小和内容类型校验。 |
-| `services/skill_installer.rs` | Skill 包审查、manifest 生成、临时目录和原子安装。 |
 | `services/references.rs` | 参考图哈希去重、引用扫描和孤岛资源清理。 |
 | `services/template_bundle.rs` | 模板 ZIP 导入导出、清单校验、图片哈希和兼容旧格式。 |
 | `services/models.rs` | OpenAI 风格和 Gemini 原生模型列表读取。 |
@@ -144,13 +138,10 @@ sequenceDiagram
 
 | 工具 | 作用 | 约束 |
 | --- | --- | --- |
-| `list_skills` | 搜索本地 Skill 摘要。 | 不返回完整正文。 |
-| `install_skill` | 安装 URL、GitHub 或本地 Skill 包。 | 安装前必须通过安全审查；覆盖安装需要明确确认。 |
-| `use_skill` | 读取 Skill 与 references，形成聊天回复、问题或图片计划。 | 不执行 Skill 中的命令。 |
 | `create_image_tasks` | 创建单图或多图任务组。 | 计划、提示词、数量、模型和参考图策略由 Rust 校验。 |
 | `get_task_status` | 查询任务或任务组状态。 | 只读。 |
 
-Agent 不拥有终端、任意文件读写、任意网络请求、浏览器或数据库工具。Skill 的远程下载是安装器的固定流程，不是模型可以自由调用的网络能力。
+Agent 不拥有终端、任意文件读写、任意网络请求、浏览器或数据库工具。
 
 ### Envelope 降级协议
 
@@ -185,7 +176,7 @@ Agent 不直接拼装内部 `GenerateRequest`，而是提交结构化图片计�
 }
 ```
 
-Rust 端检查提示词非空、模型类型正确、计划数量、参考图 ID、参考图策略和资源存在性。全部计划通过后才一次性写入任务组，避免多图任务只入队一半。任务会记录 `origin=agent`、`agentSessionId`、`taskGroupId`、模型和可选 Skill 哈希。
+Rust 端检查提示词非空、模型类型正确、计划数量、参考图 ID、参考图策略和资源存在性。全部计划通过后才一次性写入任务组，避免多图任务只入队一半。任务会记录 `origin=agent`、`agentSessionId`、`taskGroupId` 和模型。
 
 ## 绘图队列与原子性
 
@@ -231,29 +222,6 @@ sequenceDiagram
 
 共同规则：Base URL 归一化，代理支持 HTTP/SOCKS，模型列表有超时，响应支持 `b64_json`、URL 或 Gemini `inlineData`，文件头决定最终 `png/jpeg/webp` 格式。比例会写入提示词，分辨率和比例共同计算像素 `size`。
 
-## Skill 安全设计
-
-Skill 的目录形态为：
-
-```text
-skills/<safe-name>/
-  SKILL.md
-  manifest.json
-  references/*.md
-```
-
-安装器先把内容放进临时目录，生成并校验 manifest，通过后原子移动到正式目录。允许的能力只有 `chat`、`image_plan` 和 `reference_images`。
-
-审查包含：
-
-- 必须存在 `SKILL.md` 或 `skill.md`；拒绝绝对路径、`..` 和符号链接。
-- 只允许 Markdown 和图片参考资源；拒绝二进制、可执行文件及 `scripts/`、`script/`、`bin/`、`tools/`。
-- 拒绝 Python、JavaScript、Shell、PowerShell、Ruby 等脚本扩展名。
-- 检查 frontmatter、正文、Markdown 链接和代码块中的终端、脚本、子进程、下载命令和未实现能力。
-- 单个 Markdown 不超过 1 MB，包体积、参考文件数量和图片大小受统一上限限制。
-
-读取 Skill 时，后端加载 `SKILL.md` 与同包 `references/*.md`，并将参考文档明确标记为上下文边界。Skill 只能影响模型输出，不会获得执行权限。
-
 ## 本地数据与资源生命周期
 
 ```text
@@ -262,12 +230,10 @@ skills/<safe-name>/
   queue.json
   history.json
   prompt-templates.json
-  skills.json
   agent/sessions/<session-id>.json
   requests/<task-id>.json
   outputs/<timestamp>-<task-id>-01.png
   references/<sha256>.<ext>
-  skills/<skill-name>/SKILL.md
 ```
 
 参考图进入流程后按内容 SHA-256 去重。任务、模板和 Agent 附件只保存路径或引用 ID；删除对象时扫描历史、模板、请求和会话引用，无人引用的资源才进入系统回收站。

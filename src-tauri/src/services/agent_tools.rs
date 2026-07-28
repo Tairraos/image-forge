@@ -2,57 +2,17 @@ use serde_json::{json, Value};
 
 use crate::models::{AgentEnvelope, AGENT_SCHEMA_VERSION};
 
-pub(crate) const TOOL_LIST_SKILLS: &str = "list_skills";
-pub(crate) const TOOL_INSTALL_SKILL: &str = "install_skill";
-pub(crate) const TOOL_USE_SKILL: &str = "use_skill";
 pub(crate) const TOOL_CREATE_IMAGE_TASKS: &str = "create_image_tasks";
 pub(crate) const TOOL_GET_TASK_STATUS: &str = "get_task_status";
 
 pub(crate) fn tool_definitions() -> Vec<Value> {
     vec![
         function_tool(
-            TOOL_LIST_SKILLS,
-            "列出已安装的安全 Markdown Skill，只返回索引和能力摘要。",
-            json!({
-                "type": "object",
-                "properties": { "query": { "type": "string" } },
-                "additionalProperties": false
-            }),
-        ),
-        function_tool(
-            TOOL_INSTALL_SKILL,
-            "从用户明确提供的 HTTP(S)/GitHub URL 或本地包路径安装 Skill。安装前由 Rust 安全审查。",
-            json!({
-                "type": "object",
-                "properties": {
-                    "source": { "type": "string" },
-                    "replace": { "type": "boolean", "default": false }
-                },
-                "required": ["source"],
-                "additionalProperties": false
-            }),
-        ),
-        function_tool(
-            TOOL_USE_SKILL,
-            "读取指定 Skill 的 SKILL.md、manifest 和 Markdown references，作为本轮规划规范。",
-            json!({
-                "type": "object",
-                "properties": {
-                    "skillId": { "type": "string" },
-                    "task": { "type": "string" },
-                    "referenceIds": { "type": "array", "items": { "type": "string" } }
-                },
-                "required": ["skillId", "task"],
-                "additionalProperties": false
-            }),
-        ),
-        function_tool(
             TOOL_CREATE_IMAGE_TASKS,
             "把已经完整明确的单图或多图计划原子提交到绘画队列。",
             json!({
                 "type": "object",
                 "properties": {
-                    "skillId": { "type": "string" },
                     "plans": {
                         "type": "array",
                         "minItems": 1,
@@ -114,21 +74,8 @@ pub(crate) fn validate_tool_arguments(name: &str, arguments: &Value) -> Result<(
         .as_object()
         .ok_or("Tool Call 参数必须是 JSON 对象")?;
     match name {
-        TOOL_LIST_SKILLS => {
-            reject_unknown_fields(name, object, &["query"])?;
-            Ok(())
-        }
-        TOOL_INSTALL_SKILL => {
-            reject_unknown_fields(name, object, &["source", "replace"])?;
-            require_non_empty_string(object.get("source"), "source")
-        }
-        TOOL_USE_SKILL => {
-            reject_unknown_fields(name, object, &["skillId", "task", "referenceIds"])?;
-            require_non_empty_string(object.get("skillId"), "skillId")?;
-            require_non_empty_string(object.get("task"), "task")
-        }
         TOOL_CREATE_IMAGE_TASKS => {
-            reject_unknown_fields(name, object, &["skillId", "plans"])?;
+            reject_unknown_fields(name, object, &["plans"])?;
             let plans = object
                 .get("plans")
                 .and_then(Value::as_array)
@@ -235,8 +182,6 @@ fn validate_envelope(envelope: &AgentEnvelope) -> Result<(), String> {
             message,
             questions,
             plans,
-            skill_id,
-            skill_content_hash: _,
         } => {
             validate_schema_version(*schema_version)?;
             if questions.len() > 3 {
@@ -260,7 +205,7 @@ fn validate_envelope(envelope: &AgentEnvelope) -> Result<(), String> {
                     Ok(())
                 }
                 "ready" if questions.is_empty() && !plans.is_empty() => {
-                    let arguments = json!({ "skillId": skill_id, "plans": plans });
+                    let arguments = json!({ "plans": plans });
                     validate_tool_arguments(TOOL_CREATE_IMAGE_TASKS, &arguments)
                 }
                 "chat" => Err("status=chat 必须只有非空 message".into()),
@@ -375,7 +320,7 @@ mod tests {
     }
 
     #[test]
-    fn tool_registry_exposes_only_the_five_allowed_tools() {
+    fn tool_registry_exposes_only_image_tasks_and_status() {
         let tools = tool_definitions();
         let names = tools
             .iter()
@@ -384,16 +329,7 @@ mod tests {
                     .and_then(|value| value.as_str())
             })
             .collect::<Vec<_>>();
-        assert_eq!(
-            names,
-            vec![
-                "list_skills",
-                "install_skill",
-                "use_skill",
-                "create_image_tasks",
-                "get_task_status"
-            ]
-        );
+        assert_eq!(names, vec!["create_image_tasks", "get_task_status"]);
         let required = tools
             .iter()
             .find(|tool| tool.pointer("/function/name") == Some(&json!("create_image_tasks")))
@@ -447,17 +383,6 @@ mod tests {
 
     #[test]
     fn tool_validation_rejects_unknown_fields() {
-        let error = validate_tool_arguments(
-            "install_skill",
-            &json!({
-                "source": "https://example.com/skill.md",
-                "replace": false,
-                "extra": "not-allowed"
-            }),
-        )
-        .unwrap_err();
-        assert!(error.contains("未知字段"));
-
         let mut plan = valid_image_plan();
         plan["unexpected"] = json!(true);
         let error =
@@ -474,7 +399,7 @@ mod tests {
     }
 
     #[test]
-    fn structured_skill_states_enforce_questions_and_complete_plans() {
+    fn structured_agent_states_enforce_questions_and_complete_plans() {
         let needs_input = parse_fallback_envelope(
             r#"{"schemaVersion":1,"type":"assistant","status":"needs_input","message":"还需要信息","questions":[{"key":"style","label":"想要什么风格？","required":true}],"plans":[]}"#,
         )

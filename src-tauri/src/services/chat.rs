@@ -377,15 +377,15 @@ mod agent_tool_tests {
     #[test]
     fn non_stream_tool_call_is_parsed_with_arguments() {
         let response = parse_agent_tool_response(
-            r#"{"choices":[{"message":{"content":null,"tool_calls":[{"id":"call-1","type":"function","function":{"name":"list_skills","arguments":"{\"query\":\"图像\"}"}}]}}]}"#,
+            r#"{"choices":[{"message":{"content":null,"tool_calls":[{"id":"call-1","type":"function","function":{"name":"get_task_status","arguments":"{\"taskId\":\"task-1\"}"}}]}}]}"#,
             "non-stream",
             None,
             &mut |_| {},
         )
         .unwrap();
         assert_eq!(response.tool_calls.len(), 1);
-        assert_eq!(response.tool_calls[0].name, "list_skills");
-        assert!(response.tool_calls[0].arguments.contains("query"));
+        assert_eq!(response.tool_calls[0].name, "get_task_status");
+        assert!(response.tool_calls[0].arguments.contains("taskId"));
     }
 
     #[test]
@@ -416,7 +416,7 @@ mod agent_tool_tests {
                     "tool_calls": [{
                         "index": 0,
                         "id": "call-",
-                        "function": { "name": "use_skill", "arguments": "{\"skillId\":\"skill-1\",\"task\":\"" }
+                        "function": { "name": "get_task_status", "arguments": "{\"taskId\":\"" }
                     }]
                 }
             }]
@@ -427,7 +427,7 @@ mod agent_tool_tests {
                     "tool_calls": [{
                         "index": 0,
                         "id": "1",
-                        "function": { "arguments": "画图\"}" }
+                        "function": { "arguments": "task-1\"}" }
                     }],
                     "content": "继续"
                 }
@@ -452,11 +452,8 @@ mod agent_tool_tests {
         assert_eq!(text, "继续");
         let call = calls.get(&0).unwrap();
         assert_eq!(call.id, "call-1");
-        assert_eq!(call.name, "use_skill");
-        assert_eq!(
-            call.arguments,
-            "{\"skillId\":\"skill-1\",\"task\":\"画图\"}"
-        );
+        assert_eq!(call.name, "get_task_status");
+        assert_eq!(call.arguments, "{\"taskId\":\"task-1\"}");
         assert!(events.iter().any(|event| event.0 == "tool_delta"));
         assert!(events.iter().any(|event| event.0 == "delta"));
     }
@@ -503,7 +500,7 @@ where
 {
     let envelope_schema = concat!(
         "只能输出一个 JSON 对象，不要使用 Markdown。对象必须是下列三类之一：\n",
-        "1. assistant: {\"schemaVersion\":1,\"type\":\"assistant\",\"status\":\"chat|needs_input|ready|rejected\",\"message\":\"中文说明\",\"questions\":[],\"plans\":[],\"skillId\":\"\",\"skillContentHash\":\"\"}\n",
+        "1. assistant: {\"schemaVersion\":1,\"type\":\"assistant\",\"status\":\"chat|needs_input|ready|rejected\",\"message\":\"中文说明\",\"questions\":[],\"plans\":[]}\n",
         "2. tool_call: {\"schemaVersion\":1,\"type\":\"tool_call\",\"id\":\"call-id\",\"name\":\"工具名\",\"arguments\":{}}\n",
         "3. tool_result 只由应用生成，你不得主动返回。\n",
         "needs_input 必须有 1-3 个 questions 且没有 plans；ready 必须有完整 plans 且没有 questions；rejected 只能说明拒绝原因。",

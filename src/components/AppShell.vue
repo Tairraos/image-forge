@@ -5,7 +5,6 @@
       @update:mode="$emit('update:mode', $event)"
       @show-api="$emit('show-api')"
       @show-template-manager="$emit('show-template-manager')"
-      @show-skill-manager="$emit('show-skill-manager')"
       @show-about="$emit('show-about')"
     />
 
@@ -29,7 +28,6 @@ defineEmits([
   "update:mode",
   "show-api",
   "show-template-manager",
-  "show-skill-manager",
   "show-about",
 ]);
 </script>

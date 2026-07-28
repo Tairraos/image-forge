@@ -26,7 +26,6 @@ mkdirSync(stagingRoot, { recursive: true });
 try {
   cpSync(oldRoot, stagingRoot, { recursive: true, force: true });
   rewriteJsonPaths(stagingRoot, oldRoot, newRoot);
-  migrateSkills(stagingRoot);
   ensureLayout(stagingRoot);
   verify(stagingRoot);
   renameSync(stagingRoot, newRoot);
@@ -56,39 +55,16 @@ function rewriteJsonPaths(root, oldPrefix, newPrefix) {
   }
 }
 
-function migrateSkills(root) {
-  const indexPath = join(root, "skills.json");
-  if (!existsSync(indexPath)) return;
-  const skills = JSON.parse(readFileSync(indexPath, "utf8"));
-  const packageRoot = join(root, "skills");
-  mkdirSync(packageRoot, { recursive: true });
-  for (const skill of skills) {
-    const directory = skill.directory || skillDirectoryName(skill.name, skill.id);
-    const packageDir = join(packageRoot, directory);
-    mkdirSync(packageDir, { recursive: true });
-    writeFileSync(join(packageDir, "SKILL.md"), `${String(skill.content || "").trim()}\n`);
-    skill.directory = directory;
-    delete skill.content;
-    delete skill.sourcePath;
-  }
-  writeFileSync(indexPath, `${JSON.stringify(skills, null, 2)}\n`);
-}
-
 function ensureLayout(root) {
-  for (const name of ["outputs", "requests", "clipboard", "references", "skills"]) {
+  for (const name of ["outputs", "requests", "clipboard", "references"]) {
     mkdirSync(join(root, name), { recursive: true });
   }
 }
 
 function verify(root) {
-  for (const name of ["settings.json", "history.json", "queue.json", "prompt-templates.json", "skills.json"]) {
+  for (const name of ["settings.json", "history.json", "queue.json", "prompt-templates.json"]) {
     const path = join(root, name);
     if (existsSync(path)) JSON.parse(readFileSync(path, "utf8"));
-  }
-  const skills = JSON.parse(readFileSync(join(root, "skills.json"), "utf8"));
-  for (const skill of skills) {
-    const path = join(root, "skills", skill.directory, "SKILL.md");
-    if (!existsSync(path)) throw new Error(`Skill 包缺少 SKILL.md：${path}`);
   }
 }
 
@@ -112,16 +88,6 @@ function replaceStrings(value, oldPrefix, newPrefix) {
     ]));
   }
   return value;
-}
-
-function skillDirectoryName(name, id) {
-  let result = "";
-  for (const ch of String(name || "").trim()) {
-    if (/^[\p{L}\p{N}_-]$/u.test(ch)) result += ch.toLowerCase();
-    else if (!result.endsWith("-")) result += "-";
-  }
-  result = result.replace(/^-+|-+$/g, "").slice(0, 96);
-  return result || `skill-${String(id || "unknown").slice(0, 12)}`;
 }
 
 function securePermissions(root) {

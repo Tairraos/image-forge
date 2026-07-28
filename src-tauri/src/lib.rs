@@ -17,7 +17,6 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             commands::about_info,
-            commands::audit_skill_package,
             commands::copy_image_to_clipboard,
             commands::create_agent_session,
             commands::create_agent_direct_image_task,
@@ -29,7 +28,6 @@ pub fn run() {
             commands::cancel_agent_turn,
             commands::delete_task,
             commands::delete_agent_session,
-            commands::delete_skill,
             commands::delete_template,
             commands::download_output,
             commands::enqueue_generation,
@@ -37,7 +35,6 @@ pub fn run() {
             commands::export_api_providers,
             commands::export_templates,
             commands::fill_prompt_template,
-            commands::fetch_skill_markdown,
             commands::import_templates,
             commands::load_app_state,
             commands::list_provider_models,
@@ -45,7 +42,6 @@ pub fn run() {
             commands::move_template,
             commands::queue_snapshot,
             commands::read_api_providers_file,
-            commands::read_skill_markdown_file,
             commands::reference_from_clipboard,
             commands::reference_from_path,
             commands::retry_task,
@@ -53,12 +49,9 @@ pub fn run() {
             commands::runtime_logs,
             commands::list_agent_sessions,
             commands::get_agent_session,
-            commands::install_skill,
-            commands::use_skill,
             commands::send_agent_message,
             commands::scan_cleanup_candidates,
             commands::save_settings,
-            commands::save_skill,
             commands::save_template,
         ])
         .run(tauri::generate_context!())
@@ -72,9 +65,7 @@ mod tests {
     use uuid::Uuid;
 
     use super::services::{images::reference_preview, references::persist_reference_bytes};
-    use super::store::{
-        default_template_title, is_safe_skill_directory, normalize_model_type, skill_directory_name,
-    };
+    use super::store::{default_template_title, normalize_model_type};
     use super::utils::{
         image_prompt_for_transport, normalize_base_url, prompt_with_ratio_instruction, sanitize_id,
         should_send_input_fidelity, size_for_preset,
@@ -137,17 +128,6 @@ mod tests {
         );
         let long_title = "字".repeat(30);
         assert_eq!(default_template_title(&long_title), "字".repeat(24));
-    }
-
-    #[test]
-    fn skill_directory_names_are_codex_style_and_path_safe() {
-        assert_eq!(
-            skill_directory_name("Image Director", "abc"),
-            "image-director"
-        );
-        assert_eq!(skill_directory_name("构图 导演", "abc"), "构图-导演");
-        assert!(is_safe_skill_directory("image-director"));
-        assert!(!is_safe_skill_directory("../image-director"));
     }
 
     #[test]

@@ -12,9 +12,8 @@ use crate::{
     defaults::APP_BUILD_TIME,
     models::{
         AboutInfo, AgentAttachment, AgentImagePlan, AgentMessage, AgentProgressEvent, AgentSession,
-        AgentSkillContext, AgentTaskGroup, ApiProvider, AppState, CleanupCandidate,
-        GenerateRequest, PromptTemplate, QueueSnapshot, ReferencePreview, Settings,
-        SkillAuditResult, SkillEntry, SkillFetchResult, TaskRecord, TemplateFillEvent,
+        AgentTaskGroup, ApiProvider, AppState, CleanupCandidate, GenerateRequest, PromptTemplate,
+        QueueSnapshot, ReferencePreview, Settings, TaskRecord, TemplateFillEvent,
         TemplateImportResult,
     },
     services::{
@@ -33,20 +32,15 @@ use crate::{
             cleanup_orphan_files, persist_reference_paths, prune_unreferenced_files,
             prune_unreferenced_files_with_data, scan_orphan_files,
         },
-        skill::fetch_skill_markdown as fetch_skill_markdown_from_url,
-        skill_installer::{
-            audit_skill_directory, install_skill_source, read_verified_manifest, save_skill_entry,
-        },
         template_bundle::{export_templates_archive, import_templates_archive},
     },
     state::{record_operation, runtime_logs_text, RuntimeState},
     store::{
-        enqueue_task, ensure_data_dir, is_safe_skill_directory, next_template_id,
-        normalize_request, normalize_settings, normalize_template, params_from_request,
-        provider_for_request, read_history, read_json, read_queue, read_settings, read_skills,
-        read_templates, refresh_history_output_sizes, request_path, skills_dir, templates_path,
-        write_generation_batch, write_history, write_history_queue_transaction, write_json,
-        write_queue, write_settings, write_skill_index,
+        enqueue_task, ensure_data_dir, next_template_id, normalize_request, normalize_settings,
+        normalize_template, params_from_request, provider_for_request, read_history, read_json,
+        read_queue, read_settings, read_templates, refresh_history_output_sizes, request_path,
+        templates_path, write_generation_batch, write_history, write_history_queue_transaction,
+        write_json, write_queue, write_settings,
     },
     utils::utc_now,
 };
@@ -119,7 +113,6 @@ pub(crate) async fn send_agent_message(
     app: AppHandle,
     session_id: String,
     provider_id: String,
-    skill_id: String,
     content: String,
     attachments: Vec<AgentAttachment>,
 ) -> Result<AgentSession, String> {
@@ -137,8 +130,6 @@ pub(crate) async fn send_agent_message(
         attachments,
         tool_call: None,
         questions: Vec::new(),
-        skill_id: String::new(),
-        skill_content_hash: String::new(),
         task_group: None,
         error: String::new(),
         created_at: utc_now(),
@@ -152,30 +143,11 @@ pub(crate) async fn send_agent_message(
     current = save_session(&data_dir, current)?;
     let settings = read_settings(&data_dir)?;
     let provider = agent_chat_provider(&settings, &current.model_provider_id)?;
-    let mut context = if current.summary.trim().is_empty() {
+    let context = if current.summary.trim().is_empty() {
         String::new()
     } else {
         format!("历史摘要：\n{}", current.summary)
     };
-    let mut selected_skill_hash = String::new();
-    if !skill_id.trim().is_empty() {
-        let skill_context = use_skill(app.clone(), skill_id.clone())?;
-        selected_skill_hash = skill_context.manifest.content_hash.clone();
-        context.push_str(&format!(
-            "\n\n<skill id=\"{}\" name=\"{}\" content_hash=\"{}\">\n{}\n",
-            skill_context.skill_id,
-            skill_context.name,
-            skill_context.manifest.content_hash,
-            skill_context.content
-        ));
-        for reference in skill_context.references {
-            context.push_str(&format!(
-                "\n<skill_reference>\n{}\n</skill_reference>\n",
-                reference
-            ));
-        }
-        context.push_str("</skill>");
-    }
     let mut chat_messages = vec![serde_json::json!({
         "role": "system",
         "content": agent_system_prompt(&context),
@@ -240,13 +212,7 @@ pub(crate) async fn send_agent_message(
         tasks.remove(&session_id);
     }
     let result = match output {
-        Ok(mut output) => {
-            if output.skill_id.trim().is_empty() && !skill_id.trim().is_empty() {
-                output.skill_id = skill_id.clone();
-            }
-            if output.skill_content_hash.trim().is_empty() && !selected_skill_hash.is_empty() {
-                output.skill_content_hash = selected_skill_hash.clone();
-            }
+        Ok(output) => {
             for tool_call in output.tool_calls {
                 let content = serde_json::to_string(&serde_json::json!({
                     "result": tool_call.result,
@@ -264,8 +230,6 @@ pub(crate) async fn send_agent_message(
                         attachments: Vec::new(),
                         tool_call: Some(tool_call),
                         questions: Vec::new(),
-                        skill_id: String::new(),
-                        skill_content_hash: String::new(),
                         task_group: None,
                         error: String::new(),
                         created_at: utc_now(),
@@ -283,8 +247,6 @@ pub(crate) async fn send_agent_message(
                     attachments: Vec::new(),
                     tool_call: None,
                     questions: output.questions,
-                    skill_id: output.skill_id,
-                    skill_content_hash: output.skill_content_hash,
                     task_group: None,
                     error: String::new(),
                     created_at: utc_now(),
@@ -309,8 +271,6 @@ pub(crate) async fn send_agent_message(
                     attachments: Vec::new(),
                     tool_call: None,
                     questions: Vec::new(),
-                    skill_id: String::new(),
-                    skill_content_hash: String::new(),
                     task_group: None,
                     error: error.clone(),
                     created_at: utc_now(),
@@ -358,7 +318,7 @@ pub(crate) fn cancel_agent_turn(app: AppHandle, session_id: String) -> Result<bo
 
 fn agent_system_prompt(context: &str) -> String {
     format!(
-        "你是 Image Forge 本地 Agent。普通聊天直接回答；需要 Skill 或绘图时必须调用已注册工具。禁止声称执行终端、脚本、任意文件读写、任意 HTTP、浏览器、数据库或插件。调用 use_skill 后，如果缺信息必须返回 schemaVersion=1 的 assistant envelope，status=needs_input 并在 questions 中提出最多 3 个问题；Skill 无法执行时返回 status=rejected 和原因；信息完整时返回 status=ready 及逐图 plans，或调用 create_image_tasks。每个 plan 必须明确 resolution、ratio、quality、promptFidelity、referencePolicy 和 referenceIds；referencePolicy=optional 时如果 referenceIds 为空，默认沿用当前附图。参考图只有 ID 和元数据；不支持视觉的模型不能假装看到了图片内容。\n\n当前会话上下文：\n{}",
+        "你是 Image Forge 本地绘画助手。普通聊天直接回答；需要绘图时必须调用 create_image_tasks。禁止声称执行终端、脚本、任意文件读写、任意 HTTP、浏览器、数据库或插件。缺少绘图信息时返回 schemaVersion=1 的 assistant envelope，status=needs_input 并在 questions 中提出最多 3 个问题；无法完成时返回 status=rejected 和原因；信息完整时返回 status=ready 及逐图 plans，或调用 create_image_tasks。每个 plan 必须明确 resolution、ratio、quality、promptFidelity、referencePolicy 和 referenceIds；referencePolicy=optional 时如果 referenceIds 为空，默认沿用当前附图。参考图只有 ID 和元数据；不支持视觉的模型不能假装看到了图片内容。\n\n当前会话上下文：\n{}",
         context.trim()
     )
 }
@@ -467,58 +427,15 @@ async fn execute_agent_tool(
     arguments: &serde_json::Value,
 ) -> Result<serde_json::Value, String> {
     match name {
-        "list_skills" => {
-            let data_dir = ensure_data_dir(app)?;
-            let query = arguments
-                .get("query")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or_default();
-            Ok(serde_json::Value::Array(list_skill_summaries(
-                &data_dir, query,
-            )?))
-        }
-        "install_skill" => {
-            let source = arguments
-                .get("source")
-                .and_then(serde_json::Value::as_str)
-                .ok_or("install_skill.source 不能为空")?;
-            let replace = arguments
-                .get("replace")
-                .and_then(serde_json::Value::as_bool)
-                .unwrap_or(false);
-            if replace && !explicit_confirmation(user_message) {
-                return Err("覆盖安装需要用户在当前消息中明确确认".into());
-            }
-            let data_dir = ensure_data_dir(app)?;
-            let (skill, audit) = install_skill_source(&data_dir, source, replace).await?;
-            Ok(serde_json::json!({
-                "skill": skill,
-                "warnings": audit.warnings,
-            }))
-        }
-        "use_skill" => {
-            let skill_id = arguments
-                .get("skillId")
-                .and_then(serde_json::Value::as_str)
-                .ok_or("use_skill.skillId 不能为空")?;
-            serde_json::to_value(use_skill(app.clone(), skill_id.to_string())?)
-                .map_err(|error| format!("序列化 Skill 上下文失败: {error}"))
-        }
         "create_image_tasks" => {
             let plans = serde_json::from_value::<Vec<AgentImagePlan>>(
                 arguments.get("plans").cloned().unwrap_or_default(),
             )
             .map_err(|error| format!("解析图片计划失败: {error}"))?;
-            let skill_id = arguments
-                .get("skillId")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or_default()
-                .to_string();
             if plans.len() > 4 && !explicit_confirmation(user_message) {
                 return Err("一次创建超过 4 张图片需要用户在当前消息中明确确认".into());
             }
-            let group =
-                create_agent_image_tasks(app.clone(), session_id.to_string(), skill_id, plans)?;
+            let group = create_agent_image_tasks(app.clone(), session_id.to_string(), plans)?;
             let _ = app.emit("agent-task-group", &group);
             serde_json::to_value(group).map_err(|error| format!("序列化任务组失败: {error}"))
         }
@@ -561,41 +478,6 @@ fn task_status_records(
     }
 }
 
-fn list_skill_summaries(data_dir: &Path, query: &str) -> Result<Vec<serde_json::Value>, String> {
-    let query = query.trim().to_lowercase();
-    read_skills(data_dir)?
-        .into_iter()
-        .filter(|skill| skill_matches_query(skill, &query))
-        .map(|skill| skill_summary_value(data_dir, skill))
-        .collect()
-}
-
-fn skill_matches_query(skill: &SkillEntry, query: &str) -> bool {
-    query.is_empty()
-        || [
-            skill.name.as_str(),
-            skill.notes.as_str(),
-            skill.source_url.as_str(),
-        ]
-        .join(" ")
-        .to_lowercase()
-        .contains(query)
-}
-
-fn skill_summary_value(data_dir: &Path, skill: SkillEntry) -> Result<serde_json::Value, String> {
-    let package_dir = skills_dir(data_dir).join(&skill.directory);
-    let manifest = audit_skill_directory(&package_dir)
-        .ok()
-        .and_then(|audit| audit.manifest);
-    Ok(serde_json::json!({
-        "id": skill.id,
-        "name": skill.name,
-        "notes": skill.notes,
-        "sourceUrl": skill.source_url,
-        "capabilities": manifest.map(|value| value.capabilities).unwrap_or_default(),
-    }))
-}
-
 fn update_agent_task_group_summary(data_dir: &Path, task_group_id: &str, status: &str) {
     let Ok(records) = read_history(data_dir) else {
         return;
@@ -629,143 +511,13 @@ fn explicit_confirmation(message: &str) -> bool {
 }
 
 #[tauri::command]
-pub(crate) fn audit_skill_package(
-    app: AppHandle,
-    path: String,
-) -> Result<SkillAuditResult, String> {
-    let _ = ensure_data_dir(&app)?;
-    let root = PathBuf::from(path.trim());
-    let result = audit_skill_directory(&root);
-    record_result(
-        "审查 Skill 包",
-        format!("path={}", root.display()).as_str(),
-        None,
-        &result,
-    );
-    result
-}
-
-#[tauri::command]
-pub(crate) async fn install_skill(
-    app: AppHandle,
-    source: String,
-    replace: bool,
-) -> Result<SkillEntry, String> {
-    let data_dir = ensure_data_dir(&app)?;
-    let result = install_skill_source(&data_dir, &source, replace)
-        .await
-        .map(|(skill, _)| skill);
-    record_result(
-        "安装 Skill",
-        format!("source={source}").as_str(),
-        None,
-        &result,
-    );
-    result
-}
-
-#[tauri::command]
-pub(crate) fn use_skill(app: AppHandle, skill_id: String) -> Result<AgentSkillContext, String> {
-    let data_dir = ensure_data_dir(&app)?;
-    load_skill_context(&data_dir, &skill_id)
-}
-
-fn load_skill_context(data_dir: &Path, skill_id: &str) -> Result<AgentSkillContext, String> {
-    let skills = read_skills(data_dir)?;
-    let skill = skills
-        .iter()
-        .find(|item| item.id == skill_id)
-        .ok_or("找不到 Skill")?;
-    if !is_safe_skill_directory(&skill.directory) {
-        return Err("Skill 目录名不安全".into());
-    }
-    let package_dir = skills_dir(&data_dir).join(&skill.directory);
-    let audit = audit_skill_directory(&package_dir)?;
-    if !audit.allowed {
-        return Err(format!("Skill 审查失败：{}", audit.reasons.join("；")));
-    }
-    let manifest = read_verified_manifest(&package_dir)?;
-    let content = read_skill_entry_content(&package_dir)?;
-    let references = read_skill_markdown_references(&package_dir)?;
-    Ok(AgentSkillContext {
-        skill_id: skill.id.clone(),
-        name: skill.name.clone(),
-        content,
-        manifest,
-        references,
-    })
-}
-
-fn read_skill_entry_content(package_dir: &Path) -> Result<String, String> {
-    let entry = [package_dir.join("SKILL.md"), package_dir.join("skill.md")]
-        .into_iter()
-        .find(|path| path.is_file())
-        .ok_or("Skill 包缺少 SKILL.md")?;
-    fs::read_to_string(entry).map_err(|error| format!("读取 Skill 内容失败: {error}"))
-}
-
-fn read_skill_markdown_references(package_dir: &Path) -> Result<Vec<String>, String> {
-    let references_dir = package_dir.join("references");
-    if references_dir.is_dir() {
-        let mut files = Vec::new();
-        collect_skill_reference_markdown_files(&references_dir, &references_dir, &mut files)?;
-        files.sort_by(|left, right| left.0.cmp(&right.0));
-        files
-            .into_iter()
-            .map(|(_, path)| {
-                fs::read_to_string(&path).map_err(|error| {
-                    format!("读取 Skill reference {} 失败: {error}", path.display())
-                })
-            })
-            .collect()
-    } else {
-        Ok(Vec::new())
-    }
-}
-
-fn collect_skill_reference_markdown_files(
-    root: &Path,
-    current: &Path,
-    files: &mut Vec<(String, PathBuf)>,
-) -> Result<(), String> {
-    let entries = fs::read_dir(current)
-        .map_err(|error| format!("读取 Skill references 失败: {error}"))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| format!("读取 Skill references 失败: {error}"))?;
-    for entry in entries {
-        let path = entry.path();
-        let metadata = fs::symlink_metadata(&path)
-            .map_err(|error| format!("读取 Skill reference 元数据失败: {error}"))?;
-        if metadata.is_dir() {
-            collect_skill_reference_markdown_files(root, &path, files)?;
-            continue;
-        }
-        let is_markdown = path
-            .extension()
-            .and_then(|value| value.to_str())
-            .map(|value| value.eq_ignore_ascii_case("md") || value.eq_ignore_ascii_case("markdown"))
-            .unwrap_or(false);
-        if is_markdown {
-            let relative = path
-                .strip_prefix(root)
-                .unwrap_or(&path)
-                .to_string_lossy()
-                .into_owned();
-            files.push((relative, path));
-        }
-    }
-    Ok(())
-}
-
-#[tauri::command]
 pub(crate) fn create_agent_image_tasks(
     app: AppHandle,
     session_id: String,
-    skill_id: String,
     plans: Vec<AgentImagePlan>,
 ) -> Result<AgentTaskGroup, String> {
     let data_dir = ensure_data_dir(&app)?;
-    let group = create_agent_image_tasks_in_data_dir(&data_dir, session_id, skill_id, plans)?;
+    let group = create_agent_image_tasks_in_data_dir(&data_dir, session_id, plans)?;
     let _ = emit_queue_updated(&app, &data_dir);
     ensure_queue_worker(&app);
     Ok(group)
@@ -834,20 +586,17 @@ fn create_agent_direct_image_task_in_data_dir(
             attachments,
             tool_call: None,
             questions: Vec::new(),
-            skill_id: String::new(),
-            skill_content_hash: String::new(),
             task_group: None,
             error: String::new(),
             created_at: utc_now(),
         },
     )?;
-    create_agent_image_tasks_in_data_dir(data_dir, session_id, String::new(), vec![plan])
+    create_agent_image_tasks_in_data_dir(data_dir, session_id, vec![plan])
 }
 
 fn create_agent_image_tasks_in_data_dir(
     data_dir: &Path,
     session_id: String,
-    skill_id: String,
     plans: Vec<AgentImagePlan>,
 ) -> Result<AgentTaskGroup, String> {
     if plans.is_empty() || plans.len() > 12 {
@@ -855,7 +604,6 @@ fn create_agent_image_tasks_in_data_dir(
     }
     let settings = read_settings(data_dir)?;
     let agent_session = session(data_dir, &session_id)?;
-    let skill_content_hash = agent_skill_content_hash(data_dir, &skill_id);
     let attachment_paths = agent_session
         .messages
         .iter()
@@ -934,7 +682,7 @@ fn create_agent_image_tasks_in_data_dir(
         data_dir,
         &settings,
         requests,
-        Some((&session_id, &task_group_id, &skill_id)),
+        Some((&session_id, &task_group_id)),
     )?;
     let now = utc_now();
     let mut titles = Vec::with_capacity(prepared.len());
@@ -946,7 +694,6 @@ fn create_agent_image_tasks_in_data_dir(
         plan.quality = task.request.quality.clone();
         plan.prompt_fidelity = task.request.prompt_fidelity.clone();
         titles.push(plan.title.clone());
-        task.record.skill_content_hash = skill_content_hash.clone();
         task.record.agent_plan = Some(plan);
     }
     let tasks = commit_generation_batch(data_dir, &prepared)?;
@@ -962,12 +709,9 @@ fn create_agent_image_tasks_in_data_dir(
         attachments: Vec::new(),
         tool_call: None,
         questions: Vec::new(),
-        skill_id: skill_id.clone(),
-        skill_content_hash: skill_content_hash.clone(),
         task_group: Some(crate::models::AgentTaskGroupSummary {
             schema_version: crate::models::AGENT_SCHEMA_VERSION,
             id: task_group_id.clone(),
-            skill_content_hash: skill_content_hash.clone(),
             task_ids: tasks.iter().map(|task| task.id.clone()).collect(),
             titles,
             prompt_summaries: tasks
@@ -984,26 +728,9 @@ fn create_agent_image_tasks_in_data_dir(
         schema_version: crate::models::AGENT_SCHEMA_VERSION,
         id: task_group_id,
         session_id,
-        skill_id,
-        skill_content_hash,
         tasks,
         created_at: utc_now(),
     })
-}
-
-fn agent_skill_content_hash(data_dir: &Path, skill_id: &str) -> String {
-    if skill_id.trim().is_empty() {
-        return String::new();
-    }
-    let Ok(skills) = read_skills(data_dir) else {
-        return String::new();
-    };
-    let Some(skill) = skills.iter().find(|skill| skill.id == skill_id) else {
-        return String::new();
-    };
-    read_verified_manifest(&skills_dir(data_dir).join(&skill.directory))
-        .map(|manifest| manifest.content_hash)
-        .unwrap_or_default()
 }
 
 fn prompt_summary(prompt: &str) -> String {
@@ -1210,7 +937,6 @@ pub(crate) fn load_app_state(app: AppHandle) -> Result<AppState, String> {
         history: history.clone(),
         queue: build_queue_snapshot(&app, &data_dir, history)?,
         templates,
-        skills: read_skills(&data_dir)?,
         data_dir: data_dir.to_string_lossy().into_owned(),
     })
 }
@@ -1251,42 +977,6 @@ pub(crate) fn read_api_providers_file(_app: AppHandle, path: String) -> Result<S
 }
 
 #[tauri::command]
-/// 读取拖入的 Markdown Skill 文件或包含 SKILL.md 的目录。
-pub(crate) fn read_skill_markdown_file(_app: AppHandle, path: String) -> Result<String, String> {
-    let input_path = Path::new(path.trim());
-    let params = format!("path={}", input_path.display());
-    let result = (|| {
-        let path = if input_path.is_dir() {
-            ["SKILL.md", "skill.md"]
-                .into_iter()
-                .map(|name| input_path.join(name))
-                .find(|candidate| candidate.is_file())
-                .ok_or("目录中没有找到 SKILL.md")?
-        } else {
-            input_path.to_path_buf()
-        };
-        if !path.is_file() {
-            return Err("找不到拖入的文件".into());
-        }
-        if !path
-            .extension()
-            .and_then(|value| value.to_str())
-            .is_some_and(|value| value.eq_ignore_ascii_case("md"))
-        {
-            return Err("只支持拖入 .md 文件".into());
-        }
-        let metadata =
-            fs::metadata(&path).map_err(|error| format!("读取 Skill 文件失败: {error}"))?;
-        if metadata.len() > 1_048_576 {
-            return Err("Skill 文件超过 1 MB".into());
-        }
-        fs::read_to_string(&path).map_err(|error| format!("读取 Skill 文件失败: {error}"))
-    })();
-    record_result("读取 Skill Markdown 文件", &params, None, &result);
-    result
-}
-
-#[tauri::command]
 /// 返回队列快照，供前端轮询刷新运行中和等待中的任务。
 pub(crate) fn queue_snapshot(app: AppHandle) -> Result<QueueSnapshot, String> {
     let data_dir = ensure_data_dir(&app)?;
@@ -1309,7 +999,7 @@ pub(crate) fn enqueue_generation(
 }
 
 #[tauri::command]
-/// 批量创建生图任务，适用于 Skill 一次规划出多张图的场景。
+/// 批量创建生图任务。
 pub(crate) fn enqueue_generation_batch(
     app: AppHandle,
     requests: Vec<GenerateRequest>,
@@ -1333,7 +1023,7 @@ fn prepare_generation_batch(
     data_dir: &Path,
     settings: &Settings,
     requests: Vec<GenerateRequest>,
-    agent_origin: Option<(&str, &str, &str)>,
+    agent_origin: Option<(&str, &str)>,
 ) -> Result<Vec<PreparedGenerationTask>, String> {
     if requests.is_empty() {
         return Err("没有可加入队列的任务".into());
@@ -1379,7 +1069,7 @@ fn task_record_from_request(
     id: String,
     request: &GenerateRequest,
     provider: &ApiProvider,
-    agent_origin: Option<(&str, &str, &str)>,
+    agent_origin: Option<(&str, &str)>,
 ) -> TaskRecord {
     let now = utc_now();
     let mut record = TaskRecord {
@@ -1402,15 +1092,12 @@ fn task_record_from_request(
         origin: String::new(),
         agent_session_id: String::new(),
         task_group_id: String::new(),
-        skill_id: String::new(),
-        skill_content_hash: String::new(),
         agent_plan: None,
     };
-    if let Some((session_id, task_group_id, skill_id)) = agent_origin {
+    if let Some((session_id, task_group_id)) = agent_origin {
         record.origin = "agent".into();
         record.agent_session_id = session_id.into();
         record.task_group_id = task_group_id.into();
-        record.skill_id = skill_id.into();
     }
 
     record
@@ -1694,52 +1381,6 @@ pub(crate) fn delete_template(
     write_json(&templates_path(&data_dir), &templates)?;
     prune_unreferenced_files(&data_dir)?;
     Ok(templates)
-}
-
-#[tauri::command]
-/// 新增或更新 Skill；保存与导入使用相同安全门并生成 manifest。
-pub(crate) fn save_skill(
-    app: AppHandle,
-    skill: SkillEntry,
-    replace: bool,
-) -> Result<Vec<SkillEntry>, String> {
-    let data_dir = ensure_data_dir(&app)?;
-    let result = save_skill_entry(&data_dir, skill, replace).and_then(|_| read_skills(&data_dir));
-    record_result("保存 Skill", "source=editor", None, &result);
-    result
-}
-
-#[tauri::command]
-/// 删除指定 Skill 并返回更新后的列表。
-pub(crate) fn delete_skill(app: AppHandle, skill_id: String) -> Result<Vec<SkillEntry>, String> {
-    let data_dir = ensure_data_dir(&app)?;
-    let mut skills = read_skills(&data_dir)?;
-    if let Some(skill) = skills
-        .iter()
-        .find(|skill| skill.id == skill_id && is_safe_skill_directory(&skill.directory))
-    {
-        let package_dir = skills_dir(&data_dir).join(&skill.directory);
-        if package_dir.starts_with(skills_dir(&data_dir)) && package_dir.is_dir() {
-            trash::delete(&package_dir)
-                .map_err(|error| format!("将 Skill 目录移入回收站失败: {error}"))?;
-        }
-    }
-    skills.retain(|skill| skill.id != skill_id);
-    write_skill_index(&data_dir, &skills)?;
-    Ok(skills)
-}
-
-#[tauri::command]
-/// 提取 URL 指向的 Markdown Skill，目录 URL 会继续尝试大小写文件名。
-pub(crate) async fn fetch_skill_markdown(
-    _app: AppHandle,
-    source_url: String,
-) -> Result<SkillFetchResult, String> {
-    let params = format!("url={source_url}");
-    record_operation("从 URL 提取 Skill", "开始", &params, Some(false), None);
-    let result = fetch_skill_markdown_from_url(&source_url).await;
-    record_result("从 URL 提取 Skill", &params, Some(false), &result);
-    result
 }
 
 #[tauri::command]
@@ -2064,135 +1705,20 @@ mod tests {
     }
 
     #[test]
-    fn agent_skill_list_returns_filtered_summaries_without_content() {
-        let data_dir = command_test_data_dir("skill-list");
-        std::fs::create_dir_all(data_dir.join("skills").join("camera-director")).unwrap();
-        std::fs::create_dir_all(data_dir.join(".staging")).unwrap();
-        std::fs::write(
-            data_dir.join("skills").join("camera-director").join("SKILL.md"),
-            "---\nname: 镜头导演\ncapabilities: [chat, image_plan]\n---\n# 镜头导演\n正文不应出现在 list_skills 结果里",
-        )
-        .unwrap();
-        write_skill_index(
-            &data_dir,
-            &[SkillEntry {
-                id: "skill-camera".into(),
-                name: "镜头导演".into(),
-                source_url: "https://example.com/skills/camera".into(),
-                notes: "电影感构图".into(),
-                content: "正文不应出现在 list_skills 结果里".into(),
-                directory: "camera-director".into(),
-                source_path: String::new(),
-                created_at: String::new(),
-                updated_at: String::new(),
-            }],
-        )
-        .unwrap();
-
-        let summaries = list_skill_summaries(&data_dir, "电影").unwrap();
-        assert_eq!(summaries.len(), 1);
-        assert_eq!(summaries[0]["id"], "skill-camera");
-        assert_eq!(summaries[0]["name"], "镜头导演");
-        assert_eq!(summaries[0]["notes"], "电影感构图");
-        assert_eq!(
-            summaries[0]["capabilities"],
-            serde_json::json!(["chat", "image_plan"])
-        );
-        assert!(summaries[0].get("content").is_none());
-
-        let empty = list_skill_summaries(&data_dir, "不存在").unwrap();
-        assert!(empty.is_empty());
-        recycle(&data_dir);
-    }
-
-    #[test]
-    fn use_skill_loads_package_content_and_nested_references_in_order() {
-        let data_dir = command_test_data_dir("use-skill-context");
-        let package = data_dir.join("skills").join("camera-director");
-        std::fs::create_dir_all(package.join("references").join("nested")).unwrap();
-        let content =
-            "---\nname: 镜头导演\ncapabilities: [chat, image_plan]\n---\n# 镜头导演\n真实正文";
-        std::fs::write(package.join("SKILL.md"), content).unwrap();
-        std::fs::write(package.join("references").join("z.md"), "第三份").unwrap();
-        std::fs::write(package.join("references").join("a.md"), "第一份").unwrap();
-        std::fs::write(
-            package.join("references").join("nested").join("b.md"),
-            "第二份",
-        )
-        .unwrap();
-        write_skill_manifest(&package);
-        write_skill_index(
-            &data_dir,
-            &[SkillEntry {
-                id: "skill-camera".into(),
-                name: "镜头导演".into(),
-                source_url: String::new(),
-                notes: String::new(),
-                content: "过期缓存正文".into(),
-                directory: "camera-director".into(),
-                source_path: String::new(),
-                created_at: String::new(),
-                updated_at: String::new(),
-            }],
-        )
-        .unwrap();
-
-        let context = load_skill_context(&data_dir, "skill-camera").unwrap();
-        assert_eq!(context.content, content);
-        assert_eq!(context.references, vec!["第一份", "第二份", "第三份"]);
-        assert_eq!(context.manifest.name, "镜头导演");
-        recycle(&data_dir);
-    }
-
-    #[test]
-    fn use_skill_rejects_package_when_manifest_hash_is_stale() {
-        let data_dir = command_test_data_dir("use-skill-stale-manifest");
-        let package = data_dir.join("skills").join("camera-director");
-        std::fs::create_dir_all(&package).unwrap();
-        std::fs::write(package.join("SKILL.md"), "# 镜头导演\n原始正文").unwrap();
-        write_skill_manifest(&package);
-        std::fs::write(package.join("SKILL.md"), "# 镜头导演\n被改动的正文").unwrap();
-        write_skill_index(
-            &data_dir,
-            &[SkillEntry {
-                id: "skill-camera".into(),
-                name: "镜头导演".into(),
-                source_url: String::new(),
-                notes: String::new(),
-                content: String::new(),
-                directory: "camera-director".into(),
-                source_path: String::new(),
-                created_at: String::new(),
-                updated_at: String::new(),
-            }],
-        )
-        .unwrap();
-
-        let error = load_skill_context(&data_dir, "skill-camera").unwrap_err();
-        assert!(error.contains("manifest 哈希校验失败"));
-        recycle(&data_dir);
-    }
-
-    #[test]
     fn agent_image_tasks_create_a_group_atomically() {
         let (data_dir, agent_session, reference_id) = agent_task_data_dir("agent-image-group");
         let group = create_agent_image_tasks_in_data_dir(
             &data_dir,
             agent_session.id.clone(),
-            "skill-camera".into(),
             vec![agent_plan("电影感构图", "use", &[&reference_id])],
         )
         .unwrap();
 
         assert_eq!(group.tasks.len(), 1);
-        assert_eq!(group.skill_id, "skill-camera");
-        assert!(!group.skill_content_hash.is_empty());
         let task = &group.tasks[0];
         assert_eq!(task.origin, "agent");
         assert_eq!(task.agent_session_id, agent_session.id);
         assert_eq!(task.task_group_id, group.id);
-        assert_eq!(task.skill_id, "skill-camera");
-        assert_eq!(task.skill_content_hash, group.skill_content_hash);
         assert_eq!(task.agent_plan.as_ref().unwrap().reference_policy, "use");
         assert_eq!(task.reference_paths.len(), 1);
         assert!(Path::new(&task.reference_paths[0]).starts_with(data_dir.join("references")));
@@ -2208,13 +1734,8 @@ mod tests {
             .iter()
             .find(|message| message.task_group.is_some())
             .unwrap();
-        assert_eq!(
-            task_group_message.skill_content_hash,
-            group.skill_content_hash
-        );
         let summary = task_group_message.task_group.as_ref().unwrap();
         assert_eq!(summary.id, group.id);
-        assert_eq!(summary.skill_content_hash, group.skill_content_hash);
         assert_eq!(summary.task_ids, vec![task.id.clone()]);
         assert_eq!(
             summary.prompt_summaries,
@@ -2255,7 +1776,6 @@ mod tests {
         let group = create_agent_image_tasks_in_data_dir(
             &data_dir,
             agent_session.id.clone(),
-            "skill-camera".into(),
             vec![agent_plan("默认沿用参考图", "optional", &[])],
         )
         .unwrap();
@@ -2305,7 +1825,6 @@ mod tests {
         let error = create_agent_image_tasks_in_data_dir(
             &data_dir,
             agent_session.id,
-            "skill-camera".into(),
             vec![agent_plan("不使用参考图", "none", &[&reference_id])],
         )
         .unwrap_err();
@@ -2333,8 +1852,6 @@ mod tests {
             }],
             tool_call: None,
             questions: Vec::new(),
-            skill_id: String::new(),
-            skill_content_hash: String::new(),
             task_group: None,
             error: String::new(),
             created_at: utc_now(),
@@ -2449,26 +1966,6 @@ mod tests {
         )
         .unwrap();
 
-        let package = data_dir.join("skills").join("camera-director");
-        std::fs::create_dir_all(&package).unwrap();
-        std::fs::write(package.join("SKILL.md"), "# 镜头导演\n\n只生成图片计划").unwrap();
-        write_skill_manifest(&package);
-        write_skill_index(
-            &data_dir,
-            &[SkillEntry {
-                id: "skill-camera".into(),
-                name: "镜头导演".into(),
-                source_url: String::new(),
-                notes: String::new(),
-                content: String::new(),
-                directory: "camera-director".into(),
-                source_path: String::new(),
-                created_at: String::new(),
-                updated_at: String::new(),
-            }],
-        )
-        .unwrap();
-
         let reference_path = data_dir.join("agent-reference.png");
         std::fs::write(&reference_path, b"\x89PNG\r\n\x1a\nagent-reference").unwrap();
         let mut agent_session = create_session(&data_dir, "chat-provider").unwrap();
@@ -2488,8 +1985,6 @@ mod tests {
             }],
             tool_call: None,
             questions: Vec::new(),
-            skill_id: String::new(),
-            skill_content_hash: String::new(),
             task_group: None,
             error: String::new(),
             created_at: utc_now(),
@@ -2510,17 +2005,6 @@ mod tests {
             reference_policy: reference_policy.into(),
             reference_ids: reference_ids.iter().map(|value| (*value).into()).collect(),
         }
-    }
-
-    fn write_skill_manifest(package: &Path) {
-        let audit = audit_skill_directory(package).unwrap();
-        assert!(audit.allowed, "{:?}", audit.reasons);
-        let manifest = audit.manifest.unwrap();
-        std::fs::write(
-            package.join("manifest.json"),
-            serde_json::to_vec_pretty(&manifest).unwrap(),
-        )
-        .unwrap();
     }
 
     fn recycle(path: &Path) {

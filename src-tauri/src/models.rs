@@ -234,10 +234,6 @@ pub struct TaskRecord {
     #[serde(default)]
     pub task_group_id: String,
     #[serde(default)]
-    pub skill_id: String,
-    #[serde(default)]
-    pub skill_content_hash: String,
-    #[serde(default)]
     pub agent_plan: Option<AgentImagePlan>,
 }
 
@@ -302,7 +298,6 @@ pub struct AppState {
     pub history: Vec<TaskRecord>,
     pub queue: QueueSnapshot,
     pub templates: Vec<PromptTemplate>,
-    pub skills: Vec<SkillEntry>,
     pub data_dir: String,
 }
 
@@ -367,8 +362,6 @@ pub struct AgentTaskGroupSummary {
     #[serde(default)]
     pub id: String,
     #[serde(default)]
-    pub skill_content_hash: String,
-    #[serde(default)]
     pub task_ids: Vec<String>,
     #[serde(default)]
     pub titles: Vec<String>,
@@ -395,10 +388,6 @@ pub struct AgentMessage {
     pub tool_call: Option<AgentToolCall>,
     #[serde(default)]
     pub questions: Vec<AgentQuestion>,
-    #[serde(default)]
-    pub skill_id: String,
-    #[serde(default)]
-    pub skill_content_hash: String,
     #[serde(default)]
     pub task_group: Option<AgentTaskGroupSummary>,
     #[serde(default)]
@@ -464,10 +453,6 @@ pub enum AgentEnvelope {
         questions: Vec<AgentQuestion>,
         #[serde(default)]
         plans: Vec<AgentImagePlan>,
-        #[serde(default)]
-        skill_id: String,
-        #[serde(default)]
-        skill_content_hash: String,
     },
     #[serde(rename = "tool_call")]
     ToolCall {
@@ -502,48 +487,6 @@ fn default_agent_assistant_status() -> String {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SkillManifest {
-    #[serde(default = "default_agent_schema_version")]
-    pub schema_version: u32,
-    #[serde(default)]
-    pub content_hash: String,
-    #[serde(default)]
-    pub name: String,
-    #[serde(default)]
-    pub capabilities: Vec<String>,
-    #[serde(default)]
-    pub sections: Vec<String>,
-    #[serde(default)]
-    pub required_sections: Vec<String>,
-    #[serde(default)]
-    pub output_capability: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SkillAuditResult {
-    pub allowed: bool,
-    #[serde(default)]
-    pub reasons: Vec<String>,
-    #[serde(default)]
-    pub warnings: Vec<String>,
-    #[serde(default)]
-    pub manifest: Option<SkillManifest>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentSkillContext {
-    pub skill_id: String,
-    pub name: String,
-    pub content: String,
-    pub manifest: SkillManifest,
-    #[serde(default)]
-    pub references: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct AgentImagePlan {
     #[serde(default)]
     pub title: String,
@@ -573,10 +516,6 @@ pub struct AgentTaskGroup {
     pub id: String,
     #[serde(default)]
     pub session_id: String,
-    #[serde(default)]
-    pub skill_id: String,
-    #[serde(default)]
-    pub skill_content_hash: String,
     #[serde(default)]
     pub tasks: Vec<TaskRecord>,
     #[serde(default)]
@@ -626,31 +565,6 @@ pub struct PromptTemplate {
     pub updated_at: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SkillEntry {
-    #[serde(default)]
-    pub id: String,
-    #[serde(default)]
-    pub name: String,
-    #[serde(default)]
-    pub source_url: String,
-    #[serde(default)]
-    pub notes: String,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub content: String,
-    /// `skills/` 下的包目录名，通常与 Skill 名称相同或是其文件名安全化形式。
-    #[serde(default)]
-    pub directory: String,
-    /// 仅用于保存时接收用户拖入的本地 Skill 路径，不写回 skills.json。
-    #[serde(default, skip_serializing)]
-    pub source_path: String,
-    #[serde(default = "utc_now")]
-    pub created_at: String,
-    #[serde(default = "utc_now")]
-    pub updated_at: String,
-}
-
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TemplateFillEvent {
@@ -660,13 +574,6 @@ pub struct TemplateFillEvent {
     pub mode: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub chunk: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SkillFetchResult {
-    pub source_url: String,
-    pub content: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

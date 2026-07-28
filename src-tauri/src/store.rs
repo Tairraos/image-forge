@@ -15,9 +15,8 @@ use crate::{
     },
     models::{
         ApiProvider, GenerateRequest, GenerationParams, PromptTemplate, QueueRun, QueueState,
-        Settings, SkillEntry, TaskRecord,
+        Settings, TaskRecord,
     },
-    services::skill_installer::ensure_skill_manifest,
     state::record_operation,
     utils::{
         clean_text, image_size_from_path, normalize_base_url, normalize_output_format,
@@ -39,7 +38,6 @@ pub(crate) fn ensure_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
         data_dir.join("requests"),
         data_dir.join("clipboard"),
         data_dir.join("references"),
-        data_dir.join("skills"),
         data_dir.join("agent").join("sessions"),
         data_dir.join(".staging"),
     ] {
@@ -359,8 +357,6 @@ pub(crate) fn fallback_failed_record(task_id: &str, error: &str) -> TaskRecord {
         origin: String::new(),
         agent_session_id: String::new(),
         task_group_id: String::new(),
-        skill_id: String::new(),
-        skill_content_hash: String::new(),
         agent_plan: None,
     }
 }
@@ -790,153 +786,6 @@ pub(crate) fn next_template_id(templates: &[PromptTemplate]) -> String {
     next.to_string()
 }
 
-pub(crate) fn read_skills(data_dir: &Path) -> Result<Vec<SkillEntry>, String> {
-    let mut skills: Vec<SkillEntry> = read_json(&skills_path(data_dir))?;
-    let mut index_changed = false;
-    let mut used_ids = HashSet::new();
-    let mut used_directories = HashSet::new();
-    for skill in &mut skills {
-        let legacy_content = skill.content.trim().to_string();
-        if skill.id.trim().is_empty() {
-            skill.id = Uuid::new_v4().to_string();
-            index_changed = true;
-        }
-        if !used_ids.insert(skill.id.clone()) {
-            return Err(format!("Skill ID 重复：{}", skill.id));
-        }
-        if !is_safe_skill_directory(&skill.directory) {
-            skill.directory = unique_skill_directory(&skill.name, &skill.id, &used_directories);
-            index_changed = true;
-        } else if used_directories.contains(&skill.directory) {
-            return Err(format!("多个 Skill 共享包目录：{}", skill.directory));
-        }
-        used_directories.insert(skill.directory.clone());
-        let package_dir = skills_dir(data_dir).join(&skill.directory);
-        let mut entry_path = skill_entry_path(&package_dir);
-        if entry_path.is_none() && !legacy_content.is_empty() {
-            migrate_legacy_skill_package(data_dir, &skill.directory, &legacy_content)?;
-            entry_path = Some(package_dir.join("SKILL.md"));
-            index_changed = true;
-        }
-        if let Some(path) = entry_path {
-            ensure_skill_manifest(&package_dir)
-                .map_err(|error| format!("Skill「{}」无法加载：{error}", skill.name))?;
-            skill.content = fs::read_to_string(path)
-                .map_err(|error| format!("读取 Skill 包失败: {error}"))?
-                .trim()
-                .to_string();
-            if !legacy_content.is_empty() {
-                index_changed = true;
-            }
-        } else {
-            return Err(format!("Skill「{}」缺少 SKILL.md", skill.name));
-        }
-    }
-    if index_changed {
-        write_skill_index(data_dir, &skills)?;
-    }
-    Ok(skills)
-}
-
-fn skill_entry_path(package_dir: &Path) -> Option<PathBuf> {
-    [package_dir.join("SKILL.md"), package_dir.join("skill.md")]
-        .into_iter()
-        .find(|path| path.is_file())
-}
-
-fn migrate_legacy_skill_package(
-    data_dir: &Path,
-    directory: &str,
-    content: &str,
-) -> Result<(), String> {
-    let package_dir = skills_dir(data_dir).join(directory);
-    fs::create_dir_all(skills_dir(data_dir))
-        .map_err(|error| format!("创建 Skill 包目录失败: {error}"))?;
-    if package_dir.exists() {
-        return Err(format!(
-            "Skill 包目录已存在但缺少 SKILL.md：{}",
-            package_dir.display()
-        ));
-    }
-
-    let staging = data_dir
-        .join(".staging")
-        .join(format!("legacy-skill-{}", Uuid::new_v4()));
-    if let Err(error) = fs::create_dir_all(&staging) {
-        return Err(format!("创建 Skill 迁移临时目录失败: {error}"));
-    }
-    if let Err(error) = fs::write(staging.join("SKILL.md"), format!("{content}\n")) {
-        let _ = trash::delete(&staging);
-        return Err(format!("迁移旧 Skill 正文失败: {error}"));
-    }
-    if let Err(error) = ensure_skill_manifest(&staging) {
-        let _ = trash::delete(&staging);
-        return Err(error);
-    }
-    fs::rename(&staging, &package_dir).map_err(|error| {
-        let _ = trash::delete(&staging);
-        format!("安装迁移后的 Skill 包失败: {error}")
-    })
-}
-
-fn unique_skill_directory(name: &str, id: &str, used: &HashSet<String>) -> String {
-    let base = skill_directory_name(name, id);
-    if !used.contains(&base) {
-        return base;
-    }
-    let suffix = id.trim().chars().take(12).collect::<String>();
-    let prefix = base
-        .chars()
-        .take(95usize.saturating_sub(suffix.chars().count()))
-        .collect::<String>();
-    format!("{prefix}-{suffix}")
-}
-
-pub(crate) fn write_skill_index(data_dir: &Path, skills: &[SkillEntry]) -> Result<(), String> {
-    let mut stored_skills = skills.to_vec();
-    for skill in &mut stored_skills {
-        skill.content.clear();
-        skill.source_path.clear();
-    }
-    let temporary = data_dir.join(format!(".skills-{}.tmp", Uuid::new_v4()));
-    if let Err(error) = write_json(&temporary, &stored_skills) {
-        let _ = trash::delete(&temporary);
-        return Err(error);
-    }
-    fs::rename(&temporary, skills_path(data_dir)).map_err(|error| {
-        let _ = trash::delete(&temporary);
-        format!("原子保存 Skill 索引失败: {error}")
-    })
-}
-
-/// 将展示名称转换成安全、稳定的 Skill 包目录名。
-pub(crate) fn skill_directory_name(name: &str, id: &str) -> String {
-    let mut result = String::new();
-    for ch in name.trim().chars() {
-        if ch.is_alphanumeric() || matches!(ch, '-' | '_') {
-            result.push(ch.to_ascii_lowercase());
-        } else if !result.ends_with('-') {
-            result.push('-');
-        }
-    }
-    let result = result.trim_matches('-').to_string();
-    if result.is_empty() {
-        format!("skill-{}", id.trim().chars().take(12).collect::<String>())
-    } else {
-        result.chars().take(96).collect()
-    }
-}
-
-pub(crate) fn is_safe_skill_directory(value: &str) -> bool {
-    let value = value.trim();
-    !value.is_empty()
-        && value != "."
-        && value != ".."
-        && value
-            .chars()
-            .all(|ch| ch.is_alphanumeric() || matches!(ch, '-' | '_'))
-}
-
 /// 读取 JSON 文件；文件不存在时返回类型默认值，简化首启逻辑。
 pub(crate) fn read_json<T>(path: &Path) -> Result<T, String>
 where
@@ -1051,14 +900,6 @@ pub(crate) fn request_path(data_dir: &Path, task_id: &str) -> PathBuf {
 
 pub(crate) fn templates_path(data_dir: &Path) -> PathBuf {
     data_dir.join("prompt-templates.json")
-}
-
-pub(crate) fn skills_path(data_dir: &Path) -> PathBuf {
-    data_dir.join("skills.json")
-}
-
-pub(crate) fn skills_dir(data_dir: &Path) -> PathBuf {
-    data_dir.join("skills")
 }
 
 pub(crate) fn agent_sessions_dir(data_dir: &Path) -> PathBuf {
@@ -1207,20 +1048,6 @@ mod transaction_tests {
         }
     }
 
-    fn legacy_skill(id: &str, content: &str) -> SkillEntry {
-        SkillEntry {
-            id: id.into(),
-            name: "Legacy Skill".into(),
-            source_url: String::new(),
-            notes: String::new(),
-            content: content.into(),
-            directory: String::new(),
-            source_path: String::new(),
-            created_at: String::new(),
-            updated_at: String::new(),
-        }
-    }
-
     #[test]
     fn generation_batch_commits_requests_history_and_queue_together() {
         let root = temp_root("generation-batch");
@@ -1341,7 +1168,7 @@ mod transaction_tests {
     fn drawing_prompts_keep_at_text_verbatim() {
         for prompt in [
             "普通 @ 文本",
-            "@unknown 不是 Skill",
+            "@unknown 保持原样",
             "第一行\n  @camera 保留空格边界",
             "@one 与 @two 都是提示词",
         ] {
@@ -1352,51 +1179,5 @@ mod transaction_tests {
             .unwrap();
             assert_eq!(request.prompt, prompt);
         }
-    }
-
-    #[test]
-    fn legacy_skill_index_migrates_content_to_package() {
-        let root = temp_root("legacy-skill-index");
-        fs::write(
-            skills_path(&root),
-            serde_json::to_vec(&vec![
-                legacy_skill("legacy-a", "# Legacy Skill\n\n只聊天"),
-                legacy_skill("legacy-b", "# Legacy Skill\n\n只生成图片计划"),
-            ])
-            .unwrap(),
-        )
-        .unwrap();
-
-        let skills = read_skills(&root).unwrap();
-        let first_package = skills_dir(&root).join(&skills[0].directory);
-        let second_package = skills_dir(&root).join(&skills[1].directory);
-        assert_eq!(skills[0].content, "# Legacy Skill\n\n只聊天");
-        assert_ne!(skills[0].directory, skills[1].directory);
-        assert!(first_package.join("SKILL.md").is_file());
-        assert!(first_package.join("manifest.json").is_file());
-        assert!(second_package.join("SKILL.md").is_file());
-        assert!(second_package.join("manifest.json").is_file());
-        let stored: serde_json::Value =
-            serde_json::from_slice(&fs::read(skills_path(&root)).unwrap()).unwrap();
-        assert!(stored[0].get("content").is_none());
-        assert!(stored[1].get("content").is_none());
-        recycle(&root);
-    }
-
-    #[test]
-    fn rejected_legacy_skill_keeps_original_index_content() {
-        let root = temp_root("rejected-legacy-skill");
-        let content = "# Legacy Skill\n\n请执行 scripts/render.py";
-        fs::write(
-            skills_path(&root),
-            serde_json::to_vec(&vec![legacy_skill("legacy-id", content)]).unwrap(),
-        )
-        .unwrap();
-
-        assert!(read_skills(&root).is_err());
-        let stored: serde_json::Value =
-            serde_json::from_slice(&fs::read(skills_path(&root)).unwrap()).unwrap();
-        assert_eq!(stored[0]["content"], content);
-        recycle(&root);
     }
 }

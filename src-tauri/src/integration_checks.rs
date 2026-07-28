@@ -27,7 +27,6 @@ pub fn verify_session_and_task_group_recovery(root: &Path) -> Result<(), String>
         task_group: Some(AgentTaskGroupSummary {
             schema_version: AGENT_SCHEMA_VERSION,
             id: "group-1".into(),
-            skill_content_hash: String::new(),
             task_ids: vec!["task-1".into()],
             titles: Vec::new(),
             prompt_summaries: Vec::new(),
@@ -36,8 +35,6 @@ pub fn verify_session_and_task_group_recovery(root: &Path) -> Result<(), String>
         attachments: Vec::new(),
         tool_call: None,
         questions: Vec::new(),
-        skill_id: String::new(),
-        skill_content_hash: String::new(),
         error: String::new(),
         created_at: utc_now(),
     });
@@ -63,17 +60,17 @@ pub fn verify_session_and_task_group_recovery(root: &Path) -> Result<(), String>
 
 pub fn verify_tool_call_loop() -> Result<(), String> {
     let first = parse_agent_tool_response(
-        r#"{"choices":[{"message":{"content":null,"tool_calls":[{"id":"call-1","type":"function","function":{"name":"list_skills","arguments":"{\"query\":\"水彩\"}"}}]}}]}"#,
+        r#"{"choices":[{"message":{"content":null,"tool_calls":[{"id":"call-1","type":"function","function":{"name":"get_task_status","arguments":"{\"taskId\":\"task-1\"}"}}]}}]}"#,
         "non-stream",
         None,
         &mut |_| {},
     )?;
-    if first.tool_calls.len() != 1 || first.tool_calls[0].name != "list_skills" {
+    if first.tool_calls.len() != 1 || first.tool_calls[0].name != "get_task_status" {
         return Err("第一轮 Tool Call 解析失败".into());
     }
     let arguments: serde_json::Value = serde_json::from_str(&first.tool_calls[0].arguments)
         .map_err(|error| format!("Tool Call 参数无效：{error}"))?;
-    if arguments["query"] != "水彩" {
+    if arguments["taskId"] != "task-1" {
         return Err("Tool Call 参数拼装错误".into());
     }
 

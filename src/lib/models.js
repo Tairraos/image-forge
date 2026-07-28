@@ -80,20 +80,6 @@ export function emptyTemplate() {
   };
 }
 
-export function emptySkill() {
-  return {
-    id: "",
-    name: "",
-    sourceUrl: "",
-    notes: "",
-    content: "",
-    directory: "",
-    sourcePath: "",
-    createdAt: "",
-    updatedAt: "",
-  };
-}
-
 export function deepClone(value) {
   return JSON.parse(JSON.stringify(value));
 }

@@ -36,22 +36,22 @@ describe("AgentMessageList", () => {
       props: {
         messages: [
           {
-            id: "skills",
+            id: "status",
             role: "tool",
             content: '{"error":null,"result":[]}',
-            toolCall: { name: "list_skills", status: "completed", error: null },
+            toolCall: { name: "get_task_status", status: "completed", error: null },
           },
           {
             id: "failed",
             role: "tool",
             content: '{"error":"请求失败","result":null}',
-            toolCall: { name: "use_skill", status: "failed", error: "很长的错误信息" },
+            toolCall: { name: "create_image_tasks", status: "failed", error: "很长的错误信息" },
           },
         ],
       },
     });
     expect(wrapper.text()).not.toContain('{"error"');
-    expect(wrapper.get(".agent-tool-card.compact").text()).toContain("list_skills");
+    expect(wrapper.get(".agent-tool-card").text()).toContain("get_task_status");
     expect(wrapper.text()).toContain("很长的错误信息");
   });
 
