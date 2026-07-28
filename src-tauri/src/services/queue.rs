@@ -12,7 +12,7 @@ use crate::{
         output_dir_for, pop_next_runnable, read_history, read_json, read_queue, read_settings,
         request_path, upsert_history, write_history, write_history_queue_transaction,
     },
-    utils::{http_client_with_proxy, utc_now, REQUEST_TIMEOUT_SECONDS},
+    utils::{http_client_with_proxy, recycle_path, utc_now, REQUEST_TIMEOUT_SECONDS},
 };
 
 const QUEUE_UPDATED_EVENT: &str = "queue-updated";
@@ -547,7 +547,7 @@ fn finish_deleted_task(app: &AppHandle, data_dir: &Path, task_id: &str) -> Resul
     write_history(data_dir, &history)?;
     let request_file = request_path(data_dir, task_id);
     if request_file.exists() {
-        trash::delete(&request_file)
+        recycle_path(&request_file)
             .map_err(|error| format!("将任务请求移入回收站失败: {error}"))?;
     }
     if let Ok(mut tasks) = app.state::<RuntimeState>().deleted_tasks.lock() {

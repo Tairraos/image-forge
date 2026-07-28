@@ -10,8 +10,22 @@ use crate::defaults::{APP_USER_AGENT, DEFAULT_BASE_URL, DEFAULT_PROVIDER_ID};
 
 pub(crate) const REQUEST_TIMEOUT_SECONDS: u64 = 300;
 
+#[cfg(target_os = "macos")]
+fn macos_trash_context() -> trash::TrashContext {
+    use trash::macos::{DeleteMethod, TrashContextExtMacos};
+
+    let mut context = trash::TrashContext::default();
+    context.set_delete_method(DeleteMethod::NsFileManager);
+    context
+}
+
 pub(crate) fn recycle_path(path: &Path) -> Result<(), String> {
-    #[cfg(not(test))]
+    #[cfg(all(not(test), target_os = "macos"))]
+    return macos_trash_context()
+        .delete(path)
+        .map_err(|error| error.to_string());
+
+    #[cfg(all(not(test), not(target_os = "macos")))]
     return trash::delete(path).map_err(|error| error.to_string());
 
     #[cfg(test)]
@@ -19,6 +33,19 @@ pub(crate) fn recycle_path(path: &Path) -> Result<(), String> {
         std::fs::remove_dir_all(path).map_err(|error| error.to_string())
     } else {
         std::fs::remove_file(path).map_err(|error| error.to_string())
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod recycle_tests {
+    use trash::macos::{DeleteMethod, TrashContextExtMacos};
+
+    #[test]
+    fn macos_recycle_does_not_use_finder() {
+        assert!(matches!(
+            super::macos_trash_context().delete_method(),
+            DeleteMethod::NsFileManager
+        ));
     }
 }
 

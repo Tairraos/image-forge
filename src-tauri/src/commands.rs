@@ -42,7 +42,7 @@ use crate::{
         templates_path, write_generation_batch, write_history, write_history_queue_transaction,
         write_json, write_queue, write_settings,
     },
-    utils::utc_now,
+    utils::{recycle_path, utc_now},
 };
 
 #[tauri::command]
@@ -1172,7 +1172,7 @@ pub(crate) fn delete_task(app: AppHandle, task_id: String) -> Result<(), String>
 
     let request_file = request_path(&data_dir, &task_id);
     if request_file.exists() {
-        trash::delete(&request_file)
+        recycle_path(&request_file)
             .map_err(|error| format!("将任务请求移入回收站失败: {error}"))?;
     }
     if !defer_reference_cleanup {
@@ -1187,7 +1187,7 @@ fn delete_output_files_for_task(record: &TaskRecord) -> Result<(), String> {
     for output in &record.outputs {
         let path = PathBuf::from(&output.path);
         if path.is_file() {
-            if let Err(error) = trash::delete(&path) {
+            if let Err(error) = recycle_path(&path) {
                 let message = format!(
                     "将生成图片移到回收站失败（{}）: {error}",
                     path.to_string_lossy()

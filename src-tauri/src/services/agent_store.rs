@@ -5,7 +5,7 @@ use uuid::Uuid;
 use crate::{
     models::{AgentMessage, AgentSession, AGENT_SCHEMA_VERSION},
     store::{agent_session_path, list_agent_sessions, read_agent_session, write_agent_session},
-    utils::utc_now,
+    utils::{recycle_path, utc_now},
 };
 
 pub(crate) fn create_session(data_dir: &Path, provider_id: &str) -> Result<AgentSession, String> {
@@ -41,7 +41,7 @@ pub(crate) fn delete_session(data_dir: &Path, session_id: &str) -> Result<(), St
     if !path.exists() {
         return Err("找不到 Agent 会话".into());
     }
-    trash::delete(&path).map_err(|error| format!("将 Agent 会话移入回收站失败: {error}"))
+    recycle_path(&path).map_err(|error| format!("将 Agent 会话移入回收站失败: {error}"))
 }
 
 pub(crate) fn append_message(
