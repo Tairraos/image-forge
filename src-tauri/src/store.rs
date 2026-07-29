@@ -11,8 +11,9 @@ use uuid::Uuid;
 use crate::{
     defaults::{
         default_base_url, default_image_model, default_model_type, default_provider_concurrency,
-        default_provider_id, default_provider_name, DEFAULT_IMAGE_MODEL, MAX_HISTORY_ITEMS,
+        default_provider_id, default_provider_name, DEFAULT_IMAGE_MODEL,
     },
+    history_db,
     models::{
         ApiProvider, GenerateRequest, GenerationParams, PromptTemplate, QueueRun, QueueState,
         Settings, TaskRecord,
@@ -44,6 +45,9 @@ pub(crate) fn ensure_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
         ensure_private_directory(&dir)?;
     }
     recover_generation_transactions(&data_dir)?;
+    let settings = read_settings(&data_dir)?;
+    let output_root = output_dir_for(&data_dir, &settings)?;
+    history_db::initialize(&data_dir, &output_root)?;
     Ok(data_dir)
 }
 
@@ -265,26 +269,21 @@ pub(crate) fn params_from_request(request: &GenerateRequest) -> GenerationParams
     }
 }
 
-/// 读取历史记录，并按创建时间倒序保存给队列快照使用。
+/// 读取 SQLite 中的完整历史记录，并按创建时间倒序返回。
 pub(crate) fn read_history(data_dir: &Path) -> Result<Vec<TaskRecord>, String> {
-    let mut history: Vec<TaskRecord> = read_json(&history_path(data_dir))?;
-    history.sort_by(|left, right| right.created_at.cmp(&left.created_at));
-    Ok(history)
+    history_db::read_all(data_dir)
 }
 
-/// 写入历史记录，同时限制最大条数防止 JSON 无限膨胀。
+pub(crate) fn read_recent_history(
+    data_dir: &Path,
+    limit: usize,
+) -> Result<Vec<TaskRecord>, String> {
+    history_db::read_recent(data_dir, limit)
+}
+
+/// 用一个 SQLite 事务替换完整历史记录。
 pub(crate) fn write_history(data_dir: &Path, history: &[TaskRecord]) -> Result<(), String> {
-    let history = normalized_history(history);
-    write_json(&history_path(data_dir), &history)
-}
-
-fn normalized_history(history: &[TaskRecord]) -> Vec<TaskRecord> {
-    let mut history = history.to_vec();
-    history.sort_by(|left, right| right.created_at.cmp(&left.created_at));
-    if history.len() > MAX_HISTORY_ITEMS {
-        history.truncate(MAX_HISTORY_ITEMS);
-    }
-    history
+    history_db::replace_all(data_dir, history)
 }
 
 pub(crate) fn refresh_history_output_sizes(history: &mut [TaskRecord]) -> bool {
@@ -306,19 +305,11 @@ pub(crate) fn refresh_history_output_sizes(history: &mut [TaskRecord]) -> bool {
 
 /// 按任务 ID 更新或插入历史记录。
 pub(crate) fn upsert_history(data_dir: &Path, record: TaskRecord) -> Result<(), String> {
-    let mut history = read_history(data_dir)?;
-    if let Some(index) = history.iter().position(|item| item.id == record.id) {
-        history[index] = record;
-    } else {
-        history.push(record);
-    }
-    write_history(data_dir, &history)
+    history_db::upsert(data_dir, &record)
 }
 
 pub(crate) fn history_record(data_dir: &Path, task_id: &str) -> Result<Option<TaskRecord>, String> {
-    Ok(read_history(data_dir)?
-        .into_iter()
-        .find(|record| record.id == task_id))
+    history_db::record(data_dir, task_id)
 }
 
 /// 在历史文件缺失时构造失败记录，保证错误能回写到前端。
@@ -406,7 +397,6 @@ fn write_generation_transaction(
     history: &[TaskRecord],
     queue: &QueueState,
 ) -> Result<(), String> {
-    let history = normalized_history(history);
     let mut queue = queue.clone();
     queue.updated_at = utc_now();
 
@@ -416,20 +406,14 @@ fn write_generation_transaction(
         .iter()
         .map(|(task_id, _)| format!("requests/{task_id}.json"))
         .collect::<Vec<_>>();
-    targets.push("history.json".into());
     targets.push("queue.json".into());
     let transaction = GenerationTransaction {
         schema_version: 1,
         targets,
     };
-    if let Err(error) = prepare_generation_transaction(
-        data_dir,
-        &transaction_dir,
-        &transaction,
-        requests,
-        &history,
-        &queue,
-    ) {
+    if let Err(error) =
+        prepare_generation_transaction(data_dir, &transaction_dir, &transaction, requests, &queue)
+    {
         move_transaction_to_trash(&transaction_dir, "准备生成任务事务");
         return Err(error);
     }
@@ -439,6 +423,15 @@ fn write_generation_transaction(
             Ok(()) => Err(format!("原子写入任务组失败，已回滚: {error}")),
             Err(rollback_error) => Err(format!(
                 "原子写入任务组失败且回滚不完整: {error}；{rollback_error}"
+            )),
+        };
+    }
+    if let Err(error) = write_history(data_dir, history) {
+        let rollback = rollback_generation_transaction(data_dir, &transaction_dir, &transaction);
+        return match rollback {
+            Ok(()) => Err(format!("写入任务数据库失败，文件事务已回滚: {error}")),
+            Err(rollback_error) => Err(format!(
+                "写入任务数据库失败且文件回滚不完整: {error}；{rollback_error}"
             )),
         };
     }
@@ -460,7 +453,6 @@ fn prepare_generation_transaction(
     transaction_dir: &Path,
     transaction: &GenerationTransaction,
     requests: &[(String, GenerateRequest)],
-    history: &[TaskRecord],
     queue: &QueueState,
 ) -> Result<(), String> {
     fs::create_dir_all(transaction_dir.join("new/requests"))
@@ -474,7 +466,6 @@ fn prepare_generation_transaction(
             request,
         )?;
     }
-    write_json(&transaction_dir.join("new/history.json"), &history)?;
     write_json(&transaction_dir.join("new/queue.json"), queue)?;
     let _ = data_dir;
     Ok(())
@@ -1024,10 +1015,6 @@ fn queue_path(data_dir: &Path) -> PathBuf {
     data_dir.join("queue.json")
 }
 
-fn history_path(data_dir: &Path) -> PathBuf {
-    data_dir.join("history.json")
-}
-
 #[cfg(test)]
 mod transaction_tests {
     use super::*;
@@ -1090,14 +1077,13 @@ mod transaction_tests {
         let transaction_dir = root.join(".staging").join("generation-batch-test");
         let transaction = GenerationTransaction {
             schema_version: 1,
-            targets: vec!["history.json".into(), "queue.json".into()],
+            targets: vec!["queue.json".into()],
         };
         prepare_generation_transaction(
             &root,
             &transaction_dir,
             &transaction,
             &[],
-            &[fallback_failed_record("new", "new")],
             &QueueState::default(),
         )
         .unwrap();

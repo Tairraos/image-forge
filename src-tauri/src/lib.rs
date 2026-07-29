@@ -1,5 +1,6 @@
 mod commands;
 mod defaults;
+mod history_db;
 #[doc(hidden)]
 pub mod integration_checks;
 mod models;
@@ -36,6 +37,7 @@ pub fn run() {
             commands::export_templates,
             commands::fill_prompt_template,
             commands::import_templates,
+            commands::library_page,
             commands::load_app_state,
             commands::list_provider_models,
             commands::mark_template_used,

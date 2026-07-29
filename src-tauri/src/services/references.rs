@@ -95,6 +95,12 @@ fn collect_referenced_files(data_dir: &Path) -> Result<HashSet<PathBuf>, String>
         let value: Value = read_json(&path)?;
         collect_paths_from_value(&value, data_dir, &mut referenced);
     }
+    for record in read_history(data_dir)? {
+        extend_used_paths(&mut referenced, &record.reference_paths);
+        for output in record.outputs {
+            insert_used_path(&mut referenced, Path::new(&output.path));
+        }
+    }
     Ok(referenced)
 }
 

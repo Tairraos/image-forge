@@ -303,6 +303,24 @@ pub struct AppState {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct LibraryDayCount {
+    pub date: String,
+    pub image_count: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryPage {
+    pub tasks: Vec<TaskRecord>,
+    pub day_counts: Vec<LibraryDayCount>,
+    pub total_tasks: u64,
+    pub total_images: u64,
+    pub page: u32,
+    pub page_size: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AgentAttachment {
     #[serde(default)]
     pub id: String,

@@ -1,7 +1,7 @@
 use std::{fs, path::Path};
 
 use base64::{engine::general_purpose, Engine as _};
-use chrono::Utc;
+use chrono::Local;
 use reqwest::{
     header::{ACCEPT, AUTHORIZATION, USER_AGENT},
     multipart, Client,
@@ -38,7 +38,12 @@ pub(crate) fn save_outputs(
     request: &GenerateRequest,
     images: Vec<ApiImageResult>,
 ) -> Result<Vec<OutputImage>, String> {
-    let timestamp = Utc::now().format("%Y%m%d-%H%M%S");
+    let now = Local::now();
+    let output_dir = output_dir
+        .join(now.format("%Y").to_string())
+        .join(now.format("%m").to_string());
+    fs::create_dir_all(&output_dir).map_err(|error| format!("创建年月图片目录失败: {error}"))?;
+    let timestamp = now.format("%Y%m%d-%H%M%S");
     let mut outputs = Vec::with_capacity(images.len());
     for (index, image) in images.into_iter().enumerate() {
         let output_format = normalize_output_format(if image.output_format.is_empty() {

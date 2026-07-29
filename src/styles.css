@@ -3136,6 +3136,16 @@ button:disabled {
   color: var(--text);
 }
 
+.image-library-pagination {
+  display: flex;
+  justify-content: center;
+  padding-top: 28px;
+}
+
+.image-library-content[aria-busy="true"] {
+  opacity: 0.72;
+}
+
 @media (max-width: 900px) {
   .app {
     gap: 8px;

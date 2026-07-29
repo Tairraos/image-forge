@@ -82,7 +82,14 @@
 
       <ImageLibrary
         v-show="workspaceMode === 'library'"
-        :tasks="historyTimeline"
+        :tasks="libraryTasks"
+        :day-counts="libraryDayCounts"
+        :total-tasks="libraryTotalTasks"
+        :total-images="libraryTotalImages"
+        :page="libraryPage"
+        :page-size="libraryPageSize"
+        :loading="libraryLoading"
+        @request-page="loadLibraryPage"
         @preview-images="openImageViewer"
         @open-task="openLibraryTask"
         @delete-task="deleteTask"
@@ -274,6 +281,15 @@ const agentAnswers = ref({});
 const agentAttachments = ref([]);
 const settings = ref(defaultSettings());
 const history = ref([]);
+const libraryTasks = ref([]);
+const libraryDayCounts = ref([]);
+const libraryTotalTasks = ref(0);
+const libraryTotalImages = ref(0);
+const libraryPage = ref(1);
+const libraryPageSize = 40;
+const libraryLoading = ref(false);
+let libraryRequestId = 0;
+let libraryLastRequest = null;
 const queue = reactive({ waiting: [], running: [], recent: [], workerActive: false, updatedAt: "" });
 const templates = ref([]);
 const references = ref([]);
@@ -548,6 +564,25 @@ async function refreshAll() {
   }
 }
 
+async function loadLibraryPage(request) {
+  libraryLastRequest = { ...request };
+  const requestId = ++libraryRequestId;
+  libraryLoading.value = true;
+  try {
+    const result = await invoke("library_page", request);
+    if (requestId !== libraryRequestId) return;
+    libraryTasks.value = result.tasks || [];
+    libraryDayCounts.value = result.dayCounts || [];
+    libraryTotalTasks.value = Number(result.totalTasks) || 0;
+    libraryTotalImages.value = Number(result.totalImages) || 0;
+    libraryPage.value = Number(result.page) || 1;
+  } catch (error) {
+    if (requestId === libraryRequestId) setStatus(String(error), "error");
+  } finally {
+    if (requestId === libraryRequestId) libraryLoading.value = false;
+  }
+}
+
 async function refreshAgentSessions() {
   try {
     const list = await invoke("list_agent_sessions");
@@ -780,6 +815,9 @@ function openAgentTaskGroup(group) {
 }
 
 function openLibraryTask(task) {
+  if (task?.id && !history.value.some((item) => item.id === task.id)) {
+    history.value.push(task);
+  }
   workspaceMode.value = "drawing";
   selectedTaskId.value = task?.id || "";
 }
@@ -1373,6 +1411,7 @@ async function deleteTask(task) {
     if (selectedTaskId.value === task.id) selectedTaskId.value = "";
     setStatus("生成记录已删除", "ok");
     await refreshAll();
+    if (libraryLastRequest) await loadLibraryPage(libraryLastRequest);
   } catch (error) {
     setStatus(String(error), "error");
   }

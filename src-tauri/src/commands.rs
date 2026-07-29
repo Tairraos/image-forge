@@ -10,10 +10,11 @@ use uuid::Uuid;
 
 use crate::{
     defaults::APP_BUILD_TIME,
+    history_db,
     models::{
         AboutInfo, AgentAttachment, AgentImagePlan, AgentMessage, AgentProgressEvent, AgentSession,
-        AgentTaskGroup, ApiProvider, AppState, CleanupCandidate, GenerateRequest, PromptTemplate,
-        QueueSnapshot, ReferencePreview, Settings, TaskRecord, TemplateFillEvent,
+        AgentTaskGroup, ApiProvider, AppState, CleanupCandidate, GenerateRequest, LibraryPage,
+        PromptTemplate, QueueSnapshot, ReferencePreview, Settings, TaskRecord, TemplateFillEvent,
         TemplateImportResult,
     },
     services::{
@@ -38,9 +39,9 @@ use crate::{
     store::{
         enqueue_task, ensure_data_dir, next_template_id, normalize_request, normalize_settings,
         normalize_template, params_from_request, provider_for_request, read_history, read_json,
-        read_queue, read_settings, read_templates, refresh_history_output_sizes, request_path,
-        templates_path, write_generation_batch, write_history, write_history_queue_transaction,
-        write_json, write_queue, write_settings,
+        read_queue, read_recent_history, read_settings, read_templates,
+        refresh_history_output_sizes, request_path, templates_path, write_generation_batch,
+        write_history, write_history_queue_transaction, write_json, write_queue, write_settings,
     },
     utils::{recycle_path, utc_now},
 };
@@ -929,16 +930,42 @@ pub(crate) fn load_app_state(app: AppHandle) -> Result<AppState, String> {
         write_history(&data_dir, &history)?;
     }
     prune_unreferenced_files_with_data(&data_dir, &history, &templates)?;
+    match scan_orphan_files(&data_dir) {
+        Ok(candidates) => record_operation(
+            "启动扫描孤岛文件",
+            "成功",
+            format!("candidate_count={}", candidates.len()),
+            None,
+            None,
+        ),
+        Err(error) => record_operation("启动扫描孤岛文件", "失败", "", None, Some(&error)),
+    }
     if settings.auto_start_queue {
         ensure_queue_worker(&app);
     }
+    let recent_history = read_recent_history(&data_dir, 300)?;
     Ok(AppState {
         settings,
-        history: history.clone(),
+        history: recent_history,
         queue: build_queue_snapshot(&app, &data_dir, history)?,
         templates,
         data_dir: data_dir.to_string_lossy().into_owned(),
     })
+}
+
+#[tauri::command]
+/// 按月份、日期、来源和关键字分页读取图片库。
+pub(crate) fn library_page(
+    app: AppHandle,
+    month: String,
+    date: String,
+    query: String,
+    origin: String,
+    page: u32,
+    page_size: u32,
+) -> Result<LibraryPage, String> {
+    let data_dir = ensure_data_dir(&app)?;
+    history_db::library_page(&data_dir, &month, &date, &query, &origin, page, page_size)
 }
 
 #[tauri::command]

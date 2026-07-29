@@ -28,7 +28,7 @@ const tasks = [
 
 describe("ImageLibrary", () => {
   it("按日期和批次显示完成图片", () => {
-    const wrapper = mount(ImageLibrary, { props: { tasks } });
+    const wrapper = mountLibrary({ tasks, totalImages: 3, totalTasks: 2 });
     expect(wrapper.findAll(".library-image-card")).toHaveLength(3);
     expect(wrapper.findAll(".image-day-group")).toHaveLength(2);
     expect(wrapper.text()).toContain("山间日出");
@@ -36,9 +36,11 @@ describe("ImageLibrary", () => {
   });
 
   it("筛选 Agent 来源并打开当前图片集", async () => {
-    const wrapper = mount(ImageLibrary, { props: { tasks } });
+    const wrapper = mountLibrary({ tasks, totalImages: 3, totalTasks: 2 });
     const agentButton = wrapper.findAll(".image-source-filter button").find((button) => button.text() === "Agent");
     await agentButton.trigger("click");
+    expect(wrapper.emitted("request-page").at(-1)[0].origin).toBe("agent");
+    await wrapper.setProps({ tasks: [tasks[1]], totalImages: 2, totalTasks: 1 });
     expect(wrapper.findAll(".library-image-card")).toHaveLength(2);
     await wrapper.find(".library-image-preview").trigger("click");
     const payload = wrapper.emitted("preview-images")[0][0];
@@ -47,8 +49,15 @@ describe("ImageLibrary", () => {
   });
 
   it("月份输入被清空后仍能显示完整日历", async () => {
-    const wrapper = mount(ImageLibrary, { props: { tasks } });
+    const wrapper = mountLibrary({ tasks });
     await wrapper.get('input[type="month"]').setValue("");
     expect(wrapper.findAll(".image-calendar-grid button")).toHaveLength(42);
   });
 });
+
+function mountLibrary(props) {
+  return mount(ImageLibrary, {
+    props,
+    global: { stubs: { NPagination: true } },
+  });
+}

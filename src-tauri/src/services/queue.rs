@@ -455,14 +455,22 @@ async fn run_task(app: AppHandle, task_id: String, provider: ApiProvider) -> Res
                     return Err(error);
                 }
             };
-            record.outputs = outputs;
+            record.outputs = outputs.clone();
             record.status = "completed".into();
             record.error = None;
             record.completed_at = Some(utc_now());
             record.updated_at = utc_now();
-            if !upsert_task_history(&app, &data_dir, record)? {
-                finish_deleted_task(&app, &data_dir, &task_id)?;
-                return Ok(());
+            match upsert_task_history(&app, &data_dir, record) {
+                Ok(true) => {}
+                Ok(false) => {
+                    recycle_saved_outputs(&outputs);
+                    finish_deleted_task(&app, &data_dir, &task_id)?;
+                    return Ok(());
+                }
+                Err(error) => {
+                    recycle_saved_outputs(&outputs);
+                    return Err(error);
+                }
             }
             clear_running_task(&data_dir, &task_id)?;
             let _ = emit_queue_updated(&app, &data_dir);
@@ -501,6 +509,15 @@ async fn run_task(app: AppHandle, task_id: String, provider: ApiProvider) -> Res
                 }
                 Ok(())
             }
+        }
+    }
+}
+
+fn recycle_saved_outputs(outputs: &[crate::models::OutputImage]) {
+    for output in outputs {
+        let path = Path::new(&output.path);
+        if path.is_file() {
+            let _ = recycle_path(path);
         }
     }
 }

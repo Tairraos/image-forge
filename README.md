@@ -11,7 +11,7 @@
 ![Image Forge 运行界面](docs/image-forge-running.png)
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-1.0.52-9B7BEE?style=flat-square">
+  <img alt="version" src="https://img.shields.io/badge/version-1.0.53-9B7BEE?style=flat-square">
   <img alt="platform" src="https://img.shields.io/badge/platform-macOS-111827?style=flat-square">
   <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white">
   <img alt="Vue" src="https://img.shields.io/badge/Vue-3-42B883?style=flat-square&logo=vuedotjs&logoColor=white">
@@ -47,16 +47,17 @@ Image Forge 不是一个把提示词转发给接口的薄壳，而是一套本�
 
 - **可复用的提示词系统**：模板支持标题、内容、参考图、效果图、排序、使用次数、ZIP 导入导出和 AI 填充 `{}` 占位符。
 - **一致的参考图资产**：图片按 SHA-256 内容去重，任务、模板和 Agent 会话共享同一份本地资源。
-- **可恢复的本地数据**：设置、队列、历史、请求、输出、模板和会话都是可读的本地文件。
+- **可恢复的本地数据**：任务历史使用本地 SQLite 事务保存，其余设置、队列、请求、输出、模板和会话仍是可读的本地文件。
 - **不被厂商协议绑架**：模型类型是调用行为的一部分，协议差异被封装在 Rust 服务层，而不是散落在界面代码里。
 - **适合长时间工作的桌面界面**：最小窗口尺寸为 `1200×800`，窗口尺寸按逻辑像素保存，Retina 屏幕恢复不会缩成半个窗口。
 
 ## 界面入口
 
-顶部工作区切换器提供两个入口：
+顶部工作区切换器提供三个入口：
 
 - `绘画`：直接生图、查看历史、管理队列和编辑参数。
 - `Agent`：聊天、参考图和绘画任务编排；没有会话时会自动创建新对话。
+- `图片库`：按月份、日期和来源分页浏览生成图片，并搜索提示词、模型或任务 ID。
 
 全局入口还包括 API 源、模板和关于。Agent 左侧展示会话历史；会话按创建时间保持稳定顺序，卡片显示标题和时间。
 
@@ -68,15 +69,15 @@ Image Forge 不是一个把提示词转发给接口的薄壳，而是一套本�
 ~/.image-forge/
   settings.json              # API 源、默认模型和工作区设置
   queue.json                 # waiting / running 队列状态
-  history.json               # 绘画历史任务
+  library.sqlite             # 任务、提示词和图片索引
   prompt-templates.json      # 提示词模板
   agent/sessions/            # Agent 会话
   requests/                  # 可重试的原始绘图请求
-  outputs/                   # 生成图片
+  outputs/YYYY/MM/           # 按年月组织的生成图片
   references/                # SHA-256 去重后的参考图
 ```
 
-除调用你配置的模型 API 外，应用不依赖远程数据库。清理孤岛文件时会扫描历史、模板、请求和会话引用；无人引用的图片进入系统回收站，而不是静默永久删除。
+除调用你配置的模型 API 外，应用不依赖远程数据库。首次升级会把旧 `history.json` 和对应图片迁移到 SQLite 与年月目录，并保留 `.bak` 和 `.migrated` 备份。清理孤岛文件时会扫描数据库、模板、请求和会话引用；无人引用的图片进入系统回收站，而不是静默永久删除。
 
 ## 开发
 

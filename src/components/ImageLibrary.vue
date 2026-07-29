@@ -3,7 +3,7 @@
     <header class="image-library-toolbar">
       <div class="image-library-title">
         <strong>图片库</strong>
-        <span>{{ visibleImages.length }} 张图片</span>
+        <span>{{ totalImages }} 张图片</span>
       </div>
       <n-input
         v-model:value="query"
@@ -73,7 +73,7 @@
         </p>
       </aside>
 
-      <main class="image-library-content">
+      <main class="image-library-content" :aria-busy="loading">
         <section v-for="group in dayGroups" :key="group.date" class="image-day-group">
           <header class="image-day-heading">
             <div>
@@ -129,6 +129,14 @@
           <strong>没有找到图片</strong>
           <span>调整日期、来源或搜索条件</span>
         </div>
+        <footer v-if="totalPages > 1" class="image-library-pagination">
+          <n-pagination
+            :page="page"
+            :page-count="totalPages"
+            :page-slot="7"
+            @update:page="requestPage"
+          />
+        </footer>
       </main>
     </div>
   </section>
@@ -145,14 +153,20 @@ import {
   Search,
   Trash2,
 } from "@lucide/vue";
-import { computed, ref } from "vue";
+import { computed, onUnmounted, ref, watch } from "vue";
 import { fileUrl } from "../lib/formatters";
 
 const props = defineProps({
   tasks: { type: Array, default: () => [] },
+  dayCounts: { type: Array, default: () => [] },
+  totalTasks: { type: Number, default: 0 },
+  totalImages: { type: Number, default: 0 },
+  page: { type: Number, default: 1 },
+  pageSize: { type: Number, default: 40 },
+  loading: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(["preview-images", "open-task", "delete-task", "download-output", "reveal-output"]);
+const emit = defineEmits(["request-page", "preview-images", "open-task", "delete-task", "download-output", "reveal-output"]);
 const query = ref("");
 const source = ref("all");
 const selectedDate = ref("");
@@ -163,27 +177,12 @@ const sourceOptions = [
   { label: "绘画", value: "drawing" },
   { label: "Agent", value: "agent" },
 ];
+let queryTimer = 0;
 
 const libraryTasks = computed(() => props.tasks
   .filter((task) => task.status === "completed" && task.outputs?.length)
   .sort((left, right) => taskTime(right).localeCompare(taskTime(left))));
-
-const searchedTasks = computed(() => {
-  const value = query.value.trim().toLowerCase();
-  return libraryTasks.value.filter((task) => {
-    if (source.value !== "all" && taskSource(task) !== source.value) return false;
-    if (!value) return true;
-    return [task.id, task.prompt, task.model, task.providerName]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase()
-      .includes(value);
-  });
-});
-
-const visibleTasks = computed(() => selectedDate.value
-  ? searchedTasks.value.filter((task) => dateKey(taskTime(task)) === selectedDate.value)
-  : searchedTasks.value);
+const visibleTasks = libraryTasks;
 
 const visibleImages = computed(() => visibleTasks.value.flatMap((task) =>
   task.outputs.map((output) => previewItem(task, output))));
@@ -203,13 +202,9 @@ const dayGroups = computed(() => {
 });
 
 const imageCountByDate = computed(() => {
-  const counts = new Map();
-  for (const task of searchedTasks.value) {
-    const date = dateKey(taskTime(task));
-    counts.set(date, (counts.get(date) || 0) + task.outputs.length);
-  }
-  return counts;
+  return new Map(props.dayCounts.map((item) => [item.date, item.imageCount]));
 });
+const totalPages = computed(() => Math.max(1, Math.ceil(props.totalTasks / props.pageSize)));
 
 const calendarDays = computed(() => {
   const [year, month] = normalizedMonth().split("-").map(Number);
@@ -254,6 +249,17 @@ function openPreview(path) {
   emit("preview-images", { items: visibleImages.value, index: Math.max(0, index) });
 }
 
+function requestPage(nextPage = 1) {
+  emit("request-page", {
+    month: normalizedMonth(),
+    date: selectedDate.value,
+    query: query.value.trim(),
+    origin: source.value,
+    page: nextPage,
+    pageSize: props.pageSize,
+  });
+}
+
 function selectDate(value) {
   selectedDate.value = selectedDate.value === value ? "" : value;
   calendarMonth.value = value.slice(0, 7);
@@ -263,6 +269,20 @@ function moveMonth(offset) {
   const [year, month] = normalizedMonth().split("-").map(Number);
   calendarMonth.value = monthKey(new Date(year, month - 1 + offset, 1));
 }
+
+watch(calendarMonth, () => {
+  if (selectedDate.value && !selectedDate.value.startsWith(normalizedMonth())) {
+    selectedDate.value = "";
+    return;
+  }
+  requestPage(1);
+}, { immediate: true });
+watch([selectedDate, source], () => requestPage(1));
+watch(query, () => {
+  window.clearTimeout(queryTimer);
+  queryTimer = window.setTimeout(() => requestPage(1), 250);
+});
+onUnmounted(() => window.clearTimeout(queryTimer));
 
 function normalizedMonth() {
   return /^\d{4}-\d{2}$/.test(calendarMonth.value) ? calendarMonth.value : monthKey(new Date());
