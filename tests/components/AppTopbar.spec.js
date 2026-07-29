@@ -10,4 +10,10 @@ describe("AppTopbar 模式切换", () => {
     await wrapper.setProps({ mode: "agent" });
     expect(wrapper.get('button[title^="Agent 模式"]').attributes("aria-pressed")).toBe("true");
   });
+
+  it("切换到图片库", async () => {
+    const wrapper = mount(AppTopbar, { props: { mode: "drawing" } });
+    await wrapper.get('button[title^="图片库"]').trigger("click");
+    expect(wrapper.emitted("update:mode")).toEqual([["library"]]);
+  });
 });

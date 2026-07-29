@@ -89,4 +89,19 @@ describe("AgentMessageList", () => {
     await nextTick();
     expect(list.scrollTop).toBe(1000);
   });
+
+  it("在任务组中显示生成图片并打开大图", async () => {
+    const images = [
+      { path: "/tmp/one.png", title: "第一张" },
+      { path: "/tmp/two.png", title: "第二张" },
+    ];
+    const wrapper = mount(AgentMessageList, {
+      props: {
+        messages: [{ ...baseMessage, id: "images", taskGroup: { id: "group", status: "completed", images } }],
+      },
+    });
+    expect(wrapper.findAll(".agent-generated-grid img")).toHaveLength(2);
+    await wrapper.findAll(".agent-generated-grid button")[1].trigger("click");
+    expect(wrapper.emitted("preview-images")).toEqual([[{ items: images, index: 1 }]]);
+  });
 });

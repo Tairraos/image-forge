@@ -54,7 +54,7 @@
         v-show="workspaceMode === 'agent'"
         :sessions="agentSessions"
         :current-session="currentAgentSession"
-        :messages="currentAgentMessages"
+        :messages="currentAgentDisplayMessages"
         :provider-id="form.chatProviderId"
         :image-provider-id="activeProvider?.id || ''"
         :busy="agentBusy"
@@ -69,6 +69,7 @@
         @add-reference="addAgentReferenceImages"
         @remove-attachment="removeAgentAttachment"
         @open-task-group="openAgentTaskGroup"
+        @preview-images="openImageViewer"
         @cancel-task-group="cancelAgentTaskGroup"
         @retry-task-group="retryAgentTaskGroup"
         @retry="retryAgentMessage"
@@ -77,6 +78,16 @@
         @update-answer="updateAgentAnswer"
         @answer-questions="answerAgentQuestions"
         @delete-session="deleteAgentConversation"
+      />
+
+      <ImageLibrary
+        v-show="workspaceMode === 'library'"
+        :tasks="historyTimeline"
+        @preview-images="openImageViewer"
+        @open-task="openLibraryTask"
+        @delete-task="deleteTask"
+        @download-output="downloadOutput"
+        @reveal-output="reveal($event.path)"
       />
 
       <template #footer>
@@ -164,6 +175,8 @@
         v-model:show="effectViewer.show"
         :image-path="effectViewer.path"
         :title="effectViewer.title"
+        :items="effectViewer.items"
+        :initial-index="effectViewer.index"
       />
 
       <TaskDetailDialog
@@ -219,6 +232,7 @@ import AgentWorkspace from "./components/AgentWorkspace.vue";
 import AppFooterBar from "./components/AppFooterBar.vue";
 import AppShell from "./components/AppShell.vue";
 import DrawingWorkspace from "./components/DrawingWorkspace.vue";
+import ImageLibrary from "./components/ImageLibrary.vue";
 import AboutDialog from "./components/dialogs/AboutDialog.vue";
 import CleanupDialog from "./components/dialogs/CleanupDialog.vue";
 import ApiSourceDialog from "./components/dialogs/ApiSourceDialog.vue";
@@ -306,7 +320,7 @@ const notice = reactive({
   buttonText: "确认",
   resolve: null,
 });
-const effectViewer = reactive({ show: false, path: "", title: "" });
+const effectViewer = reactive({ show: false, path: "", title: "", items: [], index: 0 });
 const ACTIVE_QUEUE_POLL_INTERVAL = 5000;
 const AGENT_TASK_GROUP_POLL_INTERVAL = 5000;
 
@@ -404,6 +418,23 @@ const historyTimeline = computed(() => {
   );
 });
 
+const currentAgentDisplayMessages = computed(() => currentAgentMessages.value.map((message) => {
+  const group = message.taskGroup;
+  if (!group?.id) return message;
+  const taskIds = new Set(group.taskIds || []);
+  const tasks = historyTimeline.value.filter((task) =>
+    taskIds.has(task.id) || task.taskGroupId === group.id);
+  const images = tasks.flatMap((task) => (task.outputs || []).map((output) => ({
+    ...output,
+    title: task.prompt || output.fileName || "生成图片",
+    meta: [output.size || task.params?.size, task.model].filter(Boolean).join(" · "),
+  })));
+  return {
+    ...message,
+    taskGroup: { ...group, images },
+  };
+}));
+
 const filteredHistory = computed(() => {
   const query = historyQuery.value.trim().toLowerCase();
   const items = historyScope.value === "today"
@@ -500,7 +531,7 @@ onUnmounted(() => {
 
 function handleWorkspaceShortcut(event) {
   if (event.defaultPrevented || event.altKey || event.shiftKey || (!event.metaKey && !event.ctrlKey)) return;
-  const mode = { 1: "drawing", 2: "agent" }[event.key];
+  const mode = { 1: "drawing", 2: "agent", 3: "library" }[event.key];
   if (!mode) return;
   event.preventDefault();
   workspaceMode.value = mode;
@@ -746,6 +777,20 @@ function openAgentTaskGroup(group) {
   const firstId = group?.taskIds?.[0];
   if (firstId) selectedTaskId.value = firstId;
   void refreshQueueOnly();
+}
+
+function openLibraryTask(task) {
+  workspaceMode.value = "drawing";
+  selectedTaskId.value = task?.id || "";
+}
+
+function openImageViewer({ items = [], index = 0 } = {}) {
+  if (!items.length) return;
+  effectViewer.path = "";
+  effectViewer.title = "生成图片";
+  effectViewer.items = items;
+  effectViewer.index = index;
+  effectViewer.show = true;
 }
 
 async function cancelAgentTaskGroup(group) {
@@ -1567,6 +1612,8 @@ async function restoreEffectImage(path) {
 
 function showTemplateEffect(template) {
   if (!template?.effectImagePath) return;
+  effectViewer.items = [];
+  effectViewer.index = 0;
   effectViewer.path = template.effectImagePath;
   effectViewer.title = `${template.title || "模板"} · 效果图`;
   effectViewer.show = true;
@@ -1574,6 +1621,8 @@ function showTemplateEffect(template) {
 
 function showTemplateEffectByPreview(preview) {
   if (!preview?.path) return;
+  effectViewer.items = [];
+  effectViewer.index = 0;
   effectViewer.path = preview.path;
   effectViewer.title = "模板效果图";
   effectViewer.show = true;

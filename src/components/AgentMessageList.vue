@@ -54,6 +54,17 @@
           </small>
           <small>{{ taskGroupStatusLabel(message.taskGroup.status) }} · 点击查看绘画</small>
         </button>
+        <div v-if="message.taskGroup.images?.length" class="agent-generated-grid">
+          <button
+            v-for="(image, index) in message.taskGroup.images"
+            :key="image.path"
+            type="button"
+            :aria-label="`查看生成图片 ${index + 1}`"
+            @click="$emit('preview-images', { items: message.taskGroup.images, index })"
+          >
+            <img loading="lazy" :src="fileUrl(image.path)" :alt="image.title || image.fileName || '生成图片'" />
+          </button>
+        </div>
         <div class="agent-task-group-actions">
           <n-button
             size="tiny"
@@ -95,6 +106,7 @@ import MarkdownIt from "markdown-it";
 import { nextTick, ref, watch } from "vue";
 import { Icon } from "@iconify/vue";
 import meIcon from "@iconify-icons/icon-park-solid/me";
+import { fileUrl } from "../lib/formatters";
 
 const robotLine = {
   body: '<g fill="none"><path d="m12.594 23.258l-.012.002l-.071.035l-.02.004l-.014-.004l-.071-.036q-.016-.004-.024.006l-.004.01l-.017.428l.005.02l.01.013l.104.074l.015.004l.012-.004l.104-.074l.012-.016l.004-.017l-.017-.427q-.004-.016-.016-.018m.264-.113l-.014.002l-.184.093l-.01.01l-.003.011l.018.43l.005.012l.008.008l.201.092q.019.005.029-.008l.004-.014l-.034-.614q-.005-.019-.02-.022m-.715.002a.02.02 0 0 0-.027.006l-.006.014l-.034.614q.001.018.017.024l.015-.002l.201-.093l.01-.008l.003-.011l.018-.43l-.003-.012l-.01-.01z"/><path fill="currentColor" d="M18 10a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2zM8 14v-2a1 1 0 1 1 2 0v2a1 1 0 1 1-2 0m6 0v-2a1 1 0 1 1 2 0v2a1 1 0 1 1-2 0m0-10c0 .74-.403 1.383-1 1.73V6h3a4 4 0 0 1 4 4v.05a2.501 2.501 0 0 1 0 4.9V16a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4v-1.05a2.5 2.5 0 0 1 0-4.9V10a4 4 0 0 1 4-4h3v-.27A2 2 0 1 1 14 4"/></g>',
@@ -114,7 +126,7 @@ const props = defineProps({
   toolStatusText: { type: String, default: "" },
   answers: { type: Object, default: () => ({}) },
 });
-defineEmits(["open-task-group", "cancel-task-group", "retry-task-group", "retry", "update-answer", "answer-questions"]);
+defineEmits(["open-task-group", "preview-images", "cancel-task-group", "retry-task-group", "retry", "update-answer", "answer-questions"]);
 
 const listRef = ref(null);
 const markdown = new MarkdownIt({ html: false, breaks: true, linkify: true });

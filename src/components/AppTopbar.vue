@@ -17,6 +17,12 @@
         title="Agent 模式（Ctrl/Cmd+2）"
         @click="$emit('update:mode', 'agent')"
       >Agent</n-button>
+      <n-button
+        :type="mode === 'library' ? 'primary' : 'default'"
+        :aria-pressed="mode === 'library'"
+        title="图片库（Ctrl/Cmd+3）"
+        @click="$emit('update:mode', 'library')"
+      >图片库</n-button>
     </n-button-group>
 
     <div class="topbar-actions">
