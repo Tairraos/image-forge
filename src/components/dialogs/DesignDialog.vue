@@ -1,13 +1,14 @@
 <template>
   <n-modal
     v-model:show="show"
-    preset="card"
-    title="设置"
+    :mask-closable="true"
+    :close-on-esc="true"
+    :auto-focus="false"
     class="design-modal"
-    :style="{ width: 'min(1080px, calc(100vw - 48px))' }"
+    :style="{ width: '900px' }"
   >
     <div class="design-layout">
-      <aside class="design-sidebar" aria-label="设计菜单">
+      <aside class="design-sidebar" aria-label="设置菜单">
         <button
           v-for="item in menuItems"
           :key="item.id"
@@ -17,16 +18,17 @@
           :aria-pressed="tab === item.id"
           @click="tab = item.id"
         >
-          <component :is="item.icon" :size="17" />
+          <AppIcon :src="item.icon" :size="17" />
           <span>{{ item.label }}</span>
         </button>
       </aside>
 
       <div class="design-content">
         <ApiSourcePanel
-          v-if="tab === 'api'"
-          :show="show && tab === 'api'"
+          v-if="tab === 'chat-api' || tab === 'image-api'"
+          :show="show && (tab === 'chat-api' || tab === 'image-api')"
           :settings="settings"
+          :kind="tab === 'chat-api' ? 'chat' : 'image'"
           @save="emit('save-api', $event)"
           @close="show = false"
         />
@@ -57,8 +59,12 @@
 </template>
 
 <script setup>
-import { BookOpen, Info, Settings } from "@lucide/vue";
 import { computed, ref } from "vue";
+import aboutIcon from "../../assets/关于.svg";
+import chatApiIcon from "../../assets/对话API.svg";
+import imageApiIcon from "../../assets/绘图API.svg";
+import templatesIcon from "../../assets/模板库.svg";
+import AppIcon from "../snippets/AppIcon.vue";
 import AboutPanel from "./AboutPanel.vue";
 import ApiSourcePanel from "./ApiSourcePanel.vue";
 import TemplateManagerPanel from "./TemplateManagerPanel.vue";
@@ -86,9 +92,10 @@ const emit = defineEmits([
 ]);
 
 const menuItems = [
-  { id: "templates", label: "模板库", icon: BookOpen },
-  { id: "api", label: "API 源", icon: Settings },
-  { id: "about", label: "关于", icon: Info },
+  { id: "templates", label: "模板库", icon: templatesIcon },
+  { id: "chat-api", label: "对话API", icon: chatApiIcon },
+  { id: "image-api", label: "绘图API", icon: imageApiIcon },
+  { id: "about", label: "关于", icon: aboutIcon },
 ];
 
 const tab = ref("templates");

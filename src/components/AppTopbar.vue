@@ -22,12 +22,15 @@
         :aria-pressed="mode === 'library'"
         title="图片库（Ctrl/Cmd+3）"
         @click="$emit('update:mode', 'library')"
-      >图片库</n-button>
+      >
+        <template #icon><AppIcon :src="libraryIcon" :size="15" /></template>
+        图片库
+      </n-button>
     </n-button-group>
 
     <div class="topbar-actions">
       <n-button quaternary size="small" @click="$emit('show-settings')">
-        <template #icon><Settings :size="16" /></template>
+        <template #icon><AppIcon :src="settingsIcon" :size="16" /></template>
         设置
       </n-button>
     </div>
@@ -35,8 +38,10 @@
 </template>
 
 <script setup>
-import { Settings } from "@lucide/vue";
+import libraryIcon from "../assets/图片库.svg";
+import settingsIcon from "../assets/设置.svg";
 import logoUrl from "../assets/title.png";
+import AppIcon from "./snippets/AppIcon.vue";
 
 defineProps({ mode: { type: String, default: "drawing" } });
 defineEmits(["update:mode", "show-settings"]);

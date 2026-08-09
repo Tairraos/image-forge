@@ -1,183 +1,179 @@
 <template>
-    <div class="api-manager stacked">
-      <section class="provider-list provider-list-horizontal" aria-label="API 源列表">
-        <div class="provider-card-grid" data-persistent-scrollbar>
-          <article
-            v-for="(provider, index) in draft.providers"
-            :key="provider.id"
-            class="provider-card"
-            :class="[
-              { active: selectedId === provider.id },
-              providerTypeClass(provider.modelType),
-            ]"
-            @click="selectProvider(provider.id)"
-          >
-            <button
-              type="button"
-              class="provider-card-main"
-              @click.stop="selectProvider(provider.id)"
-            >
-              <strong :title="provider.name || '未命名 API 源'">
-                {{ provider.name || "未命名 API 源" }}
-              </strong>
-              <span>{{ modelTypeLabel(provider.modelType, provider.imagesConcurrency) }}</span>
-              <span :title="provider.imageModel || '未设置模型'">
-                {{ provider.imageModel || "未设置模型" }}
-              </span>
-              <small>{{ maskedApiKey(provider.apiKey) }}</small>
-            </button>
-            <div class="provider-card-actions">
-              <button
-                type="button"
-                title="左移"
-                :disabled="index === 0"
-                @click.stop="moveProvider(provider.id, -1)"
-              >
-                <ArrowLeft :size="13" />
-              </button>
-              <button
-                type="button"
-                title="右移"
-                :disabled="index === draft.providers.length - 1"
-                @click.stop="moveProvider(provider.id, 1)"
-              >
-                <ArrowRight :size="13" />
-              </button>
-              <button
-                type="button"
-                title="删除"
-                class="danger"
-                :disabled="draft.providers.length <= 1"
-                @click.stop="deleteProvider(provider.id)"
-              >
-                <Trash2 :size="13" />
-              </button>
-            </div>
-          </article>
-        </div>
-      </section>
-
+  <div class="api-manager split">
+    <section class="provider-editor-pane">
       <section v-if="selectedProvider" class="provider-editor">
         <n-form class="provider-form" label-placement="top" :show-feedback="false">
-          <div class="provider-form-row provider-identity-row">
-            <n-form-item label="名称">
-              <n-input v-model:value="selectedProvider.name" placeholder="例如 OpenAI / Azure / 自建服务" />
-            </n-form-item>
-            <n-form-item label="模型类型与并发">
-              <div class="provider-type-inline">
-                <n-select
-                  class="provider-type-select"
-                  :value="selectedProvider.modelType"
-                  :options="modelTypeOptions"
-                  @update:value="updateSelectedModelType"
-                />
-                <div class="provider-concurrency-inline">
-                  <span>并发</span>
-                  <n-input
-                    class="provider-concurrency-input"
-                    :value="String(selectedProvider.imagesConcurrency || 1)"
-                    inputmode="numeric"
-                    placeholder="1"
-                    @update:value="updateSelectedConcurrency"
-                  />
-                </div>
-              </div>
-            </n-form-item>
-          </div>
-          <div class="provider-form-row provider-credentials-row">
-            <n-form-item label="Base URL">
-              <n-input v-model:value="selectedProvider.baseUrl" placeholder="https://api.openai.com/v1" />
-            </n-form-item>
-            <n-form-item label="API Key">
-              <n-input
-                v-model:value="selectedProvider.apiKey"
-                type="password"
-                show-password-on="click"
-                placeholder="sk-..."
+          <n-form-item label="名称">
+            <n-input v-model:value="selectedProvider.name" placeholder="例如 OpenAI / Azure / 自建服务" />
+          </n-form-item>
+          <n-form-item label="Base URL">
+            <n-input v-model:value="selectedProvider.baseUrl" placeholder="https://api.openai.com/v1" />
+          </n-form-item>
+          <n-form-item label="API Key">
+            <n-input
+              v-model:value="selectedProvider.apiKey"
+              type="password"
+              show-password-on="click"
+              placeholder="sk-..."
+            />
+          </n-form-item>
+          <n-form-item label="代理地址">
+            <n-input
+              v-model:value="selectedProvider.proxyUrl"
+              placeholder="可选，例如 http://127.0.0.1:7890"
+            />
+          </n-form-item>
+          <n-form-item label="模型">
+            <div class="model-select-row">
+              <n-select
+                :value="selectedProvider.imageModel"
+                filterable
+                tag
+                :options="modelOptions"
+                placeholder="选择或输入模型 ID"
+                @update:value="updateSelectedModel"
               />
-            </n-form-item>
-          </div>
-          <div class="provider-form-row provider-model-row">
-            <n-form-item label="代理地址">
-              <n-input
-                v-model:value="selectedProvider.proxyUrl"
-                placeholder="可选，例如 http://127.0.0.1:7890"
-              />
-            </n-form-item>
-            <n-form-item label="模型">
-              <div class="model-select-row">
-                <n-select
-                  :value="selectedProvider.imageModel"
-                  filterable
-                  tag
-                  :options="modelOptions"
-                  placeholder="选择或输入模型 ID"
-                  @update:value="updateSelectedModel"
-                />
-                <n-button secondary :loading="loadingModels" @click="fetchModels">
-                  获取
-                </n-button>
-              </div>
-            </n-form-item>
-          </div>
+              <n-button secondary :loading="loadingModels" @click="fetchModels">
+                获取
+              </n-button>
+            </div>
+          </n-form-item>
+          <n-form-item v-if="kind === 'image'" label="并发">
+            <n-input
+              class="provider-concurrency-input"
+              :value="String(selectedProvider.imagesConcurrency || 1)"
+              inputmode="numeric"
+              placeholder="1"
+              @update:value="updateSelectedConcurrency"
+            />
+          </n-form-item>
           <p v-if="modelFetchMessage" class="model-fetch-message" :data-tone="modelFetchTone">
             {{ modelFetchMessage }}
           </p>
         </n-form>
       </section>
-    </div>
+      <p v-else class="provider-empty">还没有{{ kindLabel }}源，先新增一个。</p>
 
-    <n-modal v-model:show="showImport" preset="card" title="导入 API 源" class="editor-modal">
-      <div
-        class="api-import-drop-zone"
-        :class="{ 'reference-drop-active': importDragActive }"
-        data-api-import-drop-zone
-        @dragover.prevent="importDragActive = true"
-        @dragleave="importDragActive = false"
-        @drop.prevent="handleImportFileDrop"
-      >
-        <n-input
-          v-model:value="importText"
-          type="textarea"
-          :autosize="{ minRows: 12, maxRows: 12 }"
-          :resizable="false"
-          placeholder="粘贴 JSON 配置或者拖入 JSON 文件"
-        />
-        <small v-if="readingImportFile">正在读取 JSON 文件…</small>
-      </div>
-      <p v-if="importError" class="import-error">{{ importError }}</p>
-      <template #footer>
-        <div class="dialog-actions">
-          <n-button size="small" @click="showImport = false">取消</n-button>
-          <n-button size="small" type="primary" @click="importProviders">导入</n-button>
+      <div class="api-dialog-footer">
+        <div class="api-dialog-footer-actions">
+          <n-button size="small" type="primary" @click="addProvider">
+            <template #icon><Plus :size="15" /></template>
+            新增
+          </n-button>
+          <n-button size="small" secondary @click="openImportDialog">
+            <template #icon><Download :size="15" /></template>
+            导入
+          </n-button>
+          <n-button size="small" secondary :loading="exportingProviders" @click="exportProviders">
+            <template #icon><Upload :size="15" /></template>
+            导出
+          </n-button>
+          <n-button size="small" secondary :disabled="!selectedProvider" @click="copyProvider">
+            <template #icon><Copy :size="15" /></template>
+            克隆
+          </n-button>
         </div>
-      </template>
-    </n-modal>
+        <div class="dialog-actions">
+          <n-button size="small" type="primary" @click="save">保存 API 源</n-button>
+          <n-button size="small" @click="emit('close')">关闭</n-button>
+        </div>
+      </div>
+    </section>
 
-    <div class="api-dialog-footer">
-      <div class="api-dialog-footer-actions">
-        <n-button size="small" type="primary" @click="addProvider">
-          <template #icon><Plus :size="15" /></template>
-          新增
-        </n-button>
-        <n-button size="small" secondary @click="openImportDialog">
-          <template #icon><Download :size="15" /></template>
-          导入
-        </n-button>
-        <n-button size="small" secondary :loading="exportingProviders" @click="exportProviders">
-          <template #icon><Upload :size="15" /></template>
-          导出
-        </n-button>
-        <n-button size="small" secondary @click="copyProvider">
-          <template #icon><Copy :size="15" /></template>
-          克隆
-        </n-button>
+    <div class="provider-split-line" aria-hidden="true"></div>
+
+    <section class="provider-list provider-list-vertical" aria-label="API 源列表">
+      <div class="provider-card-grid vertical" data-persistent-scrollbar>
+        <article
+          v-for="(provider, index) in visibleProviders"
+          :key="provider.id"
+          class="provider-card"
+          :class="[
+            { active: selectedId === provider.id, default: index === 0 },
+            providerTypeClass(provider.modelType),
+            { dragging: dragId === provider.id, 'drag-over': dragOverId === provider.id },
+          ]"
+          draggable="true"
+          @click="selectProvider(provider.id)"
+          @dragstart="onDragStart(provider.id, $event)"
+          @dragover.prevent="onDragOver(provider.id)"
+          @drop.prevent="onDrop(provider.id)"
+          @dragend="onDragEnd"
+        >
+          <button
+            type="button"
+            class="provider-card-main"
+            @click.stop="selectProvider(provider.id)"
+          >
+            <strong :title="provider.name || '未命名 API 源'">
+              {{ provider.name || "未命名 API 源" }}
+            </strong>
+            <span>{{ modelTypeLabel(provider.modelType, provider.imagesConcurrency) }}</span>
+            <span :title="provider.imageModel || '未设置模型'">
+              {{ provider.imageModel || "未设置模型" }}
+            </span>
+            <small>{{ maskedApiKey(provider.apiKey) }}</small>
+            <em v-if="index === 0" class="provider-default-badge">默认</em>
+          </button>
+          <div class="provider-card-actions">
+            <button
+              type="button"
+              title="上移"
+              :disabled="index === 0"
+              @click.stop="moveProvider(provider.id, -1)"
+            >
+              <ArrowUp :size="13" />
+            </button>
+            <button
+              type="button"
+              title="下移"
+              :disabled="index === visibleProviders.length - 1"
+              @click.stop="moveProvider(provider.id, 1)"
+            >
+              <ArrowDown :size="13" />
+            </button>
+            <button
+              type="button"
+              title="删除"
+              class="danger"
+              :disabled="draft.providers.length <= 1"
+              @click.stop="deleteProvider(provider.id)"
+            >
+              <Trash2 :size="13" />
+            </button>
+          </div>
+        </article>
+        <p v-if="!visibleProviders.length" class="provider-empty">暂无{{ kindLabel }}源</p>
       </div>
-      <div class="dialog-actions">
-        <n-button size="small" type="primary" @click="save">保存 API 源</n-button>
-        <n-button size="small" @click="emit('close')">关闭</n-button>
-      </div>
+    </section>
+  </div>
+
+  <n-modal v-model:show="showImport" preset="card" title="导入 API 源" class="editor-modal">
+    <div
+      class="api-import-drop-zone"
+      :class="{ 'reference-drop-active': importDragActive }"
+      data-api-import-drop-zone
+      @dragover.prevent="importDragActive = true"
+      @dragleave="importDragActive = false"
+      @drop.prevent="handleImportFileDrop"
+    >
+      <n-input
+        v-model:value="importText"
+        type="textarea"
+        :autosize="{ minRows: 12, maxRows: 12 }"
+        :resizable="false"
+        placeholder="粘贴 JSON 配置或者拖入 JSON 文件"
+      />
+      <small v-if="readingImportFile">正在读取 JSON 文件…</small>
     </div>
+    <p v-if="importError" class="import-error">{{ importError }}</p>
+    <template #footer>
+      <div class="dialog-actions">
+        <n-button size="small" @click="showImport = false">取消</n-button>
+        <n-button size="small" type="primary" @click="importProviders">导入</n-button>
+      </div>
+    </template>
+  </n-modal>
 
   <ConfirmDialog
     v-model:show="showDeleteConfirmation"
@@ -196,7 +192,7 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
-import { ArrowLeft, ArrowRight, Copy, Download, Plus, Trash2, Upload } from "@lucide/vue";
+import { ArrowDown, ArrowUp, Copy, Download, Plus, Trash2, Upload } from "@lucide/vue";
 import ConfirmDialog from "./ConfirmDialog.vue";
 import NoticeDialog from "./NoticeDialog.vue";
 import { extractDroppedFilePaths } from "../../lib/referenceFiles";
@@ -216,12 +212,13 @@ import {
 const props = defineProps({
   show: { type: Boolean, default: false },
   settings: { type: Object, required: true },
+  kind: { type: String, default: "image" },
 });
 
 const emit = defineEmits(["close", "save"]);
 
 const draft = reactive(defaultSettings());
-const selectedId = ref("default");
+const selectedId = ref("");
 const showImport = ref(false);
 const importText = ref("");
 const importError = ref("");
@@ -236,18 +233,21 @@ const showDeleteConfirmation = ref(false);
 const pendingDeleteProviderId = ref("");
 const showImportResult = ref(false);
 const importResultMessage = ref("");
-const manuallySelectedModelTypes = new Set();
+const dragId = ref("");
+const dragOverId = ref("");
 let unlistenImportDragDrop = null;
-const modelTypeOptions = [
-  { label: "生图模型 - GPT", value: "image-gpt" },
-  { label: "生图模型 - Gemini", value: "image-gemini" },
-  { label: "生图模型 - Grok", value: "image-grok" },
-  { label: "生图模型 - Seedream", value: "image-seedream" },
-  { label: "对话模型", value: "chat" },
-];
 
-const selectedProvider = computed(() =>
-  draft.providers.find((provider) => provider.id === selectedId.value) || draft.providers[0],
+const kindLabel = computed(() => (props.kind === "chat" ? "对话 API" : "绘图 API"));
+
+const visibleProviders = computed(() =>
+  draft.providers.filter((provider) => matchesKind(provider.modelType)),
+);
+
+const selectedProvider = computed(
+  () =>
+    visibleProviders.value.find((provider) => provider.id === selectedId.value)
+    || visibleProviders.value[0]
+    || null,
 );
 
 const modelOptions = computed(() => {
@@ -263,16 +263,21 @@ const deleteConfirmationMessage = computed(() => {
 });
 
 watch(
-  () => props.show,
-  (show) => {
+  () => [props.show, props.kind],
+  ([show]) => {
     if (!show) {
       cancelDeleteProvider();
       return;
     }
     Object.assign(draft, normalizeSettingsForUi(deepClone(props.settings)));
-    manuallySelectedModelTypes.clear();
-    selectedId.value = draft.activeImageProviderId || draft.activeProviderId || draft.providers[0]?.id || "";
+    syncActiveFromOrder();
+    selectedId.value =
+      (props.kind === "chat" ? draft.activeChatProviderId : draft.activeImageProviderId)
+      || visibleProviders.value[0]?.id
+      || "";
     modelFetchMessage.value = "";
+    dragId.value = "";
+    dragOverId.value = "";
   },
   { immediate: true },
 );
@@ -293,42 +298,39 @@ onUnmounted(() => {
   unlistenImportDragDrop?.();
 });
 
+function matchesKind(modelType) {
+  return props.kind === "chat" ? modelType === "chat" : isImageModelType(modelType);
+}
+
 function selectProvider(id) {
   selectedId.value = id;
-  const provider = selectedProvider.value;
-  if (provider?.modelType === "chat") {
-    draft.activeChatProviderId = id;
-  } else {
-    draft.activeImageProviderId = id;
-    draft.activeProviderId = id;
-  }
   modelFetchMessage.value = "";
 }
 
 function addProvider() {
-  const provider = defaultProvider(draft.providers.length + 1);
+  const provider = defaultProvider(
+    draft.providers.length + 1,
+    props.kind === "chat" ? "chat" : "image-gpt",
+  );
+  if (props.kind === "chat") {
+    provider.imageModel = provider.imageModel || "gpt-5.4";
+  }
   provider.imagesConcurrency = normalizeProviderConcurrency(provider.imagesConcurrency);
   provider.notes = "";
   draft.providers.push(provider);
   selectProvider(provider.id);
+  syncActiveFromOrder();
 }
 
 function updateSelectedModel(value) {
   const provider = selectedProvider.value;
   if (!provider) return;
   provider.imageModel = String(value || "");
-  if (!manuallySelectedModelTypes.has(provider.id)) {
+  if (props.kind === "image") {
     provider.modelType = recommendImageModelType(provider.imageModel, provider.baseUrl);
-    selectProvider(provider.id);
+  } else {
+    provider.modelType = "chat";
   }
-}
-
-function updateSelectedModelType(value) {
-  const provider = selectedProvider.value;
-  if (!provider) return;
-  provider.modelType = normalizeModelType(value, provider.imageModel, provider.baseUrl);
-  manuallySelectedModelTypes.add(provider.id);
-  selectProvider(provider.id);
 }
 
 function updateSelectedConcurrency(value) {
@@ -345,6 +347,7 @@ function copyProvider() {
   provider.name = `${source.name || "API 源"} 副本`;
   draft.providers.push(provider);
   selectProvider(provider.id);
+  syncActiveFromOrder();
 }
 
 function openImportDialog() {
@@ -353,19 +356,18 @@ function openImportDialog() {
 }
 
 async function exportProviders() {
-  if (!draft.providers.length) return;
+  const providers = visibleProviders.value;
+  if (!providers.length) return;
   try {
     const destination = await saveDialog({
-      defaultPath: "ImageForge-api-sources.json",
+      defaultPath: `ImageForge-${props.kind}-api-sources.json`,
       filters: [{ name: "JSON 配置", extensions: ["json"] }],
     });
     if (!destination) return;
     exportingProviders.value = true;
     const savedPath = await invoke("export_api_providers", {
       destination,
-      providers: draft.providers.map((provider) =>
-        normalizeProviderForSave(deepClone(provider)),
-      ),
+      providers: providers.map((provider) => normalizeProviderForSave(deepClone(provider))),
     });
     modelFetchTone.value = "ok";
     modelFetchMessage.value = `API 源已导出：${savedPath.split(/[\\/]/).at(-1)}`;
@@ -458,7 +460,6 @@ function importProviders() {
     importError.value = "请粘贴有效的 API 配置 JSON";
     return;
   }
-
   if (!entries.length) {
     importError.value = "没有可导入的 API 源";
     return;
@@ -472,17 +473,21 @@ function importProviders() {
       importError.value = `「${key}」不是有效配置`;
       return;
     }
-    const name = String(item.name || providerNameFromImportKey(key)).trim()
-      || `导入源 ${index + 1}`;
+    const name =
+      String(item.name || providerNameFromImportKey(key)).trim() || `导入源 ${index + 1}`;
+    const preferredType =
+      props.kind === "chat"
+        ? "chat"
+        : normalizeModelType(
+            item.modelType === "chat" ? "" : item.modelType,
+            item.openAiModelId || item.imageModel || item.model,
+            item.openAiBaseUrl || item.baseUrl,
+          );
     const provider = {
-      ...defaultProvider(draft.providers.length + imported.length + 1),
+      ...defaultProvider(draft.providers.length + imported.length + 1, preferredType),
       id: createProviderId(),
       name,
-      modelType: normalizeModelType(
-        item.modelType,
-        item.openAiModelId || item.imageModel || item.model,
-        item.openAiBaseUrl || item.baseUrl,
-      ),
+      modelType: preferredType,
       baseUrl: item.openAiBaseUrl || item.baseUrl || "",
       apiKey: item.openAiApiKey || item.apiKey || "",
       proxyUrl: item.proxyUrl || "",
@@ -491,6 +496,7 @@ function importProviders() {
       enabled: item.enabled !== false,
       notes: "",
     };
+    if (!matchesKind(provider.modelType)) continue;
     const signature = providerImportSignature(provider);
     if (signatures.has(signature)) {
       duplicateCount += 1;
@@ -504,13 +510,13 @@ function importProviders() {
     draft.providers.push(provider);
   }
   if (imported.length) selectProvider(imported[imported.length - 1].id);
+  syncActiveFromOrder();
   showImport.value = false;
   importText.value = "";
   importResultMessage.value = `导入 ${imported.length} 个，重复 ${duplicateCount} 个。`;
   showImportResult.value = true;
 }
 
-// 忽略随机 ID 和已固定的兼容字段，仅比较会实际保存的 API 配置内容。
 function providerImportSignature(provider) {
   return JSON.stringify([
     String(provider.name || "").trim(),
@@ -550,8 +556,9 @@ function confirmDeleteProvider() {
   cancelDeleteProvider();
   if (index < 0 || draft.providers.length <= 1) return;
   draft.providers.splice(index, 1);
-  const next = draft.providers[Math.min(index, draft.providers.length - 1)] || draft.providers[0];
-  selectProvider(next.id);
+  syncActiveFromOrder();
+  const next = visibleProviders.value[0];
+  selectedId.value = next?.id || "";
 }
 
 function cancelDeleteProvider() {
@@ -560,12 +567,73 @@ function cancelDeleteProvider() {
 }
 
 function moveProvider(id = selectedId.value, offset) {
-  const index = draft.providers.findIndex((provider) => provider.id === id);
+  const ids = visibleProviders.value.map((provider) => provider.id);
+  const index = ids.indexOf(id);
   const nextIndex = index + offset;
-  if (index < 0 || nextIndex < 0 || nextIndex >= draft.providers.length) return;
-  const [item] = draft.providers.splice(index, 1);
-  draft.providers.splice(nextIndex, 0, item);
-  selectedId.value = item.id;
+  if (index < 0 || nextIndex < 0 || nextIndex >= ids.length) return;
+  const ordered = ids.slice();
+  const [item] = ordered.splice(index, 1);
+  ordered.splice(nextIndex, 0, item);
+  applyVisibleOrder(ordered);
+  selectedId.value = id;
+  syncActiveFromOrder();
+}
+
+function onDragStart(id, event) {
+  dragId.value = id;
+  dragOverId.value = "";
+  if (event?.dataTransfer) {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", id);
+  }
+}
+
+function onDragOver(id) {
+  if (!dragId.value || dragId.value === id) return;
+  dragOverId.value = id;
+}
+
+function onDrop(id) {
+  if (!dragId.value || dragId.value === id) {
+    onDragEnd();
+    return;
+  }
+  const ids = visibleProviders.value.map((provider) => provider.id);
+  const from = ids.indexOf(dragId.value);
+  const to = ids.indexOf(id);
+  if (from < 0 || to < 0) {
+    onDragEnd();
+    return;
+  }
+  const ordered = ids.slice();
+  const [item] = ordered.splice(from, 1);
+  ordered.splice(to, 0, item);
+  applyVisibleOrder(ordered);
+  selectedId.value = item;
+  syncActiveFromOrder();
+  onDragEnd();
+}
+
+function onDragEnd() {
+  dragId.value = "";
+  dragOverId.value = "";
+}
+
+function applyVisibleOrder(orderedIds) {
+  const queue = orderedIds.slice();
+  draft.providers = draft.providers.map((provider) => {
+    if (!matchesKind(provider.modelType)) return provider;
+    const id = queue.shift();
+    return draft.providers.find((item) => item.id === id) || provider;
+  });
+}
+
+function syncActiveFromOrder() {
+  const imageProvider = draft.providers.find((provider) => isImageModelType(provider.modelType));
+  const chatProvider = draft.providers.find((provider) => provider.modelType === "chat");
+  draft.activeImageProviderId = imageProvider?.id || "";
+  draft.activeChatProviderId = chatProvider?.id || "";
+  draft.activeProviderId = draft.activeImageProviderId || draft.providers[0]?.id || "";
 }
 
 async function fetchModels() {
@@ -590,22 +658,18 @@ async function fetchModels() {
 
 function save() {
   draft.providers = draft.providers.map((provider) => normalizeProviderForSave(provider));
-  const imageProvider = draft.providers.find((provider) => isImageModelType(provider.modelType));
-  const chatProvider = draft.providers.find((provider) => provider.modelType === "chat");
-  if (!draft.providers.some((provider) => provider.id === draft.activeImageProviderId && isImageModelType(provider.modelType))) {
-    draft.activeImageProviderId = imageProvider?.id || "";
-  }
-  if (!draft.providers.some((provider) => provider.id === draft.activeChatProviderId && provider.modelType === "chat")) {
-    draft.activeChatProviderId = chatProvider?.id || "";
-  }
-  draft.activeProviderId = draft.activeImageProviderId || draft.providers[0]?.id || "";
+  syncActiveFromOrder();
   emit("save", deepClone(draft));
 }
 
 function normalizeProviderForSave(provider) {
+  const modelType =
+    provider.modelType === "chat"
+      ? "chat"
+      : normalizeModelType(provider.modelType, provider.imageModel, provider.baseUrl);
   return {
     ...provider,
-    modelType: normalizeModelType(provider.modelType, provider.imageModel, provider.baseUrl),
+    modelType,
     proxyUrl: provider.proxyUrl?.trim() || "",
     imageModel: provider.imageModel?.trim() || "gpt-image-2",
     imagesConcurrency: normalizeProviderConcurrency(provider.imagesConcurrency),
@@ -614,9 +678,17 @@ function normalizeProviderForSave(provider) {
 }
 
 function modelTypeLabel(value, concurrency = 1) {
-  const label = modelTypeOptions.find((option) => option.value === value)?.label || "生图模型 - GPT";
+  const labels = {
+    "image-gpt": "生图模型 - GPT",
+    "image-gemini": "生图模型 - Gemini",
+    "image-grok": "生图模型 - Grok",
+    "image-seedream": "生图模型 - Seedream",
+    chat: "对话模型",
+  };
+  const label = labels[normalizeModelType(value)] || labels["image-gpt"];
   const count = normalizeProviderConcurrency(concurrency);
-  return count === 1 ? label : `${label} x ${count} 并发`;
+  if (value === "chat" || count === 1) return label;
+  return `${label} x ${count} 并发`;
 }
 
 function providerTypeClass(value) {

@@ -1433,6 +1433,17 @@ async function saveApiSettings(nextSettings) {
 }
 
 async function selectApiProvider(kind, providerId) {
+  const providers = settings.value.providers.slice();
+  const index = providers.findIndex((provider) => provider.id === providerId);
+  if (index > 0) {
+    const [item] = providers.splice(index, 1);
+    // 默认 API = 同类列表第一项，切换时把它挪到最前。
+    const insertAt = providers.findIndex((provider) =>
+      kind === "chat" ? provider.modelType === "chat" : provider.modelType !== "chat",
+    );
+    providers.splice(insertAt < 0 ? 0 : insertAt, 0, item);
+    settings.value.providers = providers;
+  }
   if (kind === "image") {
     form.providerId = providerId;
     settings.value.activeImageProviderId = providerId;

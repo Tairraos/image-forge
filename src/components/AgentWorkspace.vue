@@ -8,7 +8,7 @@
         </div>
         <nav class="function-bar-nav" aria-label="功能栏">
           <button type="button" class="function-bar-item" @click="panel = 'chat'; $emit('create')">
-            <MessageSquarePlus :size="16" />
+            <AppIcon :src="newChatIcon" :size="16" />
             <span>新对话</span>
           </button>
           <button
@@ -17,11 +17,11 @@
             :class="{ active: panel === 'library' }"
             @click="panel = panel === 'library' ? 'chat' : 'library'"
           >
-            <Images :size="16" />
+            <AppIcon :src="libraryIcon" :size="16" />
             <span>图片库</span>
           </button>
           <button type="button" class="function-bar-item" @click="$emit('open-settings')">
-            <Settings :size="16" />
+            <AppIcon :src="settingsIcon" :size="16" />
             <span>设置</span>
           </button>
         </nav>
@@ -142,11 +142,15 @@
 
 <script setup>
 import { nextTick, ref } from "vue";
-import { Images, MessageSquarePlus, Settings, Trash2 } from "@lucide/vue";
+import { Trash2 } from "@lucide/vue";
+import libraryIcon from "../assets/图片库.svg";
+import newChatIcon from "../assets/新对话.svg";
+import settingsIcon from "../assets/设置.svg";
+import logoUrl from "../assets/title.png";
+import AppIcon from "./snippets/AppIcon.vue";
 import AgentLibraryPanel from "./AgentLibraryPanel.vue";
 import AgentComposer from "./AgentComposer.vue";
 import AgentMessageList from "./AgentMessageList.vue";
-import logoUrl from "../assets/title.png";
 
 defineProps({
   sessions: { type: Array, default: () => [] },
