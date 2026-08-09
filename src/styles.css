@@ -2374,7 +2374,7 @@ button:disabled {
 }
 
 .function-bar-titlebar {
-  height: 38px;
+  height: 40px;
 }
 
 .function-bar-brand {
@@ -2543,6 +2543,7 @@ button:disabled {
   height: 40px;
   padding: 0 18px;
   border-bottom: 1px solid rgba(188, 177, 221, 0.22);
+  user-select: none;
 }
 
 .info-area-title {
@@ -2552,6 +2553,7 @@ button:disabled {
   color: var(--text);
   text-overflow: ellipsis;
   white-space: nowrap;
+  user-select: none;
 }
 
 .info-area-title.is-empty {

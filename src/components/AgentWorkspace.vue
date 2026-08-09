@@ -54,7 +54,7 @@
     </aside>
 
     <div class="info-area">
-      <header class="info-area-titlebar">
+      <header class="info-area-titlebar" data-tauri-drag-region="deep">
         <strong
           class="info-area-title"
           :class="{ 'is-empty': !currentSession }"
