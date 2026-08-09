@@ -26,26 +26,18 @@
     </n-button-group>
 
     <div class="topbar-actions">
-      <n-button quaternary size="small" @click="$emit('show-api')">
-        <template #icon><Settings :size="16" /></template>
-        API 源
-      </n-button>
-      <n-button quaternary size="small" @click="$emit('show-template-manager')">
-        <template #icon><BookOpen :size="16" /></template>
-        模板
-      </n-button>
-      <n-button quaternary size="small" @click="$emit('show-about')">
-        <template #icon><Info :size="16" /></template>
-        关于
+      <n-button quaternary size="small" @click="$emit('show-design')">
+        <template #icon><Palette :size="16" /></template>
+        设计
       </n-button>
     </div>
   </header>
 </template>
 
 <script setup>
-import { BookOpen, Info, Settings } from "@lucide/vue";
+import { Palette } from "@lucide/vue";
 import logoUrl from "../assets/title.png";
 
 defineProps({ mode: { type: String, default: "drawing" } });
-defineEmits(["update:mode", "show-api", "show-template-manager", "show-about"]);
+defineEmits(["update:mode", "show-design"]);
 </script>

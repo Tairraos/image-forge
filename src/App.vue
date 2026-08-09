@@ -4,9 +4,7 @@
     <AppShell
       :mode="workspaceMode"
       @update:mode="workspaceMode = $event"
-      @show-api="showApiDialog = true"
-      @show-template-manager="showTemplateManagerDialog = true"
-      @show-about="openAbout"
+      @show-design="openDesign"
     >
 
       <DrawingWorkspace
@@ -129,19 +127,23 @@
           @save="saveApiSettings"
         />
 
-      <TemplateManagerDialog
-        v-model:show="showTemplateManagerDialog"
-        v-model:query="templateQuery"
-        :templates="filteredTemplates"
-        @view="viewTemplate"
-        @edit="editTemplate"
-        @delete="deletePromptTemplate"
-        @create="newTemplate"
-        @import="importPromptTemplates"
-        @export="exportPromptTemplates"
-        @move="movePromptTemplate"
-        @show-effect="showTemplateEffect"
-      />
+        <DesignDialog
+          v-model:show="showDesignDialog"
+          :settings="settings"
+          :templates="templates"
+          :info="aboutInfo"
+          @save-api="saveApiSettings"
+          @view-template="viewTemplate"
+          @edit-template="editTemplate"
+          @delete-template="deletePromptTemplate"
+          @create-template="newTemplate"
+          @import-template="importPromptTemplates"
+          @export-template="exportPromptTemplates"
+          @move-template="movePromptTemplate"
+          @show-template-effect="showTemplateEffect"
+          @show-logs="openRuntimeLogs"
+          @cleanup="openCleanup"
+        />
 
       <TemplateReferenceDialog
         v-model:show="showTemplateReferenceDialog"
@@ -199,13 +201,6 @@
         @reuse="reuseTask"
       />
 
-      <AboutDialog
-        v-model:show="showAboutDialog"
-        :info="aboutInfo"
-        @show-logs="openRuntimeLogs"
-        @cleanup="openCleanup"
-      />
-
       <CleanupDialog
         v-model:show="showCleanupDialog"
         :candidates="cleanupCandidates"
@@ -247,16 +242,15 @@ import AppFooterBar from "./components/AppFooterBar.vue";
 import AppShell from "./components/AppShell.vue";
 import DrawingWorkspace from "./components/DrawingWorkspace.vue";
 import ImageLibrary from "./components/ImageLibrary.vue";
-import AboutDialog from "./components/dialogs/AboutDialog.vue";
 import CleanupDialog from "./components/dialogs/CleanupDialog.vue";
 import ApiSourceDialog from "./components/dialogs/ApiSourceDialog.vue";
 import ConfirmDialog from "./components/dialogs/ConfirmDialog.vue";
+import DesignDialog from "./components/dialogs/DesignDialog.vue";
 import EffectImageViewer from "./components/dialogs/EffectImageViewer.vue";
 import NoticeDialog from "./components/dialogs/NoticeDialog.vue";
 import RuntimeLogDialog from "./components/dialogs/RuntimeLogDialog.vue";
 import TaskDetailDialog from "./components/dialogs/TaskDetailDialog.vue";
 import TemplateEditorDialog from "./components/dialogs/TemplateEditorDialog.vue";
-import TemplateManagerDialog from "./components/dialogs/TemplateManagerDialog.vue";
 import TemplateReferenceDialog from "./components/dialogs/TemplateReferenceDialog.vue";
 import { clamp, fileName, statusLabel } from "./lib/formatters";
 import {
@@ -313,7 +307,6 @@ const submitting = ref(false);
 const historyQuery = ref("");
 const historyScope = ref("today");
 const todayKey = ref(localDateKey(new Date()));
-const templateQuery = ref("");
 const templateReferenceQuery = ref("");
 const templateReferenceSourceContent = ref("");
 const templateReferenceGeneratedContent = ref("");
@@ -324,11 +317,10 @@ const templateFillSessionId = ref("");
 const promptCursor = ref(0);
 
 const showApiDialog = ref(false);
-const showTemplateManagerDialog = ref(false);
 const showTemplateReferenceDialog = ref(false);
 const showTemplateEditor = ref(false);
 const showTaskDetail = ref(false);
-const showAboutDialog = ref(false);
+const showDesignDialog = ref(false);
 const showRuntimeLogDialog = ref(false);
 const showCleanupDialog = ref(false);
 const confirmation = reactive({
@@ -481,14 +473,6 @@ const selectedTask = computed(() =>
 
 const currentOutputs = computed(() => selectedTask.value?.outputs || []);
 
-
-const filteredTemplates = computed(() => {
-  const query = templateQuery.value.trim().toLowerCase();
-  if (!query) return templates.value;
-  return templates.value.filter((item) =>
-    [item.id, item.title, item.content].filter(Boolean).join(" ").toLowerCase().includes(query),
-  );
-});
 
 const filteredReferenceTemplates = computed(() => {
   const query = templateReferenceQuery.value.trim().toLowerCase();
@@ -1756,8 +1740,8 @@ function createTemplateFillSessionId() {
   return `template-fill-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-async function openAbout() {
-  showAboutDialog.value = true;
+async function openDesign() {
+  showDesignDialog.value = true;
   try {
     aboutInfo.value = await invoke("about_info");
   } catch (error) {
@@ -1765,7 +1749,6 @@ async function openAbout() {
       version: "",
       buildTime: "",
     };
-    setStatus(`读取关于信息失败：${String(error)}`, "error");
   }
 }
 
