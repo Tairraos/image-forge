@@ -1,5 +1,5 @@
 <template>
-  <header class="topbar">
+  <header class="topbar" data-tauri-drag-region="deep">
     <div class="brand">
       <img :src="logoUrl" alt="Image Forge" />
     </div>

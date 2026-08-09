@@ -168,7 +168,7 @@ button:disabled {
   grid-template-columns: minmax(270px, 1fr) auto minmax(300px, 1fr);
   align-items: center;
   gap: 14px;
-  padding: 2px 4px;
+  padding: 2px 4px 2px 78px;
 }
 
 .brand {
@@ -2370,11 +2370,15 @@ button:disabled {
 
 .function-bar-head {
   flex-shrink: 0;
-  padding: 16px 12px 12px;
+  padding: 0 12px 12px;
+}
+
+.function-bar-titlebar {
+  height: 38px;
 }
 
 .function-bar-brand {
-  padding: 0 6px 14px;
+  padding: 12px 6px 14px;
 }
 
 .function-bar-brand img {
@@ -2387,6 +2391,7 @@ button:disabled {
 .function-bar-nav {
   display: grid;
   gap: 2px;
+  margin-top: 4px;
 }
 
 .function-bar-item {
@@ -2526,10 +2531,31 @@ button:disabled {
 
 .info-area {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+}
+
+.info-area-titlebar {
+  display: flex;
+  align-items: center;
+  height: 40px;
+  padding: 0 18px;
+  border-bottom: 1px solid rgba(188, 177, 221, 0.22);
+}
+
+.info-area-title {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.info-area-title.is-empty {
+  color: #4b5563;
 }
 
 .agent-composer {

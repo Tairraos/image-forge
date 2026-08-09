@@ -2,6 +2,7 @@
   <section class="agent-workspace">
     <aside class="function-bar">
       <div class="function-bar-head">
+        <div class="function-bar-titlebar" data-tauri-drag-region="deep"></div>
         <div class="function-bar-brand">
           <img :src="logoUrl" alt="Image Forge" />
         </div>
@@ -53,6 +54,12 @@
     </aside>
 
     <div class="info-area">
+      <header class="info-area-titlebar">
+        <strong
+          class="info-area-title"
+          :class="{ 'is-empty': !currentSession }"
+        >{{ currentSession ? currentSession.title || "新对话" : "开始新对话" }}</strong>
+      </header>
       <AgentMessageList
         :messages="messages"
         :busy="busy"
