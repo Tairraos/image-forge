@@ -78,6 +78,8 @@
         @update-answer="updateAgentAnswer"
         @answer-questions="answerAgentQuestions"
         @delete-session="deleteAgentConversation"
+        @open-library="workspaceMode = 'library'"
+        @open-settings="showApiDialog = true"
       />
 
       <ImageLibrary

@@ -1,6 +1,7 @@
 <template>
-  <main class="app">
+  <main class="app" :class="{ 'app--agent': mode === 'agent' }">
     <AppTopbar
+      v-if="mode !== 'agent'"
       :mode="mode"
       @update:mode="$emit('update:mode', $event)"
       @show-api="$emit('show-api')"

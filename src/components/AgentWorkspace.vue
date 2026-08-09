@@ -1,45 +1,58 @@
 <template>
   <section class="agent-workspace">
-    <aside class="agent-sidebar">
-      <div class="agent-sidebar-head">
-        <strong>对话</strong>
-        <n-button size="tiny" type="primary" @click="$emit('create')">新建</n-button>
-      </div>
-      <div class="agent-session-list">
-        <div
-          v-for="session in sessions"
-          :key="session.id"
-          class="agent-session-row"
-          :class="{ active: session.id === currentSession?.id }"
-        >
-          <button
-            type="button"
-            class="agent-session-item"
-            @click="$emit('select', session.id)"
-          >
-            <span class="agent-session-title">{{ session.title || "新对话" }}</span>
-            <small>{{ formatTime(session.updatedAt || session.createdAt) }}</small>
-          </button>
-          <button
-            type="button"
-            class="agent-session-delete"
-            title="删除对话"
-            aria-label="删除对话"
-            @click.stop="$emit('delete-session', session.id)"
-          >
-            <Trash2 :size="14" />
-          </button>
+    <aside class="function-bar">
+      <div class="function-bar-head">
+        <div class="function-bar-brand">
+          <img :src="logoUrl" alt="Image Forge" />
         </div>
+        <nav class="function-bar-nav" aria-label="功能栏">
+          <button type="button" class="function-bar-item" @click="$emit('create')">
+            <MessageSquarePlus :size="16" />
+            <span>新对话</span>
+          </button>
+          <button type="button" class="function-bar-item" @click="$emit('open-library')">
+            <Images :size="16" />
+            <span>图片库</span>
+          </button>
+          <button type="button" class="function-bar-item" @click="$emit('open-settings')">
+            <Settings :size="16" />
+            <span>设置</span>
+          </button>
+        </nav>
+      </div>
+
+      <div class="function-bar-sessions">
+        <div v-if="sessions.length" class="agent-session-list">
+          <div
+            v-for="session in sessions"
+            :key="session.id"
+            class="agent-session-row"
+            :class="{ active: session.id === currentSession?.id }"
+          >
+            <button
+              type="button"
+              class="agent-session-item"
+              :title="session.title || '新对话'"
+              @click="$emit('select', session.id)"
+            >
+              <span class="agent-session-title">{{ session.title || "新对话" }}</span>
+            </button>
+            <button
+              type="button"
+              class="agent-session-delete"
+              title="删除对话"
+              aria-label="删除对话"
+              @click.stop="$emit('delete-session', session.id)"
+            >
+              <Trash2 :size="14" />
+            </button>
+          </div>
+        </div>
+        <p v-else class="function-bar-empty">还没有对话</p>
       </div>
     </aside>
 
-    <div class="agent-chat">
-      <header class="agent-chat-head">
-        <div>
-          <strong>{{ currentSession?.title || "Agent" }}</strong>
-        </div>
-      </header>
-
+    <div class="info-area">
       <AgentMessageList
         :messages="messages"
         :busy="busy"
@@ -71,9 +84,10 @@
 </template>
 
 <script setup>
+import { Images, MessageSquarePlus, Settings, Trash2 } from "@lucide/vue";
 import AgentComposer from "./AgentComposer.vue";
 import AgentMessageList from "./AgentMessageList.vue";
-import { Trash2 } from "@lucide/vue";
+import logoUrl from "../assets/title.png";
 
 defineProps({
   sessions: { type: Array, default: () => [] },
@@ -91,12 +105,6 @@ const emit = defineEmits([
   "create", "select", "send", "stop", "add-reference", "remove-attachment",
   "open-task-group", "preview-images", "cancel-task-group", "retry-task-group", "retry", "paste-reference", "drop-reference", "update-answer", "answer-questions",
   "delete-session",
+  "open-library", "open-settings",
 ]);
-
-function formatTime(value) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
-}
 </script>

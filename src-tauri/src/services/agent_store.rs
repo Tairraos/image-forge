@@ -204,7 +204,7 @@ fn validate_session_id(value: &str) -> Result<(), String> {
 
 fn title_from_message(content: &str) -> String {
     let title = content.lines().next().unwrap_or_default().trim();
-    let shortened = title.chars().take(28).collect::<String>();
+    let shortened = title.chars().take(30).collect::<String>();
     if shortened.is_empty() {
         "新对话".into()
     } else {
