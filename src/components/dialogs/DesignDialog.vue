@@ -2,7 +2,7 @@
   <n-modal
     v-model:show="show"
     preset="card"
-    title="设计"
+    title="设置"
     class="design-modal"
     :style="{ width: 'min(1080px, calc(100vw - 48px))' }"
   >
