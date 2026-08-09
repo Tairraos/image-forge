@@ -52,7 +52,7 @@
               <span
                 v-else
                 class="agent-session-title"
-                @click.stop="startRename(session, 'bar')"
+                @dblclick.stop="startRename(session, 'bar')"
               >{{ session.title || "新对话" }}</span>
             </div>
             <button

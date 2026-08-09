@@ -320,7 +320,8 @@ button:disabled {
 }
 
 .status-pill[data-tone="ok"] {
-  color: #21765c;
+  color: #4b4f56;
+  font-weight: 400;
 }
 
 .status-pill[data-tone="error"] {
