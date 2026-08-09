@@ -4,7 +4,7 @@
     <AppShell
       :mode="workspaceMode"
       @update:mode="workspaceMode = $event"
-      @show-design="openDesign"
+      @show-settings="openDesign"
     >
 
       <DrawingWorkspace
@@ -82,7 +82,7 @@
         @delete-task="deleteTask"
         @download-output="downloadOutput"
         @reveal-output="reveal($event.path)"
-        @open-settings="showApiDialog = true"
+        @open-settings="openDesign"
       />
 
       <ImageLibrary

@@ -26,18 +26,18 @@
     </n-button-group>
 
     <div class="topbar-actions">
-      <n-button quaternary size="small" @click="$emit('show-design')">
-        <template #icon><Palette :size="16" /></template>
-        设计
+      <n-button quaternary size="small" @click="$emit('show-settings')">
+        <template #icon><Settings :size="16" /></template>
+        设置
       </n-button>
     </div>
   </header>
 </template>
 
 <script setup>
-import { Palette } from "@lucide/vue";
+import { Settings } from "@lucide/vue";
 import logoUrl from "../assets/title.png";
 
 defineProps({ mode: { type: String, default: "drawing" } });
-defineEmits(["update:mode", "show-design"]);
+defineEmits(["update:mode", "show-settings"]);
 </script>

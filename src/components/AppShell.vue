@@ -4,7 +4,7 @@
       v-if="mode !== 'agent'"
       :mode="mode"
       @update:mode="$emit('update:mode', $event)"
-      @show-design="$emit('show-design')"
+      @show-settings="$emit('show-settings')"
     />
 
     <div class="app-shell-workspace">
@@ -23,5 +23,5 @@ defineProps({
   mode: { type: String, default: "drawing" },
 });
 
-defineEmits(["update:mode", "show-design"]);
+defineEmits(["update:mode", "show-settings"]);
 </script>
