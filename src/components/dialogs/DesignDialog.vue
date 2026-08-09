@@ -5,25 +5,14 @@
     :close-on-esc="true"
     :auto-focus="false"
     :closable="false"
+    transform-origin="center"
     class="design-modal"
     :style="{ width: '900px' }"
   >
     <div class="design-shell">
-      <header class="design-titlebar">
-        <strong class="design-title">设置</strong>
-        <button
-          type="button"
-          class="design-close"
-          title="关闭"
-          aria-label="关闭"
-          @click="show = false"
-        >
-          ×
-        </button>
-      </header>
-
-      <div class="design-layout">
-        <aside class="design-sidebar" aria-label="设置菜单">
+      <aside class="design-side" aria-label="设置菜单">
+        <div class="design-side-title">设置</div>
+        <nav class="design-side-nav">
           <button
             v-for="item in menuItems"
             :key="item.id"
@@ -36,7 +25,21 @@
             <AppIcon :raw="item.icon" :size="17" />
             <span>{{ item.label }}</span>
           </button>
-        </aside>
+        </nav>
+      </aside>
+
+      <section class="design-main">
+        <header class="design-main-titlebar">
+          <button
+            type="button"
+            class="design-close"
+            title="关闭"
+            aria-label="关闭"
+            @click="show = false"
+          >
+            ×
+          </button>
+        </header>
 
         <div class="design-content">
           <ApiSourcePanel
@@ -69,7 +72,7 @@
             @close="show = false"
           />
         </div>
-      </div>
+      </section>
     </div>
   </n-modal>
 </template>
