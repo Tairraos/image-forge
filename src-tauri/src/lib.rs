@@ -19,6 +19,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             commands::about_info,
+            commands::agent_library,
             commands::copy_image_to_clipboard,
             commands::create_agent_session,
             commands::create_agent_direct_image_task,

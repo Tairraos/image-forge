@@ -155,6 +155,18 @@ import {
 } from "@lucide/vue";
 import { computed, onUnmounted, ref, watch } from "vue";
 import { fileUrl } from "../lib/formatters";
+import {
+  dateKey,
+  formatDayHeading,
+  formatFullDate,
+  formatMonth,
+  formatTime,
+  monthKey,
+  previewItem,
+  taskSource,
+  taskSourceLabel,
+  taskTime,
+} from "../lib/libraryFormat";
 
 const props = defineProps({
   tasks: { type: Array, default: () => [] },
@@ -224,26 +236,6 @@ const calendarDays = computed(() => {
   });
 });
 
-function taskSource(task) {
-  return task.origin === "agent" || task.agentSessionId || task.taskGroupId ? "agent" : "drawing";
-}
-
-function taskSourceLabel(task) {
-  return taskSource(task) === "agent" ? "Agent" : "绘画";
-}
-
-function taskTime(task) {
-  return task.completedAt || task.updatedAt || task.createdAt || "";
-}
-
-function previewItem(task, output) {
-  return {
-    ...output,
-    title: task.prompt || output.fileName || "生成图片",
-    meta: [taskSourceLabel(task), output.size || task.params?.size, task.model].filter(Boolean).join(" · "),
-  };
-}
-
 function openPreview(path) {
   const index = visibleImages.value.findIndex((item) => item.path === path);
   emit("preview-images", { items: visibleImages.value, index: Math.max(0, index) });
@@ -286,42 +278,5 @@ onUnmounted(() => window.clearTimeout(queryTimer));
 
 function normalizedMonth() {
   return /^\d{4}-\d{2}$/.test(calendarMonth.value) ? calendarMonth.value : monthKey(new Date());
-}
-
-function dateKey(value) {
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function monthKey(value) {
-  return dateKey(value).slice(0, 7);
-}
-
-function formatMonth(value) {
-  const [year, month] = (/^\d{4}-\d{2}$/.test(value) ? value : normalizedMonth()).split("-");
-  return `${year} 年 ${Number(month)} 月`;
-}
-
-function formatFullDate(value) {
-  const date = new Date(`${value}T00:00:00`);
-  return date.toLocaleDateString("zh-CN", { year: "numeric", month: "long", day: "numeric", weekday: "short" });
-}
-
-function formatDayHeading(value) {
-  const today = dateKey(new Date());
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-  if (value === today) return "今天";
-  if (value === dateKey(yesterday)) return "昨天";
-  return new Date(`${value}T00:00:00`).toLocaleDateString("zh-CN", { month: "long", day: "numeric" });
-}
-
-function formatTime(value) {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "" : date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
 }
 </script>

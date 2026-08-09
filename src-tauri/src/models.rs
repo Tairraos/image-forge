@@ -321,6 +321,14 @@ pub struct LibraryPage {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AgentLibraryPage {
+    pub tasks: Vec<TaskRecord>,
+    pub months: Vec<LibraryDayCount>,
+    pub total_images: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AgentAttachment {
     #[serde(default)]
     pub id: String,

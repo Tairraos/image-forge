@@ -7,7 +7,7 @@ use std::{
 use chrono::{DateTime, Local};
 use rusqlite::{params, params_from_iter, Connection, Transaction};
 
-use crate::models::{LibraryDayCount, LibraryPage, TaskRecord};
+use crate::models::{AgentLibraryPage, LibraryDayCount, LibraryPage, TaskRecord};
 
 const DATABASE_FILE: &str = "library.sqlite";
 const LEGACY_HISTORY_FILE: &str = "history.json";
@@ -195,6 +195,75 @@ pub(crate) fn library_page(
         total_images,
         page,
         page_size,
+    })
+}
+
+/// agent 视图内嵌图片库：无关键词时按月份列出图片，有关键词时跨月份搜索，
+/// 并返回所有有图片的月份列表（供月份选择器与上/下月切换）。
+pub(crate) fn agent_library(
+    data_dir: &Path,
+    month: &str,
+    query: &str,
+) -> Result<AgentLibraryPage, String> {
+    let connection = open(data_dir)?;
+    let query = query.trim();
+    let mut conditions = vec![
+        "tasks.status = 'completed'".to_string(),
+        "EXISTS (SELECT 1 FROM task_outputs output WHERE output.task_id = tasks.id)".to_string(),
+    ];
+    let mut values: Vec<String> = Vec::new();
+    if query.is_empty() {
+        conditions.push("tasks.library_date LIKE ?".into());
+        values.push(format!("{}%", normalized_month(month)));
+    } else {
+        conditions.push("(tasks.prompt LIKE ? OR tasks.model LIKE ? OR tasks.provider_name LIKE ? OR tasks.id LIKE ?)".into());
+        let pattern = format!("%{query}%");
+        values.extend([pattern.clone(), pattern.clone(), pattern.clone(), pattern]);
+    }
+    let where_clause = conditions.join(" AND ");
+
+    let total_sql = format!(
+        "SELECT COUNT(output.path) FROM tasks JOIN task_outputs output ON output.task_id = tasks.id WHERE {where_clause}"
+    );
+    let total_images = connection
+        .query_row(&total_sql, params_from_iter(values.iter()), |row| {
+            row.get::<_, u64>(0)
+        })
+        .map_err(db_error)?;
+
+    let tasks_sql = format!(
+        "SELECT record_json FROM tasks WHERE {where_clause} ORDER BY created_at DESC"
+    );
+    let mut task_statement = connection.prepare(&tasks_sql).map_err(db_error)?;
+    let tasks = task_statement
+        .query_map(params_from_iter(values.iter()), |row| {
+            row.get::<_, String>(0)
+        })
+        .map_err(db_error)?
+        .map(|value| value.map_err(db_error).and_then(parse_record))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let months_sql = "SELECT substr(tasks.library_date, 1, 7) AS month, COUNT(output.path) AS image_count
+        FROM tasks JOIN task_outputs output ON output.task_id = tasks.id
+        WHERE tasks.status = 'completed'
+          AND EXISTS (SELECT 1 FROM task_outputs present WHERE present.task_id = tasks.id)
+        GROUP BY month ORDER BY month DESC";
+    let mut month_statement = connection.prepare(months_sql).map_err(db_error)?;
+    let months = month_statement
+        .query_map([], |row| {
+            Ok(LibraryDayCount {
+                date: row.get(0)?,
+                image_count: row.get(1)?,
+            })
+        })
+        .map_err(db_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db_error)?;
+
+    Ok(AgentLibraryPage {
+        tasks,
+        months,
+        total_images,
     })
 }
 
@@ -496,6 +565,69 @@ mod tests {
         assert_eq!(page.tasks.len(), 1);
         assert_eq!(page.total_images, 1);
         assert_eq!(page.day_counts[0].date, "2026-07-20");
+        let _ = trash::delete(&root);
+    }
+
+    #[test]
+    fn agent_library_filters_by_month_or_searches_all_months() {
+        let root = root("sqlite-agent-library");
+        initialize(&root, &root.join("outputs")).unwrap();
+        let mut july = fallback_failed_record("task-jul", "placeholder");
+        july.status = "completed".into();
+        july.prompt = "月光海岸".into();
+        july.created_at = "2026-07-20T08:00:00+08:00".into();
+        july.completed_at = Some(july.created_at.clone());
+        july.outputs.push(crate::models::OutputImage {
+            path: root
+                .join("outputs/2026/07/july.png")
+                .to_string_lossy()
+                .into_owned(),
+            file_name: "july.png".into(),
+            mime_type: "image/png".into(),
+            output_format: "png".into(),
+            size: "1024x1024".into(),
+            background: String::new(),
+            quality: String::new(),
+            revised_prompt: String::new(),
+            usage: serde_json::Value::Null,
+        });
+        let mut august = fallback_failed_record("task-aug", "placeholder");
+        august.status = "completed".into();
+        august.prompt = "夏日沙滩".into();
+        august.created_at = "2026-08-03T09:00:00+08:00".into();
+        august.completed_at = Some(august.created_at.clone());
+        august.outputs.push(crate::models::OutputImage {
+            path: root
+                .join("outputs/2026/08/august.png")
+                .to_string_lossy()
+                .into_owned(),
+            file_name: "august.png".into(),
+            mime_type: "image/png".into(),
+            output_format: "png".into(),
+            size: "1024x1024".into(),
+            background: String::new(),
+            quality: String::new(),
+            revised_prompt: String::new(),
+            usage: serde_json::Value::Null,
+        });
+        upsert(&root, &july).unwrap();
+        upsert(&root, &august).unwrap();
+
+        let month = agent_library(&root, "2026-07", "").unwrap();
+        assert_eq!(month.tasks.len(), 1);
+        assert_eq!(month.tasks[0].id, "task-jul");
+        assert_eq!(month.total_images, 1);
+        assert_eq!(month.months.len(), 2);
+        assert_eq!(month.months[0].date, "2026-08");
+        assert_eq!(month.months[0].image_count, 1);
+
+        let search = agent_library(&root, "2026-07", "海岸").unwrap();
+        assert_eq!(search.tasks.len(), 1);
+        assert_eq!(search.tasks[0].id, "task-jul");
+
+        let no_match = agent_library(&root, "2026-07", "不存在的关键词").unwrap();
+        assert!(no_match.tasks.is_empty());
+        assert_eq!(no_match.total_images, 0);
         let _ = trash::delete(&root);
     }
 

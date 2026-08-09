@@ -13,9 +13,9 @@ use crate::{
     history_db,
     models::{
         AboutInfo, AgentAttachment, AgentImagePlan, AgentMessage, AgentProgressEvent, AgentSession,
-        AgentTaskGroup, ApiProvider, AppState, CleanupCandidate, GenerateRequest, LibraryPage,
-        PromptTemplate, QueueSnapshot, ReferencePreview, Settings, TaskRecord, TemplateFillEvent,
-        TemplateImportResult,
+        AgentTaskGroup, AgentLibraryPage, ApiProvider, AppState, CleanupCandidate, GenerateRequest,
+        LibraryPage, PromptTemplate, QueueSnapshot, ReferencePreview, Settings, TaskRecord,
+        TemplateFillEvent, TemplateImportResult,
     },
     services::{
         agent::run_turn,
@@ -983,6 +983,17 @@ pub(crate) fn library_page(
 ) -> Result<LibraryPage, String> {
     let data_dir = ensure_data_dir(&app)?;
     history_db::library_page(&data_dir, &month, &date, &query, &origin, page, page_size)
+}
+
+#[tauri::command]
+/// 读取 agent 视图内嵌图片库：按月份列出图片，或跨月份搜索提示词，并返回有图片的月份列表。
+pub(crate) fn agent_library(
+    app: AppHandle,
+    month: String,
+    query: String,
+) -> Result<AgentLibraryPage, String> {
+    let data_dir = ensure_data_dir(&app)?;
+    history_db::agent_library(&data_dir, &month, &query)
 }
 
 #[tauri::command]

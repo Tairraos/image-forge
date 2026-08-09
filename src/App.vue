@@ -62,6 +62,7 @@
         :tool-status-text="agentToolStatus"
         :answers="agentAnswers"
         :attachments="agentAttachments"
+        :agent-library-version="agentLibraryVersion"
         @create="createAgentConversation"
         @select="selectAgentConversation"
         @send="sendAgentConversationMessage"
@@ -79,7 +80,10 @@
         @answer-questions="answerAgentQuestions"
         @delete-session="deleteAgentConversation"
         @rename-session="renameAgentConversation"
-        @open-library="workspaceMode = 'library'"
+        @open-task="openLibraryTask"
+        @delete-task="deleteTask"
+        @download-output="downloadOutput"
+        @reveal-output="reveal($event.path)"
         @open-settings="showApiDialog = true"
       />
 
@@ -291,6 +295,7 @@ const libraryTotalImages = ref(0);
 const libraryPage = ref(1);
 const libraryPageSize = 40;
 const libraryLoading = ref(false);
+const agentLibraryVersion = ref(0);
 let libraryRequestId = 0;
 let libraryLastRequest = null;
 const queue = reactive({ waiting: [], running: [], recent: [], workerActive: false, updatedAt: "" });
@@ -1425,6 +1430,7 @@ async function deleteTask(task) {
     setStatus("生成记录已删除", "ok");
     await refreshAll();
     if (libraryLastRequest) await loadLibraryPage(libraryLastRequest);
+    agentLibraryVersion.value += 1;
   } catch (error) {
     setStatus(String(error), "error");
   }
