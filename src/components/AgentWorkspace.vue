@@ -8,7 +8,7 @@
         </div>
         <nav class="function-bar-nav" aria-label="功能栏">
           <button type="button" class="function-bar-item" @click="panel = 'chat'; $emit('create')">
-            <AppIcon :src="newChatIcon" :size="16" />
+            <AppIcon :raw="newChatIcon" :size="16" />
             <span>新对话</span>
           </button>
           <button
@@ -17,11 +17,11 @@
             :class="{ active: panel === 'library' }"
             @click="panel = panel === 'library' ? 'chat' : 'library'"
           >
-            <AppIcon :src="libraryIcon" :size="16" />
+            <AppIcon :raw="libraryIcon" :size="16" />
             <span>图片库</span>
           </button>
           <button type="button" class="function-bar-item" @click="$emit('open-settings')">
-            <AppIcon :src="settingsIcon" :size="16" />
+            <AppIcon :raw="settingsIcon" :size="16" />
             <span>设置</span>
           </button>
         </nav>
@@ -143,9 +143,9 @@
 <script setup>
 import { nextTick, ref } from "vue";
 import { Trash2 } from "@lucide/vue";
-import libraryIcon from "../assets/图片库.svg";
-import newChatIcon from "../assets/新对话.svg";
-import settingsIcon from "../assets/设置.svg";
+import libraryIcon from "../assets/图片库.svg?raw";
+import newChatIcon from "../assets/新对话.svg?raw";
+import settingsIcon from "../assets/设置.svg?raw";
 import logoUrl from "../assets/title.png";
 import AppIcon from "./snippets/AppIcon.vue";
 import AgentLibraryPanel from "./AgentLibraryPanel.vue";

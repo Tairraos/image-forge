@@ -4,55 +4,71 @@
     :mask-closable="true"
     :close-on-esc="true"
     :auto-focus="false"
+    :closable="false"
     class="design-modal"
     :style="{ width: '900px' }"
   >
-    <div class="design-layout">
-      <aside class="design-sidebar" aria-label="设置菜单">
+    <div class="design-shell">
+      <header class="design-titlebar">
+        <strong class="design-title">设置</strong>
         <button
-          v-for="item in menuItems"
-          :key="item.id"
           type="button"
-          class="design-menu-item"
-          :class="{ active: tab === item.id }"
-          :aria-pressed="tab === item.id"
-          @click="tab = item.id"
+          class="design-close"
+          title="关闭"
+          aria-label="关闭"
+          @click="show = false"
         >
-          <AppIcon :src="item.icon" :size="17" />
-          <span>{{ item.label }}</span>
+          ×
         </button>
-      </aside>
+      </header>
 
-      <div class="design-content">
-        <ApiSourcePanel
-          v-if="tab === 'chat-api' || tab === 'image-api'"
-          :show="show && (tab === 'chat-api' || tab === 'image-api')"
-          :settings="settings"
-          :kind="tab === 'chat-api' ? 'chat' : 'image'"
-          @save="emit('save-api', $event)"
-          @close="show = false"
-        />
-        <div v-else-if="tab === 'templates'" class="design-templates">
-          <TemplateManagerPanel
-            v-model:query="templateQuery"
-            :templates="filteredTemplates"
-            @view="emit('view-template', $event)"
-            @edit="emit('edit-template', $event)"
-            @delete="emit('delete-template', $event)"
-            @create="emit('create-template')"
-            @import="emit('import-template')"
-            @export="emit('export-template')"
-            @move="emit('move-template', $event)"
-            @show-effect="emit('show-template-effect', $event)"
+      <div class="design-layout">
+        <aside class="design-sidebar" aria-label="设置菜单">
+          <button
+            v-for="item in menuItems"
+            :key="item.id"
+            type="button"
+            class="design-menu-item"
+            :class="{ active: tab === item.id }"
+            :aria-pressed="tab === item.id"
+            @click="tab = item.id"
+          >
+            <AppIcon :raw="item.icon" :size="17" />
+            <span>{{ item.label }}</span>
+          </button>
+        </aside>
+
+        <div class="design-content">
+          <ApiSourcePanel
+            v-if="tab === 'chat-api' || tab === 'image-api'"
+            :show="show && (tab === 'chat-api' || tab === 'image-api')"
+            :settings="settings"
+            :kind="tab === 'chat-api' ? 'chat' : 'image'"
+            @save="emit('save-api', $event)"
+            @close="show = false"
+          />
+          <div v-else-if="tab === 'templates'" class="design-templates">
+            <TemplateManagerPanel
+              v-model:query="templateQuery"
+              :templates="filteredTemplates"
+              @view="emit('view-template', $event)"
+              @edit="emit('edit-template', $event)"
+              @delete="emit('delete-template', $event)"
+              @create="emit('create-template')"
+              @import="emit('import-template')"
+              @export="emit('export-template')"
+              @move="emit('move-template', $event)"
+              @show-effect="emit('show-template-effect', $event)"
+            />
+          </div>
+          <AboutPanel
+            v-else
+            :info="info"
+            @show-logs="emit('show-logs')"
+            @cleanup="emit('cleanup')"
+            @close="show = false"
           />
         </div>
-        <AboutPanel
-          v-else
-          :info="info"
-          @show-logs="emit('show-logs')"
-          @cleanup="emit('cleanup')"
-          @close="show = false"
-        />
       </div>
     </div>
   </n-modal>
@@ -60,10 +76,10 @@
 
 <script setup>
 import { computed, ref } from "vue";
-import aboutIcon from "../../assets/关于.svg";
-import chatApiIcon from "../../assets/对话API.svg";
-import imageApiIcon from "../../assets/绘图API.svg";
-import templatesIcon from "../../assets/模板库.svg";
+import aboutIcon from "../../assets/关于.svg?raw";
+import chatApiIcon from "../../assets/对话API.svg?raw";
+import imageApiIcon from "../../assets/绘图API.svg?raw";
+import templatesIcon from "../../assets/模板库.svg?raw";
 import AppIcon from "../snippets/AppIcon.vue";
 import AboutPanel from "./AboutPanel.vue";
 import ApiSourcePanel from "./ApiSourcePanel.vue";
