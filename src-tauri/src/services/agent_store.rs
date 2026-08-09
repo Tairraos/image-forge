@@ -68,6 +68,21 @@ pub(crate) fn save_session(
     write_agent_session(data_dir, &session)?;
     Ok(session)
 }
+pub(crate) fn rename_session(
+    data_dir: &Path,
+    session_id: &str,
+    title: &str,
+) -> Result<AgentSession, String> {
+    let mut session = session(data_dir, session_id)?;
+    let title = title.trim();
+    session.title = if title.is_empty() {
+        "新对话".into()
+    } else {
+        title.chars().take(60).collect::<String>()
+    };
+    write_agent_session(data_dir, &session)?;
+    Ok(session)
+}
 
 pub(crate) fn prepare_context(session: &mut AgentSession) -> Vec<AgentMessage> {
     const CONTEXT_CHAR_BUDGET: usize = 48_000;

@@ -21,7 +21,7 @@ use crate::{
         agent::run_turn,
         agent_store::{
             append_message, create_session, delete_session, prepare_context, recover_sessions,
-            save_session, session,
+            rename_session, save_session, session,
         },
         chat::fill_template_response,
         images::reference_preview,
@@ -103,6 +103,23 @@ pub(crate) fn get_agent_session(
     record_result(
         "读取 Agent 会话",
         format!("session_id={session_id}").as_str(),
+        None,
+        &result,
+    );
+    result
+}
+
+#[tauri::command]
+pub(crate) fn rename_agent_session(
+    app: AppHandle,
+    session_id: String,
+    title: String,
+) -> Result<AgentSession, String> {
+    let data_dir = ensure_data_dir(&app)?;
+    let result = rename_session(&data_dir, &session_id, &title);
+    record_result(
+        "重命名 Agent 会话",
+        &format!("session_id={session_id}"),
         None,
         &result,
     );

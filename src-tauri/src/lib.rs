@@ -12,6 +12,7 @@ mod utils;
 use state::RuntimeState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+
 pub fn run() {
     tauri::Builder::default()
         .manage(RuntimeState::new())
@@ -46,6 +47,7 @@ pub fn run() {
             commands::read_api_providers_file,
             commands::reference_from_clipboard,
             commands::reference_from_path,
+            commands::rename_agent_session,
             commands::retry_task,
             commands::reveal_path,
             commands::runtime_logs,

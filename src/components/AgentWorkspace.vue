@@ -30,14 +30,31 @@
             class="agent-session-row"
             :class="{ active: session.id === currentSession?.id }"
           >
-            <button
-              type="button"
+            <div
               class="agent-session-item"
+              role="button"
+              tabindex="0"
               :title="session.title || '新对话'"
               @click="$emit('select', session.id)"
+              @keydown.enter="$emit('select', session.id)"
             >
-              <span class="agent-session-title">{{ session.title || "新对话" }}</span>
-            </button>
+              <input
+                v-if="renaming?.id === session.id && renaming?.where === 'bar'"
+                :ref="(el) => setRenameInput(el)"
+                v-model="titleDraft"
+                class="agent-session-rename"
+                aria-label="对话标题"
+                @click.stop
+                @keydown.enter.prevent="commitRename"
+                @keydown.esc.prevent="cancelRename"
+                @blur="commitRename"
+              />
+              <span
+                v-else
+                class="agent-session-title"
+                @click.stop="startRename(session, 'bar')"
+              >{{ session.title || "新对话" }}</span>
+            </div>
             <button
               type="button"
               class="agent-session-delete"
@@ -55,9 +72,23 @@
 
     <div class="info-area">
       <header class="info-area-titlebar" data-tauri-drag-region="deep">
+        <input
+          v-if="renaming?.id === currentSession?.id && renaming?.where === 'top'"
+          :ref="(el) => setRenameInput(el)"
+          v-model="titleDraft"
+          class="info-area-title-rename"
+          aria-label="对话标题"
+          data-tauri-drag-region="none"
+          @keydown.enter.prevent="commitRename"
+          @keydown.esc.prevent="cancelRename"
+          @blur="commitRename"
+        />
         <strong
+          v-else
           class="info-area-title"
           :class="{ 'is-empty': !currentSession }"
+          data-tauri-drag-region="none"
+          @click="currentSession && startRename(currentSession, 'top')"
         >{{ currentSession ? currentSession.title || "新对话" : "开始新对话" }}</strong>
       </header>
       <AgentMessageList
@@ -91,6 +122,7 @@
 </template>
 
 <script setup>
+import { nextTick, ref } from "vue";
 import { Images, MessageSquarePlus, Settings, Trash2 } from "@lucide/vue";
 import AgentComposer from "./AgentComposer.vue";
 import AgentMessageList from "./AgentMessageList.vue";
@@ -113,5 +145,34 @@ const emit = defineEmits([
   "open-task-group", "preview-images", "cancel-task-group", "retry-task-group", "retry", "paste-reference", "drop-reference", "update-answer", "answer-questions",
   "delete-session",
   "open-library", "open-settings",
+  "rename-session",
 ]);
+
+const renaming = ref(null);
+const titleDraft = ref("");
+let renameInputEl = null;
+
+function setRenameInput(el) {
+  renameInputEl = el;
+}
+
+function startRename(session, where) {
+  renaming.value = { id: session.id, where };
+  titleDraft.value = session.title || "新对话";
+  nextTick(() => renameInputEl?.select?.());
+}
+
+function commitRename() {
+  const target = renaming.value;
+  if (!target) return;
+  renaming.value = null;
+  const title = titleDraft.value.trim();
+  if (title) {
+    emit("rename-session", { sessionId: target.id, title });
+  }
+}
+
+function cancelRename() {
+  renaming.value = null;
+}
 </script>

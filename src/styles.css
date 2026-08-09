@@ -2422,7 +2422,8 @@ button:disabled {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 6px 12px 14px;
+  padding: 8px 12px 14px;
+  border-top: 1px solid rgba(188, 177, 221, 0.35);
 }
 
 .function-bar-empty {
@@ -2468,7 +2469,7 @@ button:disabled {
   display: block;
   width: 100%;
   min-width: 0;
-  padding: 9px 30px 9px 10px;
+  padding: 6px 30px 6px 10px;
   border: 0;
   border-radius: 8px;
   background: transparent;
@@ -2496,6 +2497,22 @@ button:disabled {
   line-height: 18px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.agent-session-rename {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font-size: 13px;
+  line-height: 18px;
+  font-family: inherit;
+  outline: 1px solid rgba(124, 92, 232, 0.5);
+  outline-offset: 0;
 }
 
 .agent-session-delete {
@@ -2558,6 +2575,21 @@ button:disabled {
 
 .info-area-title.is-empty {
   color: #4b5563;
+}
+
+.info-area-title-rename {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid rgba(124, 92, 232, 0.5);
+  border-radius: 6px;
+  background: var(--surface-strong);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  outline: none;
 }
 
 .agent-composer {

@@ -78,6 +78,7 @@
         @update-answer="updateAgentAnswer"
         @answer-questions="answerAgentQuestions"
         @delete-session="deleteAgentConversation"
+        @rename-session="renameAgentConversation"
         @open-library="workspaceMode = 'library'"
         @open-settings="showApiDialog = true"
       />
@@ -653,6 +654,16 @@ async function deleteAgentConversation(sessionId) {
     if (currentAgentSessionId.value === sessionId) currentAgentSessionId.value = "";
     await refreshAgentSessions();
     setStatus("Agent 对话已移入回收站", "ok");
+  } catch (error) {
+    setStatus(String(error), "error");
+  }
+}
+
+async function renameAgentConversation({ sessionId, title }) {
+  try {
+    const session = await invoke("rename_agent_session", { sessionId, title });
+    setAgentSession(session);
+    setStatus("对话标题已更新", "ok");
   } catch (error) {
     setStatus(String(error), "error");
   }
