@@ -1950,8 +1950,9 @@ button:disabled {
 }
 
 .provider-split-line {
+  align-self: center;
   width: 1px;
-  height: 100%;
+  height: 300px;
   background: rgba(188, 177, 221, 0.55);
 }
 
@@ -2077,12 +2078,31 @@ button:disabled {
 }
 
 .provider-card-grid.vertical > .provider-card.dragging {
-  opacity: 0.55;
+  opacity: 0.45;
 }
 
 .provider-card-grid.vertical > .provider-card.drag-over {
-  border-color: var(--primary);
+  position: relative;
+  margin-top: calc(var(--drag-h, 0px) + 10px);
+  border-color: var(--line-strong);
   box-shadow: inset 0 0 0 1px rgba(124, 92, 232, 0.28);
+  transition:
+    margin-top 150ms ease,
+    border-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.provider-card-grid.vertical > .provider-card.drag-over::before {
+  position: absolute;
+  top: calc(-1 * (var(--drag-h, 0px) + 10px));
+  right: 0;
+  left: 0;
+  height: var(--drag-h, 0px);
+  border: 1.5px dashed rgba(124, 92, 232, 0.55);
+  border-radius: 8px;
+  background: rgba(124, 92, 232, 0.1);
+  content: "";
+  pointer-events: none;
 }
 
 .provider-card-grid.vertical .provider-card-main {
@@ -2116,7 +2136,7 @@ button:disabled {
   font-size: 13px;
 }
 
-.provider-editor-pane > .provider-editor {
+.provider-editor-pane > .provider-form {
   flex: 1;
   min-height: 0;
   overflow: auto;
@@ -2137,7 +2157,7 @@ button:disabled {
 
 .provider-card-main {
   display: grid;
-  grid-template-rows: repeat(4, minmax(18px, auto));
+  grid-template-rows: repeat(3, minmax(18px, auto));
   width: 100%;
   min-width: 0;
   overflow: visible;
@@ -2164,39 +2184,49 @@ button:disabled {
   display: flex;
   align-items: flex-end;
   justify-content: flex-end;
-  gap: 4px;
+  gap: 2px;
+  opacity: 0;
+  transform: translateX(4px);
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease;
+}
+
+.provider-card:hover .provider-card-actions,
+.provider-card-actions:focus-within {
+  opacity: 1;
+  transform: translateX(0);
 }
 
 .provider-card-actions button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
-  border: 1px solid rgba(211, 201, 239, 0.9);
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.86);
-  color: #5b4d73;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #6b5d85;
+  padding: 0;
   cursor: pointer;
   transition:
-    background 160ms ease,
-    border-color 160ms ease,
-    color 160ms ease;
+    background 140ms ease,
+    color 140ms ease;
 }
 
 .provider-card-actions button:hover:not(:disabled) {
-  border-color: var(--line-strong);
-  background: #ffffff;
-  color: #31254f;
+  background: rgba(124, 92, 232, 0.12);
+  color: var(--primary);
 }
 
 .provider-card-actions button:disabled {
-  opacity: 0.38;
+  opacity: 0.32;
   cursor: not-allowed;
 }
 
 .provider-card-actions button.danger:hover:not(:disabled) {
-  border-color: rgba(225, 116, 116, 0.55);
+  background: rgba(225, 116, 116, 0.12);
   color: #b93333;
 }
 
@@ -2304,23 +2334,6 @@ button:disabled {
   white-space: nowrap;
 }
 
-.provider-editor {
-  min-width: 0;
-  border: 1px solid rgba(228, 219, 255, 0.82);
-  border-radius: 9px;
-  padding: 12px;
-  background: rgba(255, 255, 255, 0.7);
-}
-
-.provider-editor-head {
-  margin-bottom: 10px;
-}
-
-.provider-editor-head h3 {
-  margin: 0;
-  color: #31254f;
-}
-
 .provider-form {
   display: grid;
   gap: 12px;
@@ -2351,19 +2364,6 @@ button:disabled {
 
 .provider-type-select {
   min-width: 0;
-}
-
-.provider-concurrency-inline {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: #736883;
-  font-size: 12px;
-  white-space: nowrap;
-}
-
-.provider-concurrency-input {
-  width: 120px;
 }
 
 .model-select-row {
@@ -2573,6 +2573,21 @@ button:disabled {
   margin-left: auto;
 }
 
+.provider-editor-pane .n-button {
+  --n-color: #46464d;
+  --n-color-hover: #52525b;
+  --n-color-pressed: #3c3c44;
+  --n-color-focus: #46464d;
+  --n-text-color: #f4f4f6;
+  --n-text-color-hover: #ffffff;
+  --n-text-color-pressed: #ffffff;
+  --n-text-color-focus: #f4f4f6;
+  --n-border: 1px solid transparent;
+  --n-border-hover: 1px solid transparent;
+  --n-border-pressed: 1px solid transparent;
+  --n-border-focus: 1px solid transparent;
+}
+
 .n-card.n-modal > .n-card__footer .n-button {
   min-width: 86px;
 }
@@ -2656,10 +2671,6 @@ button:disabled {
 
   .provider-type-inline {
     grid-template-columns: 1fr;
-  }
-
-  .provider-concurrency-inline {
-    justify-content: flex-start;
   }
 
   .api-dialog-footer {

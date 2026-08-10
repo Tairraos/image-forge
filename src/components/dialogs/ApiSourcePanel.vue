@@ -1,7 +1,7 @@
 <template>
   <div class="api-manager split">
     <section class="provider-editor-pane">
-      <section v-if="selectedProvider" class="provider-editor">
+      <template v-if="selectedProvider">
         <n-form class="provider-form" label-placement="top" :show-feedback="false">
           <n-form-item label="名称">
             <n-input v-model:value="selectedProvider.name" placeholder="例如 OpenAI / Azure / 自建服务" />
@@ -38,44 +38,23 @@
               </n-button>
             </div>
           </n-form-item>
-          <n-form-item v-if="kind === 'image'" label="并发">
-            <n-input
-              class="provider-concurrency-input"
-              :value="String(selectedProvider.imagesConcurrency || 1)"
-              inputmode="numeric"
-              placeholder="1"
-              @update:value="updateSelectedConcurrency"
-            />
-          </n-form-item>
           <p v-if="modelFetchMessage" class="model-fetch-message" :data-tone="modelFetchTone">
             {{ modelFetchMessage }}
           </p>
         </n-form>
-      </section>
+      </template>
       <p v-else class="provider-empty">还没有{{ kindLabel }}源，先新增一个。</p>
 
       <div class="api-dialog-footer">
         <div class="api-dialog-footer-actions">
-          <n-button size="small" type="primary" @click="addProvider">
-            <template #icon><Plus :size="15" /></template>
-            新增
-          </n-button>
-          <n-button size="small" secondary @click="openImportDialog">
-            <template #icon><Download :size="15" /></template>
-            导入
-          </n-button>
-          <n-button size="small" secondary :loading="exportingProviders" @click="exportProviders">
-            <template #icon><Upload :size="15" /></template>
-            导出
-          </n-button>
-          <n-button size="small" secondary :disabled="!selectedProvider" @click="copyProvider">
+          <n-button size="small" @click="addProvider">新增</n-button>
+          <n-button size="small" :disabled="!selectedProvider" @click="copyProvider">
             <template #icon><Copy :size="15" /></template>
             克隆
           </n-button>
         </div>
         <div class="dialog-actions">
-          <n-button size="small" type="primary" @click="save">保存 API 源</n-button>
-          <n-button size="small" @click="emit('close')">关闭</n-button>
+          <n-button size="small" @click="save">保存</n-button>
         </div>
       </div>
     </section>
@@ -93,6 +72,7 @@
             providerTypeClass(provider.modelType),
             { dragging: dragId === provider.id, 'drag-over': dragOverId === provider.id },
           ]"
+          :style="dragOverId === provider.id ? { '--drag-h': `${dragHeight}px` } : undefined"
           draggable="true"
           @click="selectProvider(provider.id)"
           @dragstart="onDragStart(provider.id, $event)"
@@ -108,7 +88,6 @@
             <strong :title="provider.name || '未命名 API 源'">
               {{ provider.name || "未命名 API 源" }}
             </strong>
-            <span>{{ modelTypeLabel(provider.modelType, provider.imagesConcurrency) }}</span>
             <span :title="provider.imageModel || '未设置模型'">
               {{ provider.imageModel || "未设置模型" }}
             </span>
@@ -148,33 +127,6 @@
     </section>
   </div>
 
-  <n-modal v-model:show="showImport" preset="card" title="导入 API 源" class="editor-modal">
-    <div
-      class="api-import-drop-zone"
-      :class="{ 'reference-drop-active': importDragActive }"
-      data-api-import-drop-zone
-      @dragover.prevent="importDragActive = true"
-      @dragleave="importDragActive = false"
-      @drop.prevent="handleImportFileDrop"
-    >
-      <n-input
-        v-model:value="importText"
-        type="textarea"
-        :autosize="{ minRows: 12, maxRows: 12 }"
-        :resizable="false"
-        placeholder="粘贴 JSON 配置或者拖入 JSON 文件"
-      />
-      <small v-if="readingImportFile">正在读取 JSON 文件…</small>
-    </div>
-    <p v-if="importError" class="import-error">{{ importError }}</p>
-    <template #footer>
-      <div class="dialog-actions">
-        <n-button size="small" @click="showImport = false">取消</n-button>
-        <n-button size="small" type="primary" @click="importProviders">导入</n-button>
-      </div>
-    </template>
-  </n-modal>
-
   <ConfirmDialog
     v-model:show="showDeleteConfirmation"
     title="删除 API 源"
@@ -182,21 +134,13 @@
     @confirm="confirmDeleteProvider"
     @cancel="cancelDeleteProvider"
   />
-
-  <NoticeDialog
-    v-model:show="showImportResult"
-    title="API 源导入结果"
-    :message="importResultMessage"
-  />
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
-import { ArrowDown, ArrowUp, Copy, Download, Plus, Trash2, Upload } from "@lucide/vue";
+import { computed, reactive, ref, watch } from "vue";
+import { ArrowDown, ArrowUp, Copy, Trash2 } from "@lucide/vue";
 import ConfirmDialog from "./ConfirmDialog.vue";
-import NoticeDialog from "./NoticeDialog.vue";
-import { extractDroppedFilePaths } from "../../lib/referenceFiles";
-import { invoke, listenDragDrop, saveDialog } from "../../tauri";
+import { invoke } from "../../tauri";
 import {
   createProviderId,
   deepClone,
@@ -219,23 +163,15 @@ const emit = defineEmits(["close", "save"]);
 
 const draft = reactive(defaultSettings());
 const selectedId = ref("");
-const showImport = ref(false);
-const importText = ref("");
-const importError = ref("");
-const importDragActive = ref(false);
-const readingImportFile = ref(false);
-const exportingProviders = ref(false);
 const providerModels = reactive({});
 const loadingModels = ref(false);
 const modelFetchMessage = ref("");
 const modelFetchTone = ref("idle");
 const showDeleteConfirmation = ref(false);
 const pendingDeleteProviderId = ref("");
-const showImportResult = ref(false);
-const importResultMessage = ref("");
 const dragId = ref("");
 const dragOverId = ref("");
-let unlistenImportDragDrop = null;
+const dragHeight = ref(0);
 
 const kindLabel = computed(() => (props.kind === "chat" ? "对话 API" : "绘图 API"));
 
@@ -282,22 +218,6 @@ watch(
   { immediate: true },
 );
 
-watch(showImport, (show) => {
-  if (!show) importDragActive.value = false;
-});
-
-onMounted(async () => {
-  try {
-    unlistenImportDragDrop = await listenDragDrop(handleNativeImportDragDrop);
-  } catch {
-    // 浏览器预览没有 Tauri 原生拖放事件，保留 HTML5 drop 读取文件。
-  }
-});
-
-onUnmounted(() => {
-  unlistenImportDragDrop?.();
-});
-
 function matchesKind(modelType) {
   return props.kind === "chat" ? modelType === "chat" : isImageModelType(modelType);
 }
@@ -333,12 +253,6 @@ function updateSelectedModel(value) {
   }
 }
 
-function updateSelectedConcurrency(value) {
-  const provider = selectedProvider.value;
-  if (!provider) return;
-  provider.imagesConcurrency = normalizeProviderConcurrency(value);
-}
-
 function copyProvider() {
   const source = selectedProvider.value;
   if (!source) return;
@@ -348,197 +262,6 @@ function copyProvider() {
   draft.providers.push(provider);
   selectProvider(provider.id);
   syncActiveFromOrder();
-}
-
-function openImportDialog() {
-  importError.value = "";
-  showImport.value = true;
-}
-
-async function exportProviders() {
-  const providers = visibleProviders.value;
-  if (!providers.length) return;
-  try {
-    const destination = await saveDialog({
-      defaultPath: `ImageForge-${props.kind}-api-sources.json`,
-      filters: [{ name: "JSON 配置", extensions: ["json"] }],
-    });
-    if (!destination) return;
-    exportingProviders.value = true;
-    const savedPath = await invoke("export_api_providers", {
-      destination,
-      providers: providers.map((provider) => normalizeProviderForSave(deepClone(provider))),
-    });
-    modelFetchTone.value = "ok";
-    modelFetchMessage.value = `API 源已导出：${savedPath.split(/[\\/]/).at(-1)}`;
-  } catch (error) {
-    modelFetchTone.value = "error";
-    modelFetchMessage.value = String(error);
-  } finally {
-    exportingProviders.value = false;
-  }
-}
-
-async function handleImportFileDrop(event) {
-  importDragActive.value = false;
-  const files = Array.from(event?.dataTransfer?.files || []);
-  const file = files.find((item) => isJsonPath(item.name));
-  const path = extractDroppedFilePaths(event?.dataTransfer).find(isJsonPath) || file?.path;
-  if (path) {
-    await loadImportFilePath(path);
-    return;
-  }
-  if (file?.text) {
-    await loadImportFileText(() => file.text());
-    return;
-  }
-  importError.value = "只能拖入 JSON 文件";
-}
-
-function handleNativeImportDragDrop(event) {
-  if (!showImport.value) return;
-  const payload = event?.payload || {};
-  if (payload.type === "leave") {
-    importDragActive.value = false;
-    return;
-  }
-  const overImportBox = importDropTarget(payload.position);
-  if (payload.type === "enter" || payload.type === "over") {
-    importDragActive.value = overImportBox;
-    return;
-  }
-  importDragActive.value = false;
-  if (payload.type !== "drop" || !overImportBox) return;
-  const path = (payload.paths || []).find(isJsonPath);
-  if (path) void loadImportFilePath(path);
-  else importError.value = "只能拖入 JSON 文件";
-}
-
-async function loadImportFilePath(path) {
-  await loadImportFileText(() => invoke("read_api_providers_file", { path }));
-}
-
-async function loadImportFileText(reader) {
-  readingImportFile.value = true;
-  importError.value = "";
-  try {
-    const text = await reader();
-    JSON.parse(text);
-    importText.value = text;
-  } catch (error) {
-    importError.value = String(error);
-  } finally {
-    readingImportFile.value = false;
-  }
-}
-
-function importDropTarget(position) {
-  const x = Number(position?.x);
-  const y = Number(position?.y);
-  if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
-  const scale = window.devicePixelRatio || 1;
-  return [[x, y], [x / scale, y / scale]].some(([left, top]) =>
-    Boolean(document.elementFromPoint(left, top)?.closest("[data-api-import-drop-zone]")),
-  );
-}
-
-function isJsonPath(path) {
-  return String(path || "").toLowerCase().endsWith(".json");
-}
-
-function importProviders() {
-  importError.value = "";
-  let value;
-  try {
-    value = JSON.parse(importText.value);
-  } catch (error) {
-    importError.value = `JSON 解析失败：${error.message}`;
-    return;
-  }
-  const entries = importProviderEntries(value);
-  if (!entries) {
-    importError.value = "请粘贴有效的 API 配置 JSON";
-    return;
-  }
-  if (!entries.length) {
-    importError.value = "没有可导入的 API 源";
-    return;
-  }
-
-  const signatures = new Set(draft.providers.map(providerImportSignature));
-  const imported = [];
-  let duplicateCount = 0;
-  for (const [index, [key, item]] of entries.entries()) {
-    if (!item || typeof item !== "object" || Array.isArray(item)) {
-      importError.value = `「${key}」不是有效配置`;
-      return;
-    }
-    const name =
-      String(item.name || providerNameFromImportKey(key)).trim() || `导入源 ${index + 1}`;
-    const preferredType =
-      props.kind === "chat"
-        ? "chat"
-        : normalizeModelType(
-            item.modelType === "chat" ? "" : item.modelType,
-            item.openAiModelId || item.imageModel || item.model,
-            item.openAiBaseUrl || item.baseUrl,
-          );
-    const provider = {
-      ...defaultProvider(draft.providers.length + imported.length + 1, preferredType),
-      id: createProviderId(),
-      name,
-      modelType: preferredType,
-      baseUrl: item.openAiBaseUrl || item.baseUrl || "",
-      apiKey: item.openAiApiKey || item.apiKey || "",
-      proxyUrl: item.proxyUrl || "",
-      imageModel: item.openAiModelId || item.imageModel || item.model || "gpt-image-2",
-      imagesConcurrency: normalizeProviderConcurrency(item.imagesConcurrency),
-      enabled: item.enabled !== false,
-      notes: "",
-    };
-    if (!matchesKind(provider.modelType)) continue;
-    const signature = providerImportSignature(provider);
-    if (signatures.has(signature)) {
-      duplicateCount += 1;
-      continue;
-    }
-    signatures.add(signature);
-    imported.push(provider);
-  }
-
-  for (const provider of imported) {
-    draft.providers.push(provider);
-  }
-  if (imported.length) selectProvider(imported[imported.length - 1].id);
-  syncActiveFromOrder();
-  showImport.value = false;
-  importText.value = "";
-  importResultMessage.value = `导入 ${imported.length} 个，重复 ${duplicateCount} 个。`;
-  showImportResult.value = true;
-}
-
-function providerImportSignature(provider) {
-  return JSON.stringify([
-    String(provider.name || "").trim(),
-    normalizeModelType(provider.modelType, provider.imageModel, provider.baseUrl),
-    String(provider.baseUrl || "").trim(),
-    String(provider.apiKey || "").trim(),
-    String(provider.proxyUrl || "").trim(),
-    String(provider.imageModel || "gpt-image-2").trim() || "gpt-image-2",
-    normalizeProviderConcurrency(provider.imagesConcurrency),
-    provider.enabled !== false,
-  ]);
-}
-
-function importProviderEntries(value) {
-  if (Array.isArray(value)) {
-    return value.map((item, index) => [item?.name || `API 源 ${index + 1}`, item]);
-  }
-  if (!value || typeof value !== "object") return null;
-  if (Array.isArray(value.providers)) {
-    return value.providers.map((item, index) => [item?.name || `API 源 ${index + 1}`, item]);
-  }
-  return Object.entries(value);
 }
 
 function deleteProvider(id = selectedId.value) {
@@ -582,6 +305,7 @@ function moveProvider(id = selectedId.value, offset) {
 function onDragStart(id, event) {
   dragId.value = id;
   dragOverId.value = "";
+  dragHeight.value = event?.currentTarget?.offsetHeight || 0;
   if (event?.dataTransfer) {
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("text/plain", id);
@@ -677,20 +401,6 @@ function normalizeProviderForSave(provider) {
   };
 }
 
-function modelTypeLabel(value, concurrency = 1) {
-  const labels = {
-    "image-gpt": "生图模型 - GPT",
-    "image-gemini": "生图模型 - Gemini",
-    "image-grok": "生图模型 - Grok",
-    "image-seedream": "生图模型 - Seedream",
-    chat: "对话模型",
-  };
-  const label = labels[normalizeModelType(value)] || labels["image-gpt"];
-  const count = normalizeProviderConcurrency(concurrency);
-  if (value === "chat" || count === 1) return label;
-  return `${label} x ${count} 并发`;
-}
-
 function providerTypeClass(value) {
   return `provider-card--${normalizeModelType(value).replace("image-", "")}`;
 }
@@ -699,9 +409,5 @@ function maskedApiKey(value) {
   const key = String(value || "");
   if (!key) return "未填写";
   return `${key.slice(0, 6)}******${key.slice(-6)}`;
-}
-
-function providerNameFromImportKey(key) {
-  return String(key).split("-")[0].trim() || "导入源";
 }
 </script>

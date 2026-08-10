@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "ImageForge",
-  "version": "1.0.71",
+  "version": "1.0.72",
   "identifier": "com.xiaole.imageforge",
   "build": {
     "beforeDevCommand": "pnpm dev",
