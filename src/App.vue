@@ -239,6 +239,7 @@ let unlistenQueueUpdated = null;
 let unlistenAgentProgress = null;
 let unlistenAgentTaskGroup = null;
 let unlistenWindowState = null;
+let unlistenMenuOpenSettings = null;
 let queueRefreshInFlight = false;
 let queueRefreshQueued = false;
 let agentTaskGroupPollTimer = 0;
@@ -339,6 +340,13 @@ onMounted(async () => {
   } catch {
     // 预览环境可能没有事件通道。
   }
+  try {
+    unlistenMenuOpenSettings = await listenEvent("menu-open-settings", () => {
+      void openDesign();
+    });
+  } catch {
+    // 预览环境可能没有菜单事件。
+  }
   await refreshAll();
   await refreshAgentSessions();
   syncAgentTaskGroupPolling();
@@ -351,6 +359,7 @@ onUnmounted(() => {
   unlistenQueueUpdated?.();
   unlistenAgentProgress?.();
   unlistenAgentTaskGroup?.();
+  unlistenMenuOpenSettings?.();
   unlistenWindowState?.();
   removeScrollbarVisibility?.();
 });

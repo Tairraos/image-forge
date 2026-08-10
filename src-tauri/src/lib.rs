@@ -17,6 +17,99 @@ pub fn run() {
     tauri::Builder::default()
         .manage(RuntimeState::new())
         .plugin(tauri_plugin_dialog::init())
+        .menu(|handle| {
+            use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
+
+            let settings = MenuItem::with_id(
+                handle,
+                "open-settings",
+                "设置...",
+                true,
+                Some("CmdOrCtrl+,"),
+            )?;
+
+            #[cfg(target_os = "macos")]
+            {
+                let app_name = handle.package_info().name.clone();
+                Menu::with_items(
+                    handle,
+                    &[
+                        &Submenu::with_items(
+                            handle,
+                            app_name,
+                            true,
+                            &[
+                                &settings,
+                                &PredefinedMenuItem::separator(handle)?,
+                                &PredefinedMenuItem::services(handle, None)?,
+                                &PredefinedMenuItem::separator(handle)?,
+                                &PredefinedMenuItem::hide(handle, None)?,
+                                &PredefinedMenuItem::hide_others(handle, None)?,
+                                &PredefinedMenuItem::show_all(handle, None)?,
+                                &PredefinedMenuItem::separator(handle)?,
+                                &PredefinedMenuItem::quit(handle, Some("退出 Image Forge"))?,
+                            ],
+                        )?,
+                        &Submenu::with_items(
+                            handle,
+                            "编辑",
+                            true,
+                            &[
+                                &PredefinedMenuItem::undo(handle, None)?,
+                                &PredefinedMenuItem::redo(handle, None)?,
+                                &PredefinedMenuItem::separator(handle)?,
+                                &PredefinedMenuItem::cut(handle, None)?,
+                                &PredefinedMenuItem::copy(handle, None)?,
+                                &PredefinedMenuItem::paste(handle, None)?,
+                                &PredefinedMenuItem::select_all(handle, None)?,
+                            ],
+                        )?,
+                    ],
+                )
+            }
+
+            #[cfg(not(target_os = "macos"))]
+            {
+                Menu::with_items(
+                    handle,
+                    &[
+                        &Submenu::with_items(
+                            handle,
+                            "文件",
+                            true,
+                            &[
+                                &settings,
+                                &PredefinedMenuItem::separator(handle)?,
+                                &PredefinedMenuItem::quit(handle, Some("退出"))?,
+                            ],
+                        )?,
+                        &Submenu::with_items(
+                            handle,
+                            "编辑",
+                            true,
+                            &[
+                                &PredefinedMenuItem::undo(handle, None)?,
+                                &PredefinedMenuItem::redo(handle, None)?,
+                                &PredefinedMenuItem::separator(handle)?,
+                                &PredefinedMenuItem::cut(handle, None)?,
+                                &PredefinedMenuItem::copy(handle, None)?,
+                                &PredefinedMenuItem::paste(handle, None)?,
+                                &PredefinedMenuItem::select_all(handle, None)?,
+                            ],
+                        )?,
+                    ],
+                )
+            }
+        })
+        .on_menu_event(|app, event| {
+            if event.id().as_ref() != "open-settings" {
+                return;
+            }
+            use tauri::{Emitter, Manager};
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.emit("menu-open-settings", ());
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             commands::about_info,
             commands::agent_library,
