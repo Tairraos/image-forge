@@ -64,6 +64,11 @@
               @show-effect="emit('show-template-effect', $event)"
             />
           </div>
+          <BackupPanel
+            v-else-if="tab === 'backup'"
+            :settings="settings"
+            :templates="templates"
+          />
           <AboutPanel
             v-else
             :info="info"
@@ -80,11 +85,13 @@
 <script setup>
 import { computed, ref } from "vue";
 import aboutIcon from "../../assets/关于.svg?raw";
+import backupIcon from "../../assets/备份.svg?raw";
 import chatApiIcon from "../../assets/对话API.svg?raw";
 import imageApiIcon from "../../assets/绘图API.svg?raw";
 import templatesIcon from "../../assets/模板库.svg?raw";
 import AppIcon from "../snippets/AppIcon.vue";
 import AboutPanel from "./AboutPanel.vue";
+import BackupPanel from "./BackupPanel.vue";
 import ApiSourcePanel from "./ApiSourcePanel.vue";
 import TemplateManagerPanel from "./TemplateManagerPanel.vue";
 
@@ -114,6 +121,7 @@ const menuItems = [
   { id: "templates", label: "模板库", icon: templatesIcon },
   { id: "chat-api", label: "对话API", icon: chatApiIcon },
   { id: "image-api", label: "绘图API", icon: imageApiIcon },
+  { id: "backup", label: "备份/恢复", icon: backupIcon },
   { id: "about", label: "关于", icon: aboutIcon },
 ];
 

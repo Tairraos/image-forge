@@ -1259,6 +1259,39 @@ button:disabled {
   min-height: 0;
 }
 
+.design-content > .backup-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  padding: 18px 22px;
+}
+
+.backup-summary {
+  margin: 0;
+  max-width: 420px;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.7;
+  text-align: center;
+}
+
+.backup-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(140px, 180px));
+  gap: 16px;
+  width: min(400px, 100%);
+}
+
+.backup-action-btn {
+  min-height: 56px;
+  font-size: 16px;
+  font-weight: 700;
+}
+
 .design-content > .about-panel {
   flex: 1;
   min-height: 0;
