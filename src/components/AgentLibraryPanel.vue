@@ -21,9 +21,6 @@
               <small>{{ task.model || task.providerName || task.id }}</small>
             </div>
             <div class="image-batch-actions">
-              <button type="button" title="在绘画视图中打开" aria-label="在绘画视图中打开" @click="$emit('open-task', task)">
-                <Paintbrush :size="16" />
-              </button>
               <button type="button" title="删除任务及图片" aria-label="删除任务及图片" @click="$emit('delete-task', task)">
                 <Trash2 :size="16" />
               </button>
@@ -100,7 +97,6 @@ import {
   Download,
   FolderOpen,
   Images,
-  Paintbrush,
   Search,
   Trash2,
 } from "@lucide/vue";
@@ -123,7 +119,7 @@ import { invoke } from "../tauri";
 const props = defineProps({
   version: { type: Number, default: 0 },
 });
-const emit = defineEmits(["preview-images", "open-task", "delete-task", "download-output", "reveal-output"]);
+const emit = defineEmits(["preview-images", "delete-task", "download-output", "reveal-output"]);
 
 const month = ref(monthKey(new Date()));
 const query = ref("");

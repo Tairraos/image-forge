@@ -1,6 +1,7 @@
 <template>
   <div
     class="agent-composer"
+    data-reference-drop-target="agent"
     :class="{ 'reference-drop-active': dragActive }"
     @dragover.prevent="dragActive = true"
     @dragleave="dragActive = false"
@@ -34,6 +35,7 @@
           <ClipboardImageMenu :disabled="busy" v-slot="{ open }" @paste="$emit('paste-reference', $event)">
             <button
               class="reference-add"
+              data-reference-drop-target="agent"
               :class="{ 'reference-drop-active': dragActive }"
               type="button"
               title="点击添加，右键粘贴剪贴板图片"

@@ -1,55 +1,9 @@
 <template>
   <n-config-provider :theme-overrides="themeOverrides" component-size="small">
     <n-global-style />
-    <AppShell
-      :mode="workspaceMode"
-      @update:mode="workspaceMode = $event"
-      @show-settings="openDesign"
-    >
-
-      <DrawingWorkspace
-        v-show="workspaceMode === 'drawing'"
-        :filtered-history="filteredHistory"
-        :selected-task-id="selectedTaskId"
-        :history-query="historyQuery"
-        :history-scope="historyScope"
-        :history-scroll-request="historyScrollRequest"
-        :selected-task="selectedTask"
-        :current-outputs="currentOutputs"
-        :form="form"
-        :references="references"
-        :submitting="submitting"
-        :reference-drag-active="referenceDragActive"
-        :workspace-style="workspaceStyle"
-        @select-task="selectedTaskId = $event"
-        @update:history-query="historyQuery = $event"
-        @update:history-scope="historyScope = $event"
-        @reuse="reuseTask"
-        @refresh-task="refreshTask"
-        @retry="retryTask"
-        @delete="deleteTask"
-        @copy-output="copyOutput"
-        @download-output="downloadOutput"
-        @reveal-output="reveal($event.path)"
-        @start-panel-resize="startPanelResize"
-        @show-detail="showTaskDetail = true"
-        @model-template="newTemplateFromTask"
-        @submit="submitTask"
-        @show-template="showTemplateReferenceDialog = true"
-        @clear-prompt="clearPrompt"
-        @prompt-focus="capturePromptCursor"
-        @prompt-cursor="capturePromptCursor"
-        @prompt-paste="handlePromptPaste"
-        @paste-reference="pasteWorkbenchReferenceImage"
-        @add-reference="addReferenceImages"
-        @remove-reference="removeReference(references, $event)"
-        @reference-drag-over="referenceDragActive = true"
-        @reference-drag-leave="referenceDragActive = false"
-        @drop-reference="handleReferenceDropEvent"
-      />
+    <AppShell>
 
       <AgentWorkspace
-        v-show="workspaceMode === 'agent'"
         :sessions="agentSessions"
         :current-session="currentAgentSession"
         :messages="currentAgentDisplayMessages"
@@ -78,28 +32,10 @@
         @answer-questions="answerAgentQuestions"
         @delete-session="deleteAgentConversation"
         @rename-session="renameAgentConversation"
-        @open-task="openLibraryTask"
         @delete-task="deleteTask"
         @download-output="downloadOutput"
         @reveal-output="reveal($event.path)"
         @open-settings="openDesign"
-      />
-
-      <ImageLibrary
-        v-show="workspaceMode === 'library'"
-        :tasks="libraryTasks"
-        :day-counts="libraryDayCounts"
-        :total-tasks="libraryTotalTasks"
-        :total-images="libraryTotalImages"
-        :page="libraryPage"
-        :page-size="libraryPageSize"
-        :loading="libraryLoading"
-        @request-page="loadLibraryPage"
-        @preview-images="openImageViewer"
-        @open-task="openLibraryTask"
-        @delete-task="deleteTask"
-        @download-output="downloadOutput"
-        @reveal-output="reveal($event.path)"
       />
 
       <template #footer>
@@ -145,27 +81,6 @@
           @cleanup="openCleanup"
         />
 
-      <TemplateReferenceDialog
-        v-model:show="showTemplateReferenceDialog"
-        v-model:query="templateReferenceQuery"
-        :source-content="templateReferenceSourceContent"
-        :generated-content="templateReferenceGeneratedContent"
-        :templates="filteredReferenceTemplates"
-        :selected-template-id="selectedReferenceTemplateId"
-        :filled-ranges="templateFilledRanges"
-        :filling="templateFilling"
-        :references="templateReferenceReferences"
-        :effect-image="templateReferenceEffectImage"
-        @update:source-content="updateTemplateReferenceSource"
-        @update:generated-content="updateTemplateReferenceGenerated"
-        @select-template="selectReferenceTemplate"
-        @ai-fill="fillReferenceTemplate"
-        @insert="insertReferenceTemplate"
-        @add-reference="addTemplateCallReferenceImages"
-        @paste-reference="pasteTemplateCallReferenceImage"
-        @remove-reference="removeReference(templateReferenceReferences, $event)"
-        @show-effect="showTemplateEffectByPreview(templateReferenceEffectImage)"
-      />
 
       <TemplateEditorDialog
         v-model:show="showTemplateEditor"
@@ -195,11 +110,6 @@
         :initial-index="effectViewer.index"
       />
 
-      <TaskDetailDialog
-        v-model:show="showTaskDetail"
-        :task="selectedTask"
-        @reuse="reuseTask"
-      />
 
       <CleanupDialog
         v-model:show="showCleanupDialog"
@@ -240,8 +150,6 @@ import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import AgentWorkspace from "./components/AgentWorkspace.vue";
 import AppFooterBar from "./components/AppFooterBar.vue";
 import AppShell from "./components/AppShell.vue";
-import DrawingWorkspace from "./components/DrawingWorkspace.vue";
-import ImageLibrary from "./components/ImageLibrary.vue";
 import CleanupDialog from "./components/dialogs/CleanupDialog.vue";
 import ApiSourceDialog from "./components/dialogs/ApiSourceDialog.vue";
 import ConfirmDialog from "./components/dialogs/ConfirmDialog.vue";
@@ -249,10 +157,8 @@ import DesignDialog from "./components/dialogs/DesignDialog.vue";
 import EffectImageViewer from "./components/dialogs/EffectImageViewer.vue";
 import NoticeDialog from "./components/dialogs/NoticeDialog.vue";
 import RuntimeLogDialog from "./components/dialogs/RuntimeLogDialog.vue";
-import TaskDetailDialog from "./components/dialogs/TaskDetailDialog.vue";
 import TemplateEditorDialog from "./components/dialogs/TemplateEditorDialog.vue";
-import TemplateReferenceDialog from "./components/dialogs/TemplateReferenceDialog.vue";
-import { clamp, fileName, statusLabel } from "./lib/formatters";
+import { fileName } from "./lib/formatters";
 import {
   deepClone,
   defaultSettings,
@@ -264,15 +170,12 @@ import { installAutoHideScrollbars } from "./lib/scrollbarVisibility";
 import {
   DEFAULT_PROMPT_MODE,
   DEFAULT_RATIO,
-  orientationForRatio,
-  sizeForPreset,
 } from "./lib/options";
 import { themeOverrides } from "./lib/theme";
 import { invoke, listenDragDrop, listenEvent, listenWindowState, openDialog, restoreWindowState, saveDialog } from "./tauri";
 
 const statusText = ref("启动中");
 const statusTone = ref("busy");
-const workspaceMode = ref(localStorage.getItem("image-forge-workspace-mode") || "drawing");
 const agentSessions = ref([]);
 const currentAgentSessionId = ref("");
 const agentBusy = ref(false);
@@ -282,44 +185,15 @@ const agentAnswers = ref({});
 const agentAttachments = ref([]);
 const settings = ref(defaultSettings());
 const history = ref([]);
-const libraryTasks = ref([]);
-const libraryDayCounts = ref([]);
-const libraryTotalTasks = ref(0);
-const libraryTotalImages = ref(0);
-const libraryPage = ref(1);
-const libraryPageSize = 40;
-const libraryLoading = ref(false);
 const agentLibraryVersion = ref(0);
-let libraryRequestId = 0;
-let libraryLastRequest = null;
 const queue = reactive({ waiting: [], running: [], recent: [], workerActive: false, updatedAt: "" });
 const templates = ref([]);
-const references = ref([]);
-const referenceDragActive = ref(false);
 const templateDraftReferences = ref([]);
 const templateDraftEffectImage = ref(null);
 const templateDraftDragActive = ref(false);
-const templateReferenceReferences = ref([]);
-const templateReferenceEffectImage = ref(null);
-const selectedTaskId = ref("");
-const historyScrollRequest = ref(0);
-const submitting = ref(false);
-const historyQuery = ref("");
-const historyScope = ref("today");
-const todayKey = ref(localDateKey(new Date()));
-const templateReferenceQuery = ref("");
-const templateReferenceSourceContent = ref("");
-const templateReferenceGeneratedContent = ref("");
-const selectedReferenceTemplateId = ref("");
-const templateFilledRanges = ref([]);
-const templateFilling = ref(false);
-const templateFillSessionId = ref("");
-const promptCursor = ref(0);
 
 const showApiDialog = ref(false);
-const showTemplateReferenceDialog = ref(false);
 const showTemplateEditor = ref(false);
-const showTaskDetail = ref(false);
 const showDesignDialog = ref(false);
 const showRuntimeLogDialog = ref(false);
 const showCleanupDialog = ref(false);
@@ -349,33 +223,19 @@ const cleanupLoading = ref(false);
 const cleanupConfirming = ref(false);
 const cleanupError = ref("");
 
-watch(workspaceMode, (mode) => localStorage.setItem("image-forge-workspace-mode", mode));
-
 const form = reactive({
   providerId: "",
   chatProviderId: "",
-  prompt: "",
   promptMode: DEFAULT_PROMPT_MODE,
   resolution: "4k",
   ratio: DEFAULT_RATIO,
   quality: "medium",
 });
 
-const panelSizes = reactive({
-  queue: 310,
-  composer: 420,
-});
-
-const workspaceStyle = computed(() => ({
-  gridTemplateColumns: `${panelSizes.queue}px 10px minmax(0, 1fr) 10px ${panelSizes.composer}px`,
-}));
-
 let pollTimer = 0;
-let todayRolloverTimer = 0;
 let removeScrollbarVisibility = null;
 let unlistenDragDrop = null;
 let unlistenQueueUpdated = null;
-let unlistenTemplateFill = null;
 let unlistenAgentProgress = null;
 let unlistenAgentTaskGroup = null;
 let unlistenWindowState = null;
@@ -451,40 +311,8 @@ const currentAgentDisplayMessages = computed(() => currentAgentMessages.value.ma
   };
 }));
 
-const filteredHistory = computed(() => {
-  const query = historyQuery.value.trim().toLowerCase();
-  const items = historyScope.value === "today"
-    ? historyTimeline.value.filter((task) => localDateKey(taskTime(task)) === todayKey.value)
-    : historyTimeline.value;
-  if (!query) return items;
-  return items.filter((task) =>
-    [task.id, task.prompt, task.providerName, task.model]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase()
-      .includes(query),
-  );
-});
-
-const selectedTask = computed(() =>
-  historyTimeline.value.find((task) => task.id === selectedTaskId.value)
-  || null,
-);
-
-const currentOutputs = computed(() => selectedTask.value?.outputs || []);
-
-
-const filteredReferenceTemplates = computed(() => {
-  const query = templateReferenceQuery.value.trim().toLowerCase();
-  if (!query) return templates.value;
-  return templates.value.filter((item) =>
-    [item.id, item.title, item.content].filter(Boolean).join(" ").toLowerCase().includes(query),
-  );
-});
-
 onMounted(async () => {
   removeScrollbarVisibility = installAutoHideScrollbars();
-  window.addEventListener("keydown", handleWorkspaceShortcut);
   try {
     await restoreWindowState();
     unlistenWindowState = await listenWindowState();
@@ -502,11 +330,6 @@ onMounted(async () => {
     // 预览环境可能没有事件通道。
   }
   try {
-    unlistenTemplateFill = await listenEvent("template-fill", handleTemplateFillEvent);
-  } catch {
-    // 预览环境可能没有事件通道。
-  }
-  try {
     unlistenAgentProgress = await listenEvent("agent-progress", handleAgentProgressEvent);
   } catch {
     // 预览环境可能没有事件通道。
@@ -519,31 +342,18 @@ onMounted(async () => {
   await refreshAll();
   await refreshAgentSessions();
   syncAgentTaskGroupPolling();
-  historyScrollRequest.value += 1;
-  scheduleTodayRollover();
 });
 
 onUnmounted(() => {
   window.clearInterval(pollTimer);
   window.clearInterval(agentTaskGroupPollTimer);
-  window.clearTimeout(todayRolloverTimer);
   unlistenDragDrop?.();
   unlistenQueueUpdated?.();
-  unlistenTemplateFill?.();
   unlistenAgentProgress?.();
   unlistenAgentTaskGroup?.();
   unlistenWindowState?.();
   removeScrollbarVisibility?.();
-  window.removeEventListener("keydown", handleWorkspaceShortcut);
 });
-
-function handleWorkspaceShortcut(event) {
-  if (event.defaultPrevented || event.altKey || event.shiftKey || (!event.metaKey && !event.ctrlKey)) return;
-  const mode = { 1: "drawing", 2: "agent", 3: "library" }[event.key];
-  if (!mode) return;
-  event.preventDefault();
-  workspaceMode.value = mode;
-}
 
 // 首次加载或重大变更后，重新拉取设置、历史、队列和模板。
 async function refreshAll() {
@@ -553,25 +363,6 @@ async function refreshAll() {
     setStatus("就绪", "ok");
   } catch (error) {
     setStatus(String(error), "error");
-  }
-}
-
-async function loadLibraryPage(request) {
-  libraryLastRequest = { ...request };
-  const requestId = ++libraryRequestId;
-  libraryLoading.value = true;
-  try {
-    const result = await invoke("library_page", request);
-    if (requestId !== libraryRequestId) return;
-    libraryTasks.value = result.tasks || [];
-    libraryDayCounts.value = result.dayCounts || [];
-    libraryTotalTasks.value = Number(result.totalTasks) || 0;
-    libraryTotalImages.value = Number(result.totalImages) || 0;
-    libraryPage.value = Number(result.page) || 1;
-  } catch (error) {
-    if (requestId === libraryRequestId) setStatus(String(error), "error");
-  } finally {
-    if (requestId === libraryRequestId) libraryLoading.value = false;
   }
 }
 
@@ -810,18 +601,8 @@ function handleAgentProgressEvent(event) {
 }
 
 function openAgentTaskGroup(group) {
-  workspaceMode.value = "drawing";
-  const firstId = group?.taskIds?.[0];
-  if (firstId) selectedTaskId.value = firstId;
+  void group;
   void refreshQueueOnly();
-}
-
-function openLibraryTask(task) {
-  if (task?.id && !history.value.some((item) => item.id === task.id)) {
-    history.value.push(task);
-  }
-  workspaceMode.value = "drawing";
-  selectedTaskId.value = task?.id || "";
 }
 
 function openImageViewer({ items = [], index = 0 } = {}) {
@@ -888,13 +669,9 @@ function answerAgentQuestions(message) {
 async function handleAgentTaskGroupEvent(event) {
   const group = event?.payload;
   if (!group || group.sessionId !== currentAgentSessionId.value) return;
-  workspaceMode.value = "drawing";
-  const first = group.tasks?.[0];
-  if (first?.id) selectedTaskId.value = first.id;
   await refreshQueueOnly();
   await refreshAgentTaskGroups();
   syncAgentTaskGroupPolling();
-  historyScrollRequest.value += 1;
   setStatus(`Agent 已创建 ${group.tasks?.length || 0} 个绘图任务`, "ok");
 }
 
@@ -1047,37 +824,6 @@ function isQueueActive(snapshot = queue) {
   );
 }
 
-// 拖拽左右分隔条时，只调整相邻 panel 宽度并保留中间预览区最小空间。
-function startPanelResize(target, event) {
-  event.preventDefault();
-  const startX = event.clientX;
-  const startWidth = panelSizes[target];
-
-  const move = (moveEvent) => {
-    const total = Math.max(0, window.innerWidth - 28 - 20);
-    const resultMin = 430;
-    if (target === "queue") {
-      const max = Math.max(260, total - panelSizes.composer - resultMin);
-      panelSizes.queue = clamp(startWidth + moveEvent.clientX - startX, 280, Math.min(500, max));
-    } else {
-      const max = Math.max(360, total - panelSizes.queue - resultMin);
-      panelSizes.composer = clamp(startWidth - (moveEvent.clientX - startX), 400, Math.min(560, max));
-    }
-  };
-
-  const stop = () => {
-    document.body.classList.remove("resizing-panels");
-    window.removeEventListener("pointermove", move);
-    window.removeEventListener("pointerup", stop);
-    window.removeEventListener("pointercancel", stop);
-  };
-
-  document.body.classList.add("resizing-panels");
-  window.addEventListener("pointermove", move);
-  window.addEventListener("pointerup", stop);
-  window.addEventListener("pointercancel", stop);
-}
-
 // 把 Rust 返回的完整状态归一化为前端响应式状态。
 function applyState(state) {
   settings.value = normalizeSettingsForUi(state.settings || defaultSettings());
@@ -1085,7 +831,6 @@ function applyState(state) {
   applyQueue(state.queue || {});
   templates.value = state.templates || [];
   ensureSelectedModels();
-  ensureSelectedTask();
 }
 
 // 合并队列快照，并用后端 recent 字段刷新左侧历史时间线。
@@ -1099,70 +844,6 @@ function applyQueue(snapshot) {
     history.value = snapshot.recent;
   }
   syncQueuePolling();
-  ensureSelectedTask();
-}
-
-// 没有选中任务时，默认定位到最新一条历史记录。
-function ensureSelectedTask() {
-  if (selectedTask.value) return;
-  const next = historyTimeline.value.at(-1);
-  selectedTaskId.value = next?.id || "";
-}
-
-// 将当前工作台参数组装成 Images API 请求并加入后台队列。
-async function submitTask() {
-  if (!form.prompt.trim()) {
-    setStatus("提示词不能为空", "error");
-    return;
-  }
-  if (!activeProvider.value?.apiKey) {
-    setStatus("请先在 API 源里填写 API Key", "error");
-    showApiDialog.value = true;
-    return;
-  }
-  submitting.value = true;
-  try {
-    const request = buildImageRequest(form.prompt, form.promptMode);
-    const task = await invoke("enqueue_generation", { request });
-    selectedTaskId.value = task.id;
-    setStatus("已开始生成", "ok");
-    await refreshQueueOnly();
-    historyScrollRequest.value += 1;
-  } catch (error) {
-    setStatus(String(error), "error");
-  } finally {
-    submitting.value = false;
-  }
-}
-
-function buildImageRequest(prompt, promptFidelity = form.promptMode) {
-  return {
-    providerId: form.providerId || settings.value.activeImageProviderId || settings.value.activeProviderId,
-    prompt,
-    referencePaths: references.value.map((item) => item.path),
-    size: sizeForPreset(form.resolution, form.ratio),
-    resolution: form.resolution,
-    ratio: form.ratio,
-    orientation: orientationForRatio(form.ratio),
-    quality: form.quality,
-    outputFormat: "png",
-    count: 1,
-    promptFidelity,
-  };
-}
-
-// 从文件选择器导入参考图，并转换为可预览的数据 URL。
-async function addReferenceImages() {
-  await chooseReferenceImages(references, "已添加参考图");
-}
-
-// 在提示词框粘贴图片时，把剪贴板图片保存为参考图。
-async function handlePromptPaste(event) {
-  await pasteReferenceImage(event, references, "已从剪贴板添加参考图");
-}
-
-async function pasteWorkbenchReferenceImage() {
-  await pasteClipboardReference(references, "已从剪贴板添加参考图");
 }
 
 async function chooseReferenceImages(target, successMessage) {
@@ -1222,7 +903,7 @@ function handleReferenceDragDrop(event) {
 function handleReferenceDropEvent(event) {
   clearReferenceDragTargets();
   const paths = extractDroppedFilePaths(event?.dataTransfer);
-  if (paths.length) void addDraggedReferencePaths("workbench", paths);
+  if (paths.length) void addDraggedReferencePaths("agent", paths);
 }
 
 function handleTemplateDraftDropEvent(event) {
@@ -1232,9 +913,10 @@ function handleTemplateDraftDropEvent(event) {
 }
 
 function addDraggedReferencePaths(target, paths) {
-  const destination = target === "template-draft" ? templateDraftReferences : references;
-  const message = target === "template-draft" ? "已添加模板参考图" : "已添加拖放参考图";
-  return addReferencePathsWithOptions(destination, paths, message, { silentInvalid: true });
+  if (target === "template-draft") {
+    return addReferencePathsWithOptions(templateDraftReferences, paths, "已添加模板参考图", { silentInvalid: true });
+  }
+  return addAgentReferencePaths(paths);
 }
 
 function referenceDropTarget(position) {
@@ -1253,16 +935,14 @@ function referenceDropTarget(position) {
 
 function defaultReferenceDropTarget() {
   if (showTemplateEditor.value && templateEditorMode.value !== "view") return "template-draft";
-  return "workbench";
+  return "agent";
 }
 
 function setReferenceDragTarget(target) {
-  referenceDragActive.value = target === "workbench";
   templateDraftDragActive.value = target === "template-draft";
 }
 
 function clearReferenceDragTargets() {
-  referenceDragActive.value = false;
   templateDraftDragActive.value = false;
 }
 
@@ -1339,68 +1019,6 @@ async function restoreReferencePreviews(paths) {
   return { restored, missing };
 }
 
-// 将历史任务的提示词、参数、模型和参考图恢复到工作台。
-async function reuseTask(task) {
-  if (!task) return;
-
-  const params = task.params || {};
-  form.prompt = task.prompt || "";
-  form.promptMode = params.promptFidelity || DEFAULT_PROMPT_MODE;
-  form.resolution = params.resolution || form.resolution;
-  form.ratio = params.ratio || form.ratio;
-  form.quality = params.quality || form.quality;
-
-  const provider = imageProviders.value.find((item) => item.id === task.providerId)
-    || imageProviders.value.find((item) =>
-      item.name === task.providerName && item.imageModel === task.model,
-    )
-    || imageProviders.value.find((item) => item.imageModel === task.model);
-  if (provider) form.providerId = provider.id;
-  const missingProvider = !provider && Boolean(task.providerId || task.providerName || task.model);
-
-  const restoredReferences = [];
-  let missingReferenceCount = 0;
-  for (const path of task.referencePaths || []) {
-    try {
-      const preview = await invoke("reference_from_path", { path });
-      restoredReferences.push({ ...preview, previewUrl: preview.dataUrl });
-    } catch {
-      missingReferenceCount += 1;
-    }
-  }
-  references.value = restoredReferences;
-  showTaskDetail.value = false;
-
-  const warnings = [];
-  if (missingProvider) warnings.push("原生图模型已不存在");
-  if (missingReferenceCount) warnings.push(`${missingReferenceCount} 张参考图已不存在`);
-  const warningMessage = warnings.length ? `，${warnings.join("，")}` : "";
-  setStatus(`已将任务参数填入工作台${warningMessage}`, warnings.length ? "busy" : "ok");
-}
-
-// 手动刷新单个任务的状态，主要用于正在运行的历史项。
-async function refreshTask(task) {
-  const snapshot = await refreshQueueOnly({ silent: false });
-  if (!snapshot) return;
-  const refreshed = historyTimeline.value.find((item) => item.id === task.id);
-  setStatus(
-    refreshed ? `任务状态：${statusLabel(refreshed.status)}` : "任务已不在历史记录中",
-    refreshed ? "ok" : "busy",
-  );
-}
-
-// 把失败任务重新放回队列，沿用原始请求文件。
-async function retryTask(task) {
-  try {
-    await invoke("retry_task", { taskId: task.id });
-    selectedTaskId.value = task.id;
-    setStatus("任务已重新排队", "ok");
-    await refreshQueueOnly();
-  } catch (error) {
-    setStatus(String(error), "error");
-  }
-}
-
 // 删除历史记录，同时由后端负责把对应输出图移入回收站。
 async function deleteTask(task) {
   const confirmed = await requestConfirmation(
@@ -1410,10 +1028,8 @@ async function deleteTask(task) {
   if (!confirmed) return;
   try {
     await invoke("delete_task", { taskId: task.id });
-    if (selectedTaskId.value === task.id) selectedTaskId.value = "";
     setStatus("生成记录已删除", "ok");
     await refreshAll();
-    if (libraryLastRequest) await loadLibraryPage(libraryLastRequest);
     agentLibraryVersion.value += 1;
   } catch (error) {
     setStatus(String(error), "error");
@@ -1472,16 +1088,6 @@ async function downloadOutput(output) {
   }
 }
 
-// 把生成图写入系统剪贴板，方便粘贴到其它应用。
-async function copyOutput(output) {
-  try {
-    await invoke("copy_image_to_clipboard", { path: output.path });
-    setStatus("图片已复制到剪贴板", "ok");
-  } catch (error) {
-    setStatus(String(error), "error");
-  }
-}
-
 // 打开空白模板编辑器。
 function newTemplate() {
   Object.assign(templateDraft, emptyTemplate());
@@ -1489,20 +1095,6 @@ function newTemplate() {
   templateDraftEffectImage.value = null;
   templateEditorMode.value = "new";
   showTemplateEditor.value = true;
-}
-
-async function newTemplateFromTask({ task, output }) {
-  if (!task || !output?.path) return;
-  Object.assign(templateDraft, {
-    ...emptyTemplate(),
-    content: output.revisedPrompt || task.prompt || "",
-  });
-  const { restored, missing } = await restoreReferencePreviews(task.referencePaths || []);
-  templateDraftReferences.value = restored;
-  templateDraftEffectImage.value = await restoreEffectImage(output.path);
-  templateEditorMode.value = "new";
-  showTemplateEditor.value = true;
-  if (missing) setStatus(`${missing} 张任务参考图已不存在`, "busy");
 }
 
 // 以只读模式查看模板，并在弹窗中高亮占位符。
@@ -1639,20 +1231,6 @@ async function movePromptTemplate({ templateId, targetTemplateId }) {
   }
 }
 
-// 在引用模板弹窗中选择模板，并保留搜索条件。
-async function selectReferenceTemplate(template) {
-  selectedReferenceTemplateId.value = template.id;
-  templateReferenceSourceContent.value = template.content || "";
-  templateReferenceGeneratedContent.value = "";
-  templateFilledRanges.value = [];
-  const selectedId = template.id;
-  const { restored, missing } = await restoreReferencePreviews(template.referencePaths);
-  if (selectedReferenceTemplateId.value !== selectedId) return;
-  templateReferenceReferences.value = restored;
-  templateReferenceEffectImage.value = await restoreEffectImage(template.effectImagePath);
-  if (missing) setStatus(`${missing} 张模板参考图已不存在`, "busy");
-}
-
 async function restoreEffectImage(path) {
   if (!path) return null;
   try {
@@ -1672,90 +1250,11 @@ function showTemplateEffect(template) {
   effectViewer.show = true;
 }
 
-function showTemplateEffectByPreview(preview) {
-  if (!preview?.path) return;
-  effectViewer.items = [];
-  effectViewer.index = 0;
-  effectViewer.path = preview.path;
-  effectViewer.title = "模板效果图";
-  effectViewer.show = true;
-}
-
-async function addTemplateCallReferenceImages() {
-  await chooseReferenceImages(templateReferenceReferences, "已添加本次调用参考图");
-}
-
-async function pasteTemplateCallReferenceImage() {
-  await pasteClipboardReference(templateReferenceReferences, "已从剪贴板添加本次调用参考图");
-}
-
-function updateTemplateReferenceSource(content) {
-  templateReferenceSourceContent.value = content;
-  templateFilledRanges.value = mapFilledRanges(content, templateReferenceGeneratedContent.value);
-}
-
-function updateTemplateReferenceGenerated(content) {
-  templateReferenceGeneratedContent.value = content;
-  templateFilledRanges.value = mapFilledRanges(templateReferenceSourceContent.value, content);
-}
-
-// 调用对话模型填充模板中的 `{}` 占位区域。
-async function fillReferenceTemplate() {
-  if (!templateReferenceSourceContent.value.trim()) {
-    setStatus("请先选择或输入模板内容", "error");
-    return;
-  }
-  if (!form.chatProviderId) {
-    setStatus("请先选择对话模型", "error");
-    return;
-  }
-  templateFilling.value = true;
-  templateFillSessionId.value = createTemplateFillSessionId();
-  const sessionId = templateFillSessionId.value;
-  templateReferenceGeneratedContent.value = "";
-  templateFilledRanges.value = [];
-  setStatus("AI 正在填充模板…", "busy");
-  try {
-    const original = templateReferenceSourceContent.value;
-    const filled = await invoke("fill_prompt_template", {
-      sessionId,
-      providerId: form.chatProviderId,
-      template: original,
-    });
-    if (sessionId !== templateFillSessionId.value) return;
-    templateReferenceGeneratedContent.value = filled;
-    templateFilledRanges.value = mapFilledRanges(original, filled);
-    setStatus("模板已填充", "ok");
-  } catch (error) {
-    const message = String(error);
-    await showNotice("AI 填充失败", message);
-    setStatus(message, "error");
-  } finally {
-    templateFilling.value = false;
-  }
-}
-
-function handleTemplateFillEvent(event) {
-  const payload = event?.payload || {};
-  if (!templateFilling.value || payload.sessionId !== templateFillSessionId.value) return;
-  if (payload.phase === "delta" && payload.mode === "stream") {
-    templateReferenceGeneratedContent.value += payload.chunk || "";
-    templateFilledRanges.value = [];
-  }
-}
-
-function createTemplateFillSessionId() {
-  if (globalThis.crypto?.randomUUID) {
-    return `template-fill-${globalThis.crypto.randomUUID()}`;
-  }
-  return `template-fill-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
 async function openDesign() {
   showDesignDialog.value = true;
   try {
     aboutInfo.value = await invoke("about_info");
-  } catch (error) {
+  } catch {
     aboutInfo.value = {
       version: "",
       buildTime: "",
@@ -1799,93 +1298,6 @@ async function confirmCleanup() {
   } finally {
     cleanupConfirming.value = false;
   }
-}
-
-// 将引用模板内容插入到提示词当前光标位置。
-async function insertReferenceTemplate() {
-  const content = templateReferenceGeneratedContent.value.trim()
-    ? templateReferenceGeneratedContent.value
-    : templateReferenceSourceContent.value;
-  if (!content.trim()) {
-    setStatus("模板内容为空", "error");
-    return;
-  }
-  insertTextAtCursor(content);
-  for (const preview of templateReferenceReferences.value) {
-    appendReferencePreview(references, preview);
-  }
-  if (selectedReferenceTemplateId.value) {
-    try {
-      templates.value = await invoke("mark_template_used", { templateId: selectedReferenceTemplateId.value });
-    } catch (error) {
-      setStatus(String(error), "error");
-    }
-  }
-  showTemplateReferenceDialog.value = false;
-  setStatus("模板及参考图已引用到工作台", "ok");
-}
-
-// 清空工作台的提示词、参考图和拖放状态，并重置插入光标。
-function clearPrompt() {
-  form.prompt = "";
-  references.value = [];
-  referenceDragActive.value = false;
-  promptCursor.value = 0;
-}
-
-// 记录提示词光标位置，供模板插入使用。
-function capturePromptCursor(event) {
-  const target = event?.target;
-  if (typeof target?.selectionStart === "number") {
-    promptCursor.value = target.selectionStart;
-  }
-}
-
-// 在记录的光标位置插入文本，不覆盖原有提示词。
-function insertTextAtCursor(text) {
-  const start = clamp(promptCursor.value, 0, form.prompt.length);
-  form.prompt = `${form.prompt.slice(0, start)}${text}${form.prompt.slice(start)}`;
-  promptCursor.value = start + text.length;
-}
-
-// 根据原模板占位符位置，推算 AI 填充后应高亮的文本范围。
-function mapFilledRanges(original, filled) {
-  const placeholders = templatePlaceholders(original);
-  if (!placeholders.length) return [];
-  const ranges = [];
-  let originalCursor = 0;
-  let filledCursor = 0;
-  for (const placeholder of placeholders) {
-    const prefix = original.slice(originalCursor, placeholder.start);
-    const prefixIndex = prefix ? filled.indexOf(prefix, filledCursor) : filledCursor;
-    if (prefixIndex >= 0) {
-      filledCursor = prefixIndex + prefix.length;
-    }
-    const suffixStart = placeholder.end;
-    const nextPlaceholder = placeholders.find((item) => item.start >= suffixStart);
-    const suffix = nextPlaceholder
-      ? original.slice(suffixStart, nextPlaceholder.start)
-      : original.slice(suffixStart);
-    const suffixIndex = suffix ? filled.indexOf(suffix, filledCursor) : filled.length;
-    const end = suffixIndex >= 0 ? suffixIndex : filled.length;
-    if (end > filledCursor) {
-      ranges.push({ start: filledCursor, end });
-    }
-    filledCursor = end;
-    originalCursor = suffixStart;
-  }
-  return ranges;
-}
-
-// 识别模板里由 `{}` 包裹的占位描述。
-function templatePlaceholders(value) {
-  const matches = [];
-  const pattern = /\{[^{}]+\}/g;
-  let match;
-  while ((match = pattern.exec(value)) !== null) {
-    matches.push({ start: match.index, end: match.index + match[0].length });
-  }
-  return matches;
 }
 
 // 调用系统文件管理器定位文件或目录。
@@ -1941,25 +1353,6 @@ function modelOptionLabel(provider) {
 
 function taskTime(task) {
   return task.createdAt || task.updatedAt || task.completedAt || "";
-}
-
-function localDateKey(value) {
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${date.getFullYear()}-${month}-${day}`;
-}
-
-function scheduleTodayRollover() {
-  window.clearTimeout(todayRolloverTimer);
-  const now = new Date();
-  const nextDay = new Date(now);
-  nextDay.setHours(24, 0, 0, 0);
-  todayRolloverTimer = window.setTimeout(() => {
-    todayKey.value = localDateKey(new Date());
-    scheduleTodayRollover();
-  }, Math.max(1000, nextDay.getTime() - now.getTime()));
 }
 
 // 根据设置、历史成功任务和当前列表，保证模型选择始终可用。

@@ -5,13 +5,13 @@
 </p>
 
 <p align="center">
-  本地优先的 AI 图像生产工作台 · 绘画队列 · 对话绘画
+  本地优先的 AI 图像生产工作台 · Agent 对话绘画
 </p>
 
 ![Image Forge 运行界面](docs/image-forge-running.png)
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-1.0.68-9B7BEE?style=flat-square">
+  <img alt="version" src="https://img.shields.io/badge/version-1.0.69-9B7BEE?style=flat-square">
   <img alt="platform" src="https://img.shields.io/badge/platform-macOS-111827?style=flat-square">
   <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white">
   <img alt="Vue" src="https://img.shields.io/badge/Vue-3-42B883?style=flat-square&logo=vuedotjs&logoColor=white">
@@ -22,26 +22,18 @@
 
 Image Forge 不是一个把提示词转发给接口的薄壳，而是一套本地运行的视觉生产系统：它把提示词、参考图、模型参数、队列状态、生成结果和复用关系组织成一条完整链路。
 
-你可以在绘画模式里直接控制画面，也可以在 Agent 模式里用自然语言描述目标，让 Agent 分析需求、生成结构化绘图计划，再把任务交给同一套可靠的绘画队列。模型负责理解与规划，Rust 负责校验与执行，重要数据留在本机。
+在 Agent 里用自然语言描述目标，让模型分析需求、生成结构化绘图计划，再交给同一套本地绘画队列执行。模型负责理解与规划，Rust 负责校验与执行，重要数据留在本机。
 
 ## 核心体验
 
-### 绘画模式：把一次生成做成可追踪的任务
-
-- 多协议生图：GPT Images、Gemini、Grok 和 Seedream 使用各自正确的请求格式、鉴权方式与参考图协议。
-- 三栏工作台：左侧历史队列、中间状态与预览、右侧参数与提示词，面板宽度可以按工作习惯调整。
-- 稳定队列：支持排队、运行、完成、失败、取消、重试、并发限制和异常重启恢复。
-- 结果资产化：生成图落盘后可复制、下载、在 Finder 中定位，并从历史任务重新建立模板。
-- 参数保持克制：分辨率、比例、质量、生图模型和提示词模式足够表达意图，数量与输出格式由应用统一控制。
-
-### Agent 模式：让对话成为生产入口
+### Agent 模式：对话即生产入口
 
 - 持久化会话：每个会话保存消息、时间、模型、附件、Tool Call 和绘图任务组。
 - Markdown 原生渲染：AI 的标题、列表、引用、代码块和链接在对话中按 Markdown 展示。
 - 参考图优先：支持选择、粘贴、右键粘贴和拖放；只要存在参考图，绘画计划默认会把它纳入任务。
 - 直接绘画：勾选“直接绘画”后，提示词绕过对话模型直接进入生图模型；默认回车发送，Shift+Enter 换行。
 - 受控工具：绘图任务创建和任务状态查询均经过 Rust 参数校验。
-- 任务组联动：Agent 创建的单图或多图任务会进入绘画队列，消息中的任务卡片可以直接跳转到绘画结果。
+- 任务组联动：Agent 创建的单图或多图任务会进入绘画队列，消息中的任务卡片可预览结果并跟踪状态。
 
 ## 你会得到什么
 
@@ -53,13 +45,13 @@ Image Forge 不是一个把提示词转发给接口的薄壳，而是一套本�
 
 ## 界面入口
 
-顶部工作区切换器提供三个入口：
+应用默认进入 Agent 工作台：
 
-- `绘画`：直接生图、查看历史、管理队列和编辑参数。
-- `Agent`：聊天、参考图和绘画任务编排；没有会话时会自动创建新对话。
-- `图片库`：按月份、日期和来源分页浏览生成图片，并搜索提示词、模型或任务 ID。
+- 左侧：新对话、内嵌图片库、设置，以及会话历史。
+- 中间：当前对话或按月份浏览的图片库。
+- 底部：当前绘图 API / 对话 API 与队列状态。
 
-全局入口还包括 API 源、模板和关于。Agent 左侧展示会话历史；会话按创建时间保持稳定顺序，卡片显示标题和时间。
+设置对话框继续提供模板库、对话 API、绘图 API 和关于。
 
 ## 本地数据
 

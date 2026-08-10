@@ -103,7 +103,6 @@
         v-if="panel === 'library'"
         :version="agentLibraryVersion"
         @preview-images="$emit('preview-images', $event)"
-        @open-task="$emit('open-task', $event)"
         @delete-task="$emit('delete-task', $event)"
         @download-output="$emit('download-output', $event)"
         @reveal-output="$emit('reveal-output', $event)"
@@ -167,7 +166,7 @@ defineProps({
 });
 const emit = defineEmits([
   "create", "select", "send", "stop", "add-reference", "remove-attachment",
-  "open-task-group", "preview-images", "open-task", "delete-task", "download-output", "reveal-output",
+  "open-task-group", "preview-images", "delete-task", "download-output", "reveal-output",
   "cancel-task-group", "retry-task-group", "retry", "paste-reference", "drop-reference", "update-answer", "answer-questions",
   "delete-session",
   "open-settings",
