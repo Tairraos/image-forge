@@ -959,9 +959,7 @@ fn normalize_provider(provider: ApiProvider, index: usize) -> ApiProvider {
         api_key: provider.api_key.trim().to_string(),
         proxy_url: provider.proxy_url.trim().to_string(),
         image_model: clean_text(provider.image_model, DEFAULT_IMAGE_MODEL),
-        images_concurrency: provider
-            .images_concurrency
-            .max(default_provider_concurrency()),
+        images_concurrency: default_provider_concurrency(),
         enabled: provider.enabled,
         notes: String::new(),
     }
@@ -970,14 +968,18 @@ fn normalize_provider(provider: ApiProvider, index: usize) -> ApiProvider {
 pub(crate) fn normalize_model_type(value: &str, model: &str, base_url: &str) -> String {
     match value.trim() {
         "chat" => "chat".into(),
-        "image-gpt" | "image-gemini" | "image-grok" | "image-seedream" => value.into(),
+        "image-gpt" | "image-agnes" | "image-gemini" | "image-grok" | "image-seedream" => {
+            value.into()
+        }
         _ => recommend_image_model_type(model, base_url),
     }
 }
 
 pub(crate) fn recommend_image_model_type(model: &str, base_url: &str) -> String {
     let hint = format!("{model} {base_url}").to_lowercase();
-    if ["gemini", "imagen", "nano-banana", "nano banana"]
+    if hint.contains("agnes") {
+        "image-agnes".into()
+    } else if ["gemini", "imagen", "nano-banana", "nano banana"]
         .iter()
         .any(|value| hint.contains(value))
     {

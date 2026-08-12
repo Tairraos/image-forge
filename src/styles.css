@@ -2252,6 +2252,22 @@ button:disabled {
   box-shadow: inset 3px 0 0 #d5962f;
 }
 
+.provider-card--agnes {
+  border-color: #f0c8b8;
+  background: #fff6f1;
+}
+
+.provider-card--agnes:hover {
+  border-color: #e2a58d;
+  background: #fffaf7;
+}
+
+.provider-card--agnes.active {
+  border-color: #d99276;
+  background: #ffe8dc;
+  box-shadow: inset 3px 0 0 #c56a45;
+}
+
 .provider-card--gemini {
   border-color: #d7c9eb;
   background: #f8f3fd;
@@ -2745,7 +2761,8 @@ button:disabled {
 }
 
 .function-bar-brand {
-  padding: 12px 6px 14px;
+  height: 35px;
+  padding: 0 6px 10px;
 }
 
 .function-bar-brand img {
@@ -3863,5 +3880,29 @@ button:disabled {
 
   .effect-image-viewer-stage img {
     max-width: calc(100vw - 96px);
+  }
+}
+
+
+.api-dialog-footer-actions.paste-shake {
+  animation: api-paste-shake 420ms ease;
+}
+
+@keyframes api-paste-shake {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  20% {
+    transform: translate(-4px, 1px);
+  }
+  40% {
+    transform: translate(4px, -1px);
+  }
+  60% {
+    transform: translate(-3px, 1px);
+  }
+  80% {
+    transform: translate(3px, 0);
   }
 }

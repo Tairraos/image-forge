@@ -17,6 +17,14 @@ use crate::{
     store::ensure_data_dir,
 };
 
+
+pub(crate) fn read_clipboard_text() -> Result<String, String> {
+    let mut clipboard = Clipboard::new().map_err(|error| format!("打开剪贴板失败: {error}"))?;
+    clipboard
+        .get_text()
+        .map_err(|error| format!("读取剪贴板文本失败: {error}"))
+}
+
 pub(crate) fn copy_image_to_clipboard(path: &Path) -> Result<(), String> {
     if !path.is_file() {
         return Err("找不到要复制的图片".into());

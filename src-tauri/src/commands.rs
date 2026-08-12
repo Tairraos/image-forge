@@ -1623,6 +1623,13 @@ pub(crate) fn download_output(app: AppHandle, path: String) -> Result<String, St
     result
 }
 
+
+#[tauri::command]
+/// 读取系统剪贴板中的纯文本。
+pub(crate) fn read_clipboard_text() -> Result<String, String> {
+    crate::services::clipboard::read_clipboard_text()
+}
+
 #[tauri::command]
 /// 将图片复制到系统剪贴板。
 pub(crate) fn copy_image_to_clipboard(path: String) -> Result<(), String> {

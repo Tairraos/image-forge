@@ -114,6 +114,7 @@ pub fn run() {
             commands::about_info,
             commands::agent_library,
             commands::copy_image_to_clipboard,
+            commands::read_clipboard_text,
             commands::create_agent_session,
             commands::create_agent_direct_image_task,
             commands::create_agent_image_tasks,
@@ -206,6 +207,10 @@ mod tests {
         assert_eq!(
             normalize_model_type("image", "seedream-4-0", ""),
             "image-seedream"
+        );
+        assert_eq!(
+            normalize_model_type("image", "agnes-image-2.1-flash", ""),
+            "image-agnes"
         );
         assert_eq!(
             normalize_model_type("image", "gpt-image-2", ""),

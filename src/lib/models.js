@@ -15,6 +15,7 @@ export function defaultSettings() {
 
 export const IMAGE_MODEL_TYPES = [
   "image-gpt",
+  "image-agnes",
   "image-gemini",
   "image-grok",
   "image-seedream",
@@ -99,6 +100,7 @@ export function normalizeModelType(value, model = "", baseUrl = "") {
 
 export function recommendImageModelType(model = "", baseUrl = "") {
   const hint = `${model} ${baseUrl}`.toLowerCase();
+  if (/agnes/.test(hint)) return "image-agnes";
   if (/gemini|imagen|nano[ -]?banana/.test(hint)) return "image-gemini";
   if (/grok|api\.x\.ai/.test(hint)) return "image-grok";
   if (/seedream|doubao.*image|byteplus|volces|ark\./.test(hint)) return "image-seedream";
@@ -110,9 +112,8 @@ export function isImageModelType(value) {
 }
 
 export function normalizeProviderConcurrency(value) {
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed) || parsed < 1) return 1;
-  return Math.min(255, parsed);
+  void value;
+  return 1;
 }
 
 function pickActiveProviderId(candidate, providers) {
@@ -121,3 +122,55 @@ function pickActiveProviderId(candidate, providers) {
   }
   return providers[0]?.id || "";
 }
+
+export function parseClipboardProvider(raw) {
+  const text = String(raw || "").trim();
+  if (!text) return null;
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!data || typeof data !== "object" || Array.isArray(data)) return null;
+
+  const nameMatch = text.match(/"name"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/);
+  const firstKey = Object.keys(data)[0] || "";
+  let name = "";
+  if (nameMatch?.[1]) {
+    name = unescapeJsonString(nameMatch[1]).trim();
+  } else {
+    name = firstKey.trim();
+  }
+
+  const apiKey = firstProviderString(data, ["apiKey", "openAiApiKey"]);
+  const baseUrl = firstProviderString(data, ["baseURL", "openAiBaseUrl", "baseUrl"]);
+  if (!name || !apiKey || !baseUrl) return null;
+  return { name, apiKey, baseUrl };
+}
+
+function firstProviderString(data, keys) {
+  for (const key of keys) {
+    const value = data?.[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  if (data && typeof data === "object") {
+    for (const value of Object.values(data)) {
+      if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+      for (const key of keys) {
+        const nested = value[key];
+        if (typeof nested === "string" && nested.trim()) return nested.trim();
+      }
+    }
+  }
+  return "";
+}
+
+function unescapeJsonString(value) {
+  try {
+    return JSON.parse(`"${value}"`);
+  } catch {
+    return value;
+  }
+}
+

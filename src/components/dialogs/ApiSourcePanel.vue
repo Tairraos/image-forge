@@ -46,15 +46,14 @@
       <p v-else class="provider-empty">还没有{{ kindLabel }}源，先新增一个。</p>
 
       <div class="api-dialog-footer">
-        <div class="api-dialog-footer-actions">
-          <n-button size="small" @click="addProvider">新增</n-button>
+        <div class="api-dialog-footer-actions" :class="{ 'paste-shake': pasteShake }">
+          <n-button size="small" @click="addProvider">+ 新增</n-button>
+          <n-button size="small" @click="pasteProvider">粘贴</n-button>
+          <n-button size="small" type="primary" @click="save">保存</n-button>
           <n-button size="small" :disabled="!selectedProvider" @click="copyProvider">
             <template #icon><Copy :size="15" /></template>
             克隆
           </n-button>
-        </div>
-        <div class="dialog-actions">
-          <n-button size="small" @click="save">保存</n-button>
         </div>
       </div>
     </section>
@@ -148,8 +147,8 @@ import {
   defaultSettings,
   isImageModelType,
   normalizeModelType,
-  normalizeProviderConcurrency,
   normalizeSettingsForUi,
+  parseClipboardProvider,
   recommendImageModelType,
 } from "../../lib/models";
 
@@ -172,6 +171,8 @@ const pendingDeleteProviderId = ref("");
 const dragId = ref("");
 const dragOverId = ref("");
 const dragHeight = ref(0);
+const pasteShake = ref(false);
+let pasteShakeTimer = 0;
 
 const kindLabel = computed(() => (props.kind === "chat" ? "对话 API" : "绘图 API"));
 
@@ -235,11 +236,37 @@ function addProvider() {
   if (props.kind === "chat") {
     provider.imageModel = provider.imageModel || "gpt-5.4";
   }
-  provider.imagesConcurrency = normalizeProviderConcurrency(provider.imagesConcurrency);
+  provider.imagesConcurrency = 1;
   provider.notes = "";
   draft.providers.push(provider);
   selectProvider(provider.id);
   syncActiveFromOrder();
+  return provider;
+}
+
+async function pasteProvider() {
+  let text = "";
+  try {
+    text = await invoke("read_clipboard_text");
+  } catch {
+    shakePaste();
+    return;
+  }
+  const parsed = parseClipboardProvider(text);
+  if (!parsed) {
+    shakePaste();
+    return;
+  }
+  const provider = addProvider();
+  provider.name = parsed.name;
+  provider.baseUrl = parsed.baseUrl;
+  provider.apiKey = parsed.apiKey;
+  provider.imageModel = "";
+  if (props.kind === "chat") {
+    provider.modelType = "chat";
+  }
+  selectProvider(provider.id);
+  await fetchModels({ autoSelectFirst: true });
 }
 
 function updateSelectedModel(value) {
@@ -360,7 +387,7 @@ function syncActiveFromOrder() {
   draft.activeProviderId = draft.activeImageProviderId || draft.providers[0]?.id || "";
 }
 
-async function fetchModels() {
+async function fetchModels({ autoSelectFirst = false } = {}) {
   const provider = selectedProvider.value;
   if (!provider) return;
   loadingModels.value = true;
@@ -372,12 +399,26 @@ async function fetchModels() {
     providerModels[provider.id] = models;
     modelFetchTone.value = "ok";
     modelFetchMessage.value = models.length ? `已获取 ${models.length} 个模型` : "模型列表为空";
+    if (autoSelectFirst && models.length) {
+      updateSelectedModel(models[0]);
+    }
   } catch (error) {
     modelFetchTone.value = "error";
     modelFetchMessage.value = String(error);
   } finally {
     loadingModels.value = false;
   }
+}
+
+function shakePaste() {
+  pasteShake.value = false;
+  requestAnimationFrame(() => {
+    pasteShake.value = true;
+    window.clearTimeout(pasteShakeTimer);
+    pasteShakeTimer = window.setTimeout(() => {
+      pasteShake.value = false;
+    }, 420);
+  });
 }
 
 function save() {
@@ -396,7 +437,7 @@ function normalizeProviderForSave(provider) {
     modelType,
     proxyUrl: provider.proxyUrl?.trim() || "",
     imageModel: provider.imageModel?.trim() || "gpt-image-2",
-    imagesConcurrency: normalizeProviderConcurrency(provider.imagesConcurrency),
+    imagesConcurrency: 1,
     notes: "",
   };
 }
