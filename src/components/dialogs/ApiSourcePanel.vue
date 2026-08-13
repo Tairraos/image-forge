@@ -38,6 +38,23 @@
               </n-button>
             </div>
           </n-form-item>
+          <!-- 绘图 API：可编辑模型类型；对话 API：只读展示「对话模型」 -->
+          <n-form-item label="模型类型">
+            <n-select
+              v-if="kind === 'image'"
+              :value="selectedProvider.modelType"
+              :options="imageModelTypeOptions"
+              placeholder="选择模型类型"
+              :consistent-menu-width="false"
+              @update:value="updateSelectedModelType"
+            />
+            <n-input
+              v-else
+              :value="chatModelTypeLabel"
+              readonly
+              disabled
+            />
+          </n-form-item>
           <p v-if="modelFetchMessage" class="model-fetch-message" :data-tone="modelFetchTone">
             {{ modelFetchMessage }}
           </p>
@@ -143,8 +160,11 @@ import { invoke } from "../../tauri";
 import {
   createProviderId,
   deepClone,
+  DEFAULT_CHAT_MODEL,
+  DEFAULT_IMAGE_MODEL,
   defaultProvider,
   defaultSettings,
+  IMAGE_MODEL_TYPE_OPTIONS,
   isImageModelType,
   normalizeModelType,
   normalizeSettingsForUi,
@@ -175,6 +195,14 @@ const pasteShake = ref(false);
 let pasteShakeTimer = 0;
 
 const kindLabel = computed(() => (props.kind === "chat" ? "对话 API" : "绘图 API"));
+/** 绘图模型类型下拉：菜单显示 label，绑定 value（如 image-gpt） */
+const imageModelTypeOptions = IMAGE_MODEL_TYPE_OPTIONS;
+/**
+ * 对话模型类型只读展示。
+ * UI 文案（label）固定为「对话模型」；概念 value 为 text。
+ * 持久化字段 modelType 仍写 "chat"，与后端/过滤逻辑兼容。
+ */
+const chatModelTypeLabel = "对话模型";
 
 const visibleProviders = computed(() =>
   draft.providers.filter((provider) => matchesKind(provider.modelType)),
@@ -234,7 +262,7 @@ function addProvider() {
     props.kind === "chat" ? "chat" : "image-gpt",
   );
   if (props.kind === "chat") {
-    provider.imageModel = provider.imageModel || "gpt-5.4";
+    provider.imageModel = provider.imageModel || DEFAULT_CHAT_MODEL;
   }
   provider.imagesConcurrency = 1;
   provider.notes = "";
@@ -244,40 +272,79 @@ function addProvider() {
   return provider;
 }
 
+/**
+ * 「粘贴」按钮入口（绘图 API / 对话 API 共用）。
+ *
+ * 流程：
+ * 1. 通过 Tauri 命令 read_clipboard_text 读取系统剪贴板
+ * 2. 调用 lib/models.js 的 parseClipboardProvider 做智能解析
+ *    （JSON 优先，失败再走纯文本启发式：url / sk- / 名称 / image 模型名）
+ * 3. 解析失败 → shakePaste() 抖动反馈，不新建源
+ * 4. 解析成功 → addProvider() 新建一条，填入 name/baseUrl/apiKey/imageModel
+ * 5. 绘图面板：用模型名 + baseUrl 自动推测 modelType（用户仍可在下拉框改）
+ * 6. 对话面板：强制 modelType = chat
+ * 7. 尝试拉取远端模型列表；若剪贴板没给出模型名，则自动选第一个
+ *
+ * 核心解析实现位置：src/lib/models.js → parseClipboardProvider
+ */
 async function pasteProvider() {
   let text = "";
   try {
+    // 桌面端走 Tauri 原生剪贴板，避免浏览器权限限制
     text = await invoke("read_clipboard_text");
   } catch {
     shakePaste();
     return;
   }
+
+  // 智能解析：JSON 配置 或 自由文本（http(s)/sk-/名称/image 模型）
   const parsed = parseClipboardProvider(text);
   if (!parsed) {
     shakePaste();
     return;
   }
+
   const provider = addProvider();
-  provider.name = parsed.name;
+  // 名称为空时保留 addProvider 生成的默认名（如「供应商 N」）
+  if (parsed.name) provider.name = parsed.name;
   provider.baseUrl = parsed.baseUrl;
   provider.apiKey = parsed.apiKey;
-  provider.imageModel = "";
+
   if (props.kind === "chat") {
     provider.modelType = "chat";
+    // 对话源：剪贴板若带了模型名也写入，否则留给 fetchModels 自动选
+    provider.imageModel = parsed.imageModel || "";
+  } else {
+    // 绘图源：写入模型名，并据此（+ baseUrl）推测模型类型
+    provider.imageModel = parsed.imageModel || "";
+    provider.modelType = recommendImageModelType(
+      provider.imageModel,
+      provider.baseUrl,
+    );
   }
+
   selectProvider(provider.id);
-  await fetchModels({ autoSelectFirst: true });
+  // 剪贴板已给出模型名则保留；否则拉取列表后自动选第一个
+  await fetchModels({ autoSelectFirst: !provider.imageModel });
 }
 
 function updateSelectedModel(value) {
   const provider = selectedProvider.value;
   if (!provider) return;
   provider.imageModel = String(value || "");
+  // 切换模型时自动推荐类型；用户仍可通过「模型类型」下拉手动覆盖
   if (props.kind === "image") {
     provider.modelType = recommendImageModelType(provider.imageModel, provider.baseUrl);
   } else {
     provider.modelType = "chat";
   }
+}
+
+/** 绘图 API：用户手动选择模型类型（不再被其它逻辑强制改回，除非再次改模型名） */
+function updateSelectedModelType(value) {
+  const provider = selectedProvider.value;
+  if (!provider || props.kind !== "image") return;
+  provider.modelType = normalizeModelType(value, provider.imageModel, provider.baseUrl);
 }
 
 function copyProvider() {
@@ -432,11 +499,12 @@ function normalizeProviderForSave(provider) {
     provider.modelType === "chat"
       ? "chat"
       : normalizeModelType(provider.modelType, provider.imageModel, provider.baseUrl);
+  const fallbackModel = modelType === "chat" ? DEFAULT_CHAT_MODEL : DEFAULT_IMAGE_MODEL;
   return {
     ...provider,
     modelType,
     proxyUrl: provider.proxyUrl?.trim() || "",
-    imageModel: provider.imageModel?.trim() || "gpt-image-2",
+    imageModel: provider.imageModel?.trim() || fallbackModel,
     imagesConcurrency: 1,
     notes: "",
   };
