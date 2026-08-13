@@ -13,7 +13,7 @@ config.global.stubs = {
   },
   "n-input": {
     props: ["value"],
-    emits: ["update:value"],
+    emits: ["update:value", "keydown", "paste"],
     template: '<textarea :value="value" @input="$emit(\'update:value\', $event.target.value)" @keydown="$emit(\'keydown\', $event)" @paste="$emit(\'paste\', $event)" />',
   },
   "n-select": {
