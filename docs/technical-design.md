@@ -21,10 +21,8 @@
 
 ```mermaid
 flowchart LR
-  Shell["AppShell\n工作区切换 + 全局弹窗"] --> Drawing["DrawingWorkspace\n队列 / 预览 / 参数"]
-  Shell --> AgentUI["AgentWorkspace\n会话 / Markdown / 附件"]
-  Drawing --> Bridge["tauri.js\ninvoke + asset URL"]
-  AgentUI --> Bridge
+  Shell["AppShell\n页面骨架 + 全局弹窗"] --> AgentUI["AgentWorkspace\n会话 / 图片库 / 输入"]
+  AgentUI --> Bridge["tauri.js\ninvoke + asset URL"]
   Bridge --> Commands["commands.rs\nTauri 命令边界"]
   Commands --> Store["store.rs\nJSON 与事务"]
   Commands --> Services["services/\n队列、图片、聊天"]
@@ -37,7 +35,7 @@ flowchart LR
   Agent --> Queue
 ```
 
-应用只有一个业务状态源：`src/App.vue` 持有设置、历史、队列、模板、参考图、绘画表单和 Agent 会话状态；子组件通过 props 接收状态，通过事件把动作交回 `App.vue`。模式切换只改变可见工作区，不销毁另一模式的临时状态。
+应用只有一个业务状态源：`src/App.vue` 持有设置、任务历史、队列、模板、参考图和 Agent 会话状态；子组件通过 props 接收状态，通过事件把动作交回 `App.vue`。左侧功能栏可在「对话」与「图片库」两个面板间切换，不销毁另一面板的临时状态。
 
 ## 前端架构
 
@@ -45,17 +43,14 @@ flowchart LR
 
 | 模块 | 当前职责 |
 | --- | --- |
-| `src/App.vue` | 启动加载、模式切换、轮询、Tauri 命令调用、绘画动作、Agent 会话动作和全局弹窗。 |
-| `src/components/AppShell.vue` | 页面骨架、顶部区域、工作区切换和全局状态栏。 |
-| `src/components/AppTopbar.vue` | 品牌、`绘画/Agent` 切换、API 源、模板和关于入口。 |
-| `src/components/DrawingWorkspace.vue` | 绘画模式的队列、结果预览和参数工作台组合。 |
-| `src/components/AgentWorkspace.vue` | Agent 会话列表、模型选择、消息列表和输入区组合。 |
-| `src/components/QueuePanel.vue` | 历史任务筛选、任务卡片、刷新、重用、下载、定位和删除。 |
-| `src/components/ResultPanel.vue` | 当前任务状态、输出图片、详情和重用。 |
-| `src/components/ComposerPanel.vue` | 绘画模式参数、参考图、提示词和模板引用。 |
+| `src/App.vue` | 启动加载、面板切换、轮询、Tauri 命令调用、Agent 会话动作、直接绘画和全局弹窗。 |
+| `src/components/AppShell.vue` | 页面骨架和全局插槽（工作区、底部状态栏、对话框）。 |
+| `src/components/AgentWorkspace.vue` | 功能栏（新对话/图片库/设置）、会话列表、消息列表、输入区和内嵌图片库。 |
+| `src/components/AgentLibraryPanel.vue` | 按月份浏览的内嵌图片库。 |
 | `src/components/AgentMessageList.vue` | Markdown 回复、Tool Call 状态、交互问题和绘图任务组。 |
 | `src/components/AgentComposer.vue` | Agent 输入、参考图、直接绘画开关、发送和停止。 |
-| `src/components/TaskCard.vue` | 单个任务的缩略图、状态计时器和操作区。 |
+| `src/components/AppFooterBar.vue` | 底部状态栏、生图/对话模型选择和队列计数。 |
+| `src/components/ClipboardImageMenu.vue` | 参考图右键粘贴剪贴板图片菜单。 |
 
 ### Agent 交互约束
 
@@ -65,27 +60,28 @@ flowchart LR
 - Agent 回复通过 `markdown-it` 渲染 Markdown；工具成功结果不把原始 JSON 直接塞进对话，只有错误以可换行文本显示。
 - 任务组按钮预留固定边框和内边距，hover 只改变颜色，不改变盒模型尺寸。
 - 输入框默认 Enter 发送，Command/Ctrl+Enter 也发送，Shift+Enter 保留换行，输入法组合态不会误发送。
-- “直接绘画”位于发送按钮下方。勾选后提示词使用生图模型；未勾选时使用对话模型。
+- “直接绘画”位于发送按钮下方。勾选后提示词绕过对话模型，直接以当前生图模型和默认生图参数（分辨率、比例、质量、提示词保真度）进入绘画队列；未勾选时走对话模型，由 LLM 通过工具调用规划绘图。
 - 参考图支持文件选择、剪贴板图片、右键粘贴和拖放；剪贴板同时含图片与文本时只处理图片。
 
-### 绘画工作区约束
+### 界面与资源约束
 
 - 最小窗口尺寸为 `1200×800`。
 - 窗口状态保存逻辑像素尺寸；恢复时按当前显示器缩放因子换算，避免 Retina 下恢复成约一半大小。
-- 生图模型和对话模型独立选择；Agent 顶部两个选择器固定为约 `200px`，生图模型在左、对话模型在右。
-- 历史任务卡片固定高度和顺序，结果预览使用剩余空间；图片使用 Tauri asset protocol URL 加载。
-- 所有输出路径通过 `convertFileSrc()` 转成 WebView 可访问的资源 URL。Tauri 配置显式允许 `$HOME/.image-forge/**`，因为 Unix 默认 glob 不会让 `$HOME/**` 匹配隐藏目录。
+- 生图模型和对话模型独立选择，位于底部状态栏，生图模型在左、对话模型在右。
+- 图片使用 Tauri asset protocol URL 加载，所有输出路径通过 `convertFileSrc()` 转成 WebView 可访问的资源 URL。Tauri 配置显式允许 `$HOME/.image-forge/**`，因为 Unix 默认 glob 不会让 `$HOME/**` 匹配隐藏目录。
 
 ### 前端工具层
 
 | 文件 | 职责 |
 | --- | --- |
-| `src/lib/models.js` | 默认设置、空模板、深拷贝和设置归一化。 |
+| `src/lib/models.js` | 默认设置、空模板、深拷贝、设置归一化和剪贴板 API 源解析。 |
 | `src/lib/options.js` | 分辨率、比例、质量、提示词模式和像素尺寸映射。 |
 | `src/lib/formatters.js` | 状态、文件名、图片 URL 和通用展示格式化。 |
+| `src/lib/libraryFormat.js` | 图片库任务来源、日期/月份分组与展示格式化。 |
 | `src/lib/referenceFiles.js` | 解析剪贴板、拖放和 `file://` 本地路径。 |
 | `src/lib/generationTimer.js` | 运行中任务计时和超时状态。 |
 | `src/lib/scrollbarVisibility.js` | 覆盖式滚动条的显隐、拖动和布局隔离。 |
+| `src/lib/theme.js` | Naive UI 主题覆盖（配色、圆角、字体和滚动条）。 |
 | `src/tauri.js` | Tauri invoke、文件对话框、原生拖放、窗口状态和图片资源 URL。 |
 
 ## Rust 架构
@@ -191,7 +187,7 @@ sequenceDiagram
 
   UI->>Cmd: enqueue_generation / batch
   Cmd->>Store: 归一化请求并写 requests/<id>.json
-  Cmd->>Store: 更新 history.json 与 queue.json
+  Cmd->>Store: 更新 library.sqlite 与 queue.json
   Cmd->>Worker: ensure_queue_worker()
   Worker->>Store: pop_next_runnable()
   Worker->>Images: execute_generation()
@@ -228,11 +224,11 @@ sequenceDiagram
 ~/.image-forge/
   settings.json
   queue.json
-  history.json
+  library.sqlite
   prompt-templates.json
   agent/sessions/<session-id>.json
   requests/<task-id>.json
-  outputs/<timestamp>-<task-id>-01.png
+  outputs/YYYY/MM/<timestamp>-<task-id>-01.png
   references/<sha256>.<ext>
 ```
 
