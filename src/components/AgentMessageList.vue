@@ -46,42 +46,53 @@
         </div>
       </div>
       <div v-if="message.taskGroup" class="agent-task-group-card">
-        <button type="button" class="agent-task-group-open" @click="$emit('open-task-group', message.taskGroup)">
-          <strong>绘图任务组 · {{ message.taskGroup.taskIds?.length || 0 }} 项</strong>
-          <span>{{ message.taskGroup.titles?.join('、') || message.taskGroup.id }}</span>
-          <small v-if="message.taskGroup.promptSummaries?.length">
-            提示词：{{ message.taskGroup.promptSummaries.join('、') }}
-          </small>
-          <small>{{ taskGroupStatusLabel(message.taskGroup.status) }} · 点击查看绘画</small>
-        </button>
-        <div v-if="message.taskGroup.images?.length" class="agent-generated-grid">
-          <button
-            v-for="(image, index) in message.taskGroup.images"
-            :key="image.path"
-            type="button"
-            :aria-label="`查看生成图片 ${index + 1}`"
-            @click="$emit('preview-images', { items: message.taskGroup.images, index })"
-          >
-            <img loading="lazy" :src="fileUrl(image.path)" :alt="image.title || image.fileName || '生成图片'" />
-          </button>
-        </div>
-        <div class="agent-task-group-actions">
+        <div class="agent-task-group-bar">
+          <span class="agent-task-group-status">
+            <span class="agent-task-group-dot" :class="'dot--' + message.taskGroup.status"></span>
+            <template v-if="message.taskGroup.status === 'completed'">
+              已完成，共 {{ message.taskGroup.images?.length || 0 }} 张
+            </template>
+            <template v-else-if="message.taskGroup.status === 'failed'">
+              生成失败
+            </template>
+            <template v-else-if="message.taskGroup.status === 'cancelled'">
+              已取消
+            </template>
+            <template v-else>
+              服务器已经连接，生图中
+            </template>
+          </span>
+          <span v-if="!isTerminalStatus(message.taskGroup.status)" class="agent-task-group-timer">{{ elapsed(message) }}</span>
+          <div class="agent-task-group-spacer"></div>
           <n-button
+            v-if="!isTerminalStatus(message.taskGroup.status)"
             size="tiny"
             secondary
-            :disabled="isTerminalStatus(message.taskGroup.status)"
             @click="$emit('cancel-task-group', message.taskGroup)"
           >
             取消
           </n-button>
           <n-button
+            v-if="canRetryStatus(message.taskGroup.status)"
             size="tiny"
+            type="warning"
             secondary
-            :disabled="!canRetryStatus(message.taskGroup.status)"
             @click="$emit('retry-task-group', message.taskGroup)"
           >
-            重试失败项
+            重试
           </n-button>
+        </div>
+        <div v-if="message.taskGroup.images?.length" class="agent-generated-thumbs">
+          <button
+            v-for="(image, index) in message.taskGroup.images"
+            :key="image.path"
+            type="button"
+            class="agent-generated-thumb"
+            :aria-label="`查看生成图片 ${index + 1}`"
+            @click="$emit('preview-images', { items: message.taskGroup.images, index })"
+          >
+            <img loading="lazy" :src="fileUrl(image.path)" :alt="image.title || image.fileName || '生成图片'" />
+          </button>
         </div>
       </div>
       <n-button v-if="message.error" size="tiny" type="error" secondary @click="$emit('retry', message)">
@@ -103,7 +114,7 @@
 
 <script setup>
 import MarkdownIt from "markdown-it";
-import { nextTick, ref, watch } from "vue";
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { Icon } from "@iconify/vue";
 import meIcon from "@iconify-icons/icon-park-solid/me";
 import { fileUrl } from "../lib/formatters";
@@ -130,6 +141,18 @@ defineEmits(["open-task-group", "preview-images", "cancel-task-group", "retry-ta
 
 const listRef = ref(null);
 const markdown = new MarkdownIt({ html: false, breaks: true, linkify: true });
+const now = ref(Date.now());
+let timer = 0;
+
+onMounted(() => {
+  timer = window.setInterval(() => {
+    now.value = Date.now();
+  }, 1000);
+});
+
+onBeforeUnmount(() => {
+  window.clearInterval(timer);
+});
 
 watch(
   () => [props.messages.length, props.busy, props.streamText, props.toolStatusText],
@@ -170,6 +193,17 @@ function formatMessageTime(value) {
   });
 }
 
+function elapsed(message) {
+  const start = new Date(message.createdAt).getTime();
+  if (Number.isNaN(start)) return "";
+  const diff = Math.max(0, now.value - start);
+  const sec = Math.floor(diff / 1000) % 60;
+  const min = Math.floor(diff / 60000) % 60;
+  const hour = Math.floor(diff / 3600000);
+  const pad = (n) => String(n).padStart(2, "0");
+  return hour > 0 ? `${pad(hour)}:${pad(min)}:${pad(sec)}` : `${pad(min)}:${pad(sec)}`;
+}
+
 function renderMarkdown(content) {
   return markdown.render(content || "");
 }
@@ -181,18 +215,6 @@ function toolStatus(call) {
     completed: "执行完成",
     failed: "执行失败",
   }[call.status] || call.status || "已记录";
-}
-
-function taskGroupStatusLabel(status) {
-  return {
-    queued: "等待中",
-    running: "进行中",
-    cancelling: "取消中",
-    completed: "已完成",
-    failed: "已失败",
-    cancelled: "已取消",
-    missing: "已丢失",
-  }[status] || status || "未知状态";
 }
 
 function isTerminalStatus(status) {

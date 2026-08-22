@@ -70,9 +70,8 @@ const imageStyle = computed(() => {
   const width = naturalSize.width;
   const height = naturalSize.height;
   if (!width || !height) return {};
-  const desiredScale = 640 / Math.min(width, height);
   const fitScale = Math.min((viewport.width - 144) / width, (viewport.height - 116) / height);
-  const scale = Math.min(desiredScale, fitScale);
+  const scale = Math.min(1, fitScale);
   return {
     width: `${Math.max(1, Math.round(width * scale))}px`,
     height: `${Math.max(1, Math.round(height * scale))}px`,

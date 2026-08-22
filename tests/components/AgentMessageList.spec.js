@@ -55,7 +55,7 @@ describe("AgentMessageList", () => {
     expect(wrapper.text()).toContain("很长的错误信息");
   });
 
-  it("提交交互问题并打开任务组", async () => {
+  it("提交交互问题", async () => {
     const questionMessage = {
       ...baseMessage,
       id: "question",
@@ -69,8 +69,6 @@ describe("AgentMessageList", () => {
     expect(wrapper.emitted("update-answer")).toEqual([[{ key: "style", value: "水彩" }]]);
     await wrapper.get(".agent-question-actions button").trigger("click");
     expect(wrapper.emitted("answer-questions")[0][0].id).toBe("question");
-    await wrapper.get(".agent-task-group-open").trigger("click");
-    expect(wrapper.emitted("open-task-group")).toEqual([[taskGroup]]);
   });
 
   it("仅在接近底部时自动跟随流式内容", async () => {
@@ -100,8 +98,8 @@ describe("AgentMessageList", () => {
         messages: [{ ...baseMessage, id: "images", taskGroup: { id: "group", status: "completed", images } }],
       },
     });
-    expect(wrapper.findAll(".agent-generated-grid img")).toHaveLength(2);
-    await wrapper.findAll(".agent-generated-grid button")[1].trigger("click");
+    expect(wrapper.findAll(".agent-generated-thumb img")).toHaveLength(2);
+    await wrapper.findAll(".agent-generated-thumb")[1].trigger("click");
     expect(wrapper.emitted("preview-images")).toEqual([[{ items: images, index: 1 }]]);
   });
 });
