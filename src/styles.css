@@ -2251,22 +2251,6 @@ button:disabled {
   box-shadow: inset 3px 0 0 #d5962f;
 }
 
-.provider-card--agnes {
-  border-color: #f0c8b8;
-  background: #fff6f1;
-}
-
-.provider-card--agnes:hover {
-  border-color: #e2a58d;
-  background: #fffaf7;
-}
-
-.provider-card--agnes.active {
-  border-color: #d99276;
-  background: #ffe8dc;
-  box-shadow: inset 3px 0 0 #c56a45;
-}
-
 .provider-card--gemini {
   border-color: #d7c9eb;
   background: #f8f3fd;
@@ -2297,22 +2281,6 @@ button:disabled {
   border-color: #929ba8;
   background: #e9ebef;
   box-shadow: inset 3px 0 0 #596273;
-}
-
-.provider-card--seedream {
-  border-color: #bfe1cf;
-  background: #f1faf5;
-}
-
-.provider-card--seedream:hover {
-  border-color: #91c8aa;
-  background: #f8fdf9;
-}
-
-.provider-card--seedream.active {
-  border-color: #78b995;
-  background: #e1f4e9;
-  box-shadow: inset 3px 0 0 #438b63;
 }
 
 .provider-card--chat {

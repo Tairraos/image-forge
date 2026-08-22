@@ -968,7 +968,7 @@ fn normalize_provider(provider: ApiProvider, index: usize) -> ApiProvider {
 pub(crate) fn normalize_model_type(value: &str, model: &str, base_url: &str) -> String {
     match value.trim() {
         "chat" => "chat".into(),
-        "image-gpt" | "image-agnes" | "image-gemini" | "image-grok" | "image-seedream" => {
+        "image-gpt" | "image-gemini" | "image-grok" => {
             value.into()
         }
         _ => recommend_image_model_type(model, base_url),
@@ -977,20 +977,13 @@ pub(crate) fn normalize_model_type(value: &str, model: &str, base_url: &str) -> 
 
 pub(crate) fn recommend_image_model_type(model: &str, base_url: &str) -> String {
     let hint = format!("{model} {base_url}").to_lowercase();
-    if hint.contains("agnes") {
-        "image-agnes".into()
-    } else if ["gemini", "imagen", "nano-banana", "nano banana"]
+    if ["gemini", "imagen", "nano-banana", "nano banana"]
         .iter()
         .any(|value| hint.contains(value))
     {
         "image-gemini".into()
     } else if hint.contains("grok") || hint.contains("api.x.ai") {
         "image-grok".into()
-    } else if ["seedream", "byteplus", "volces", "ark."]
-        .iter()
-        .any(|value| hint.contains(value))
-    {
-        "image-seedream".into()
     } else {
         "image-gpt".into()
     }

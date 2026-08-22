@@ -15,19 +15,15 @@ export function defaultSettings() {
 
 export const IMAGE_MODEL_TYPES = [
   "image-gpt",
-  "image-agnes",
   "image-gemini",
   "image-grok",
-  "image-seedream",
 ];
 
 /** 绘图 API 模型类型下拉选项（供设置面板使用） */
 export const IMAGE_MODEL_TYPE_OPTIONS = [
   { label: "GPT / OpenAI 兼容", value: "image-gpt" },
   { label: "Gemini / Nano Banana", value: "image-gemini" },
-  { label: "Seedream / 即梦", value: "image-seedream" },
   { label: "Grok / xAI", value: "image-grok" },
-  { label: "Agnes AI", value: "image-agnes" },
 ];
 
 /** 绘图 API 默认模型 ID */
@@ -121,10 +117,8 @@ export function normalizeModelType(value, model = "", baseUrl = "") {
 
 export function recommendImageModelType(model = "", baseUrl = "") {
   const hint = `${model} ${baseUrl}`.toLowerCase();
-  if (/agnes/.test(hint)) return "image-agnes";
   if (/gemini|imagen|nano[ -]?banana/.test(hint)) return "image-gemini";
   if (/grok|api\.x\.ai/.test(hint)) return "image-grok";
-  if (/seedream|doubao.*image|byteplus|volces|ark\./.test(hint)) return "image-seedream";
   return "image-gpt";
 }
 

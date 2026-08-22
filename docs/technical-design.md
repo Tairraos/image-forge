@@ -30,7 +30,7 @@ flowchart LR
   Services --> Images["images.rs\n协议分发 + 输出落盘"]
   Services --> Chat["chat.rs\nChat Completions"]
   Services --> Agent["agent.rs\n上下文与 Tool Loop"]
-  Images --> Providers["GPT / Gemini / Grok / Seedream"]
+  Images --> Providers["GPT / Gemini / Grok"]
   Queue --> Data["~/.image-forge\nJSON / 图片"]
   Agent --> Queue
 ```
@@ -95,7 +95,7 @@ flowchart LR
 | `state.rs` | 运行期状态：队列 worker 标记、取消/删除集合和运行日志。 |
 | `store.rs` | 数据目录、JSON 读写、请求/历史/队列/模板归一化和事务。 |
 | `services/queue.rs` | 单 worker 调度、provider 并发限制、取消、重试和异常恢复。 |
-| `services/images.rs` | GPT/Gemini/Grok/Seedream 请求组装、响应解析和输出落盘。 |
+| `services/images.rs` | GPT/Gemini/Grok 请求组装、响应解析和输出落盘。 |
 | `services/chat.rs` | OpenAI 兼容 Chat Completions、流式回复和模板填充。 |
 | `services/agent.rs` | Agent 上下文、对话循环、Tool Call、取消和错误归一化。 |
 | `services/agent_tools.rs` | 工具注册、JSON schema 校验、参数限制和工具结果。 |
@@ -213,7 +213,6 @@ sequenceDiagram
 | `image-gpt` | `/images/generations` JSON | `/images/edits` multipart | Bearer |
 | `image-gemini` | `models/{model}:generateContent` | 同端点，`inlineData` parts | `x-goog-api-key` |
 | `image-grok` | `/images/generations` JSON | `/images/edits` JSON data URL | Bearer |
-| `image-seedream` | `/images/generations` JSON | generations + `image` 字段 | Bearer |
 | `chat` | 不参与生图 | Chat Completions | provider 配置 |
 
 共同规则：Base URL 归一化，代理支持 HTTP/SOCKS，模型列表有超时，响应支持 `b64_json`、URL 或 Gemini `inlineData`，文件头决定最终 `png/jpeg/webp` 格式。比例会写入提示词，分辨率和比例共同计算像素 `size`。
@@ -252,7 +251,7 @@ ImageForge-templates.zip
 `settings.providers` 是统一配置列表，关键字段包括：
 
 - `id`：内部稳定 ID，不展示给用户。
-- `modelType`：`image-gpt`、`image-gemini`、`image-grok`、`image-seedream` 或 `chat`。
+- `modelType`：`image-gpt`、`image-gemini`、`image-grok` 或 `chat`。
 - `baseUrl`、`apiKey`、`proxyUrl`、`imageModel`：协议连接参数。
 - `imagesConcurrency`：队列并发上限兼容字段。
 - `activeImageProviderId`、`activeChatProviderId`：两个工作区的默认模型。

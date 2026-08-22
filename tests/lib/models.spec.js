@@ -5,10 +5,6 @@ import {
 } from "../../src/lib/models";
 
 describe("models provider helpers", () => {
-  it("detects agnes model type", () => {
-    expect(recommendImageModelType("agnes-image-2.1-flash")).toBe("image-agnes");
-  });
-
   it("parses clipboard provider json", () => {
     const parsed = parseClipboardProvider(
       JSON.stringify({
@@ -82,8 +78,5 @@ describe("models provider helpers", () => {
   it("recommends model type from pasted image model name", () => {
     expect(recommendImageModelType("grok-imagine-image-quality", "")).toBe("image-grok");
     expect(recommendImageModelType("gemini-2.5-flash-image", "")).toBe("image-gemini");
-    expect(recommendImageModelType("seedream-4.0", "https://ark.cn-beijing.volces.com")).toBe(
-      "image-seedream",
-    );
   });
 });

@@ -27,7 +27,6 @@ pub(crate) async fn execute_generation(
     match provider.model_type.as_str() {
         "image-gemini" => call_gemini_images(client, provider, request).await,
         "image-grok" => call_grok_images(client, provider, request).await,
-        "image-seedream" => call_seedream_images(client, provider, request).await,
         _ => call_openai_images(client, provider, request).await,
     }
 }
@@ -246,46 +245,6 @@ async fn send_grok_edit_images(
         &body,
         request,
         Some(format_grok_edit_error),
-    )
-    .await
-}
-
-async fn call_seedream_images(
-    client: &Client,
-    provider: &ApiProvider,
-    request: &GenerateRequest,
-) -> Result<Vec<ApiImageResult>, String> {
-    let base_url = normalize_base_url(&provider.base_url)?;
-    let prompt =
-        image_prompt_for_transport(&request.prompt, &request.ratio, &request.prompt_fidelity);
-    let references = reference_data_urls(request, 14)?;
-    let mut payload = Map::new();
-    payload.insert("model".into(), json!(provider.image_model));
-    payload.insert("prompt".into(), json!(prompt));
-    payload.insert("size".into(), json!(request.size));
-    payload.insert("response_format".into(), json!("b64_json"));
-    payload.insert("watermark".into(), json!(false));
-    if !references.is_empty() {
-        payload.insert(
-            "image".into(),
-            if references.len() == 1 {
-                json!(references[0])
-            } else {
-                json!(references)
-            },
-        );
-    }
-    if provider.image_model.to_lowercase().contains("seedream-5") {
-        payload.insert("output_format".into(), json!(request.output_format));
-    }
-    let url = format!("{base_url}/images/generations");
-    send_json_images(
-        client,
-        provider,
-        &url,
-        &Value::Object(payload),
-        "Seedream 图片请求",
-        request,
     )
     .await
 }

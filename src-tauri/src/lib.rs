@@ -205,14 +205,6 @@ mod tests {
             "image-grok"
         );
         assert_eq!(
-            normalize_model_type("image", "seedream-4-0", ""),
-            "image-seedream"
-        );
-        assert_eq!(
-            normalize_model_type("image", "agnes-image-2.1-flash", ""),
-            "image-agnes"
-        );
-        assert_eq!(
             normalize_model_type("image", "gpt-image-2", ""),
             "image-gpt"
         );

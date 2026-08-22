@@ -1,13 +1,11 @@
 # 生图 API 使用说明
 
-本文档汇总 Image Forge 支持的五家图像生成服务的 API 使用说明：OpenAI（GPT Image）、xAI（Grok）、Google（Nano Banana / Gemini）、火山引擎（即梦 Seedream）、Agnes AI（Sapiens AI）。内容基于各厂商官方文档整理，供本地开发与联调参考。
+本文档汇总 Image Forge 支持的图像生成服务的 API 使用说明：OpenAI（GPT Image）、xAI（Grok）、Google（Nano Banana / Gemini）。内容基于各厂商官方文档整理，供本地开发与联调参考。
 
 > 文档链接：
 > - OpenAI：[https://developers.openai.com/api/docs/guides/image-generation](https://developers.openai.com/api/docs/guides/image-generation)
 > - Grok：[https://docs.x.ai/developers/model-capabilities/images/generation](https://docs.x.ai/developers/model-capabilities/images/generation)
 > - Nano Banana：[https://ai.google.dev/gemini-api/docs/image-generation](https://ai.google.dev/gemini-api/docs/image-generation)
-> - Seedream：[https://docs.volcengine.com/docs/85621/2275082](https://docs.volcengine.com/docs/85621/2275082)
-> - Agnes AI：[https://wiki.agnes-ai.com/zh-Hans/docs/agnes-image-21-flash](https://wiki.agnes-ai.com/zh-Hans/docs/agnes-image-21-flash)
 
 ---
 
@@ -221,225 +219,14 @@ curl -s -X POST \
 
 ---
 
-## 四、火山引擎（即梦 Seedream 4.6）
+## 四、三家模型对比速查
 
-### 4.1 接口简介
-
-即梦图片 4.6 模型（`req_key: jimeng_seedream46_cvtob`），基于 Seedream 4.0 基础模型训练，聚焦修图垂类（人像写真、平面设计、图片风格化）。
-
-采用**异步任务**模式：先提交任务拿到 `task_id`，再轮询或回调获取结果。
-
-| 名称 | 内容 |
-| --- | --- |
-| 接口地址 | `https://visual.volcengineapi.com` |
-| 请求方式 | POST，`Content-Type: application/json` |
-| 鉴权 | 火山引擎签名（Region: `cn-north-1`，Service: `cv`，AK/SK） |
-
-### 4.2 限制条件
-
-| 名称 | 内容 |
-| --- | --- |
-| 输入图要求 | 仅支持 JPEG、PNG（建议 JPEG）；单图最大 **15MB**；最多 **14 张**；分辨率最大 **4096×4096** |
-| 输出图说明 | 输出以列表返回；**最大输出图数量 = 15 − 输入图数量**，建议不超过 6 张 |
-| 其他 | 分辨率越高、数量越多，延迟越大；按输出图片张数计费；对延迟/价格敏感可用 `force_single` 强制单图 |
-
-### 4.3 提交任务
-
-Query 参数：`?Action=CVSync2AsyncSubmitTask&Version=2022-08-31`
-
-Body 参数：
-
-| 参数 | 类型 | 必选 | 说明 |
+| 维度 | OpenAI gpt-image-2 | Grok grok-imagine-image | Nano Banana（Gemini） |
 | --- | --- | --- | --- |
-| `req_key` | string | 是 | 固定值 `jimeng_seedream46_cvtob` |
-| `image_urls` | array | 否 | 输入图 URL，0–14 张（建议 ≤ 6 张，过多会降低参考效果） |
-| `prompt` | string | 是 | 提示词，中英文均可，**最长 800 字符**；不建议输入 `$` 等特殊符号 |
-| `size` | int | 否 | 生成图片面积，默认 4194304（2048×2048，2K）；范围 [1024×1024, 4096×4096]；与宽高二选一，同时传时优先宽高 |
-| `width` / `height` | int | 否 | 需同时传才生效；宽高乘积在 [1024×1024, 4096×4096]，宽高比在 [min_ratio, max_ratio] 内 |
-| `scale` | int | 否 | 文本影响程度，默认 50，范围 [1, 100] |
-| `force_single` | bool | 否 | 是否强制只生成单图，默认 false |
-| `min_ratio` | float | 否 | 宽高比下限，默认 1/3，范围 [1/16, 16) |
-| `max_ratio` | float | 否 | 宽高比上限，默认 3，范围 (1/16, 16] |
-| `callback_url` | string | 否 | 异步回调 URL（需公网可访问） |
-| `return_url` | bool | 否 | 回调时图片以链接返回（有效期 24 小时），默认 false |
-| `logo_info` | JSON string | 否 | 明水印配置（`add_logo`、`position`、`language`、`opacity`、`logo_text_content`） |
-| `aigc_meta` | JSON string | 否 | 隐式标识（`content_producer`、`producer_id` 等，依据《人工智能生成合成内容标识办法》） |
-
-请求示例：
-
-```json
-{
-  "req_key": "jimeng_seedream46_cvtob",
-  "image_urls": ["https://xxxx"],
-  "prompt": "背景换成白色",
-  "width": 1024,
-  "height": 1024,
-  "force_single": false
-}
-```
-
-返回：`code=10000` 表示成功，`data.task_id` 为任务 ID。
-
-### 4.4 查询任务
-
-Query 参数：`?Action=CVSync2AsyncGetResult&Version=2022-08-31`
-
-Body 参数：`req_key`（同上）+ `task_id`（提交接口返回）+ 可选 `req_json`（JSON 字符串，可配置 `return_url`、`logo_info`、`aigc_meta`）。
-
-返回字段：
-
-| 字段 | 说明 |
-| --- | --- |
-| `binary_data_base64` | 图片 base64 数组 |
-| `image_urls` | 图片 URL 数组（PNG 格式，有效期 24h） |
-| `status` | `in_queue`（排队中）/ `generating`（处理中）/ `done`（完成）/ `not_found`（任务不存在或已过期 12h）/ `expired` |
-
-> 解析时先判断外层 `code=10000`，再判断 `data.status`。
-
-### 4.5 推荐输出尺寸
-
-| 档位 | 尺寸 |
-| --- | --- |
-| 1K | `1024x1024`（1:1） |
-| 2K | `2048x2048`（1:1）、`2304x1728`（4:3）、`2496x1664`（3:2）、`2560x1440`（16:9）、`3024x1296`（21:9） |
-| 4K | `4096x4096`（1:1）、`4693x3520`（4:3）、`4992x3328`（3:2）、`5404x3040`（16:9）、`6197x2656`（21:9） |
-
-### 4.6 常见业务错误码
-
-| 错误码 | 描述 | 是否可重试 |
-| --- | --- | --- |
-| 50411 | 输入图片前审核未通过 | 否 |
-| 50511 | 输出图片后审核未通过 | 可重试 |
-| 50412 | 输入文本前审核未通过 | 否 |
-| 50413 | 输入文本含敏感词、版权词 | 否 |
-| 50518 | 输入版权图审核未通过 | 否 |
-| 50519 | 输出版权图后审核未通过 | 可重试 |
-| 50429 | QPS 超限 | 可重试 |
-| 50430 | 并发超限 | 可重试 |
-| 50500 | 内部错误 | 否 |
-
----
-
-## 五、Agnes AI（Sapiens AI）
-
-### 5.1 兼容性说明（重要）
-
-Agnes AI 的 API 采用 **OpenAI 风格**（相同端点路径、Bearer 认证、响应结构），但**与 OpenAI 不完全兼容**，接入时需注意以下差异：
-
-| 维度 | OpenAI | Agnes AI |
-| --- | --- | --- |
-| 端点 | `POST https://api.openai.com/v1/images/generations` | `POST https://apihub.agnes-ai.com/v1/images/generations` |
-| 认证 | `Authorization: Bearer` | `Authorization: Bearer`（相同） |
-| `response_format` | 放在请求体**顶层**（且对 GPT Image 系列无效） | 必须放在 **`extra_body` 内部**（`extra_body.response_format`），放顶层会报错 |
-| 图生图输入 | `POST /images/edits`（multipart）或 Responses API | 在 `extra_body.image` 传入图片**数组**（URL 或 Data URI Base64），同一个 `/images/generations` 端点 |
-| 图生图标记 | — | **不需要** `tags: ["img2img"]` |
-| 批量数量 | 支持 `n`（1–10） | 单请求生成单张，**不支持 `n`** |
-| 其他 OpenAI 参数 | `quality`、`background`、`output_format` 等 | **均不支持** |
-| 专属参数 | — | `return_base64`（2.0 模型文生图返回 Base64 时使用） |
-
-### 5.2 模型列表
-
-| 模型 ID | 说明 |
-| --- | --- |
-| `agnes-image-2.1-flash` | 升级版，优化高信息密度图像、复杂构图与细节；支持文生图、图生图 |
-| `agnes-image-2.0-flash` | 支持文生图、图生图、多图合成（多图输入、角色合成）；Artificial Analysis 图像编辑 ELO 1184，Top 20 |
-
-### 5.3 端点与请求参数
-
-**端点**：`POST https://apihub.agnes-ai.com/v1/images/generations`
-
-**请求头**：`Authorization: Bearer YOUR_API_KEY` + `Content-Type: application/json`
-
-**请求参数**：
-
-| 参数 | 类型 | 必填 | 说明 |
-| --- | --- | --- | --- |
-| `model` | string | 是 | 模型名称，`agnes-image-2.0-flash` 或 `agnes-image-2.1-flash` |
-| `prompt` | string | 是 | 图像生成或编辑的文本指令 |
-| `size` | string | 是 | 输出图像尺寸，如 `1024x768`、`1024x1024`、`768x1024`（自定义输出尺寸） |
-| `image` | string[] | 图生图必填 | 输入图像数组，位于 `extra_body` 内；支持公网 URL 或 Data URI Base64（`data:image/png;base64,...`） |
-| `return_base64` | boolean | 否 | 文生图需要以 Base64 返回时使用（2.0 模型） |
-| `extra_body.response_format` | string | 否 | 输出格式，枚举：`url`、`b64_json` |
-
-### 5.4 请求示例
-
-**文生图（URL 输出）**：
-
-```bash
-curl https://apihub.agnes-ai.com/v1/images/generations \
- -H "Authorization: Bearer YOUR_API_KEY" \
- -H "Content-Type: application/json" \
- -d '{
- "model": "agnes-image-2.1-flash",
- "prompt": "A luminous floating city above a misty canyon at sunrise, cinematic realism",
- "size": "1024x768",
- "extra_body": {
-   "response_format": "url"
- }
- }'
-```
-
-返回路径：`data[0].url`
-
-**图生图（Base64 输出）**：
-
-```bash
-curl https://apihub.agnes-ai.com/v1/images/generations \
- -H "Authorization: Bearer YOUR_API_KEY" \
- -H "Content-Type: application/json" \
- -d '{
- "model": "agnes-image-2.1-flash",
- "prompt": "Make the object orange while preserving the original composition",
- "size": "1024x768",
- "extra_body": {
-   "image": ["https://example.com/input.png"],
-   "response_format": "b64_json"
- }
- }'
-```
-
-返回路径：`data[0].b64_json`
-
-### 5.5 响应格式
-
-| 字段 | 类型 | 说明 |
-| --- | --- | --- |
-| `created` | integer | 请求创建时间戳 |
-| `data` | array | 生成的图像结果列表 |
-| `data[].url` | string / null | 生成图像 URL，Base64 输出时通常为 `null` |
-| `data[].b64_json` | string / null | Base64 图像数据，URL 输出时通常为 `null` |
-| `data[].revised_prompt` | string / null | 修正后的提示词；没有时为 `null` |
-
-### 5.6 常见错误与注意事项
-
-| 问题 | 处理方式 |
-| --- | --- |
-| `response_format` 放顶层报错 | 放入 `extra_body` 内部，如 `extra_body.response_format: "url"` |
-| 图生图传 `tags: ["img2img"]` | 不需要，直接在 `extra_body.image` 提供输入图即可 |
-| 图生图缺少 `image` | 图生图时 `extra_body.image` 为必填项 |
-| 输入图 URL 无法访问 | 使用公网可访问的 HTTPS 图片 URL；无法公开访问时改用 Data URI Base64 |
-| 请求超时 | 生成可能需要数秒到数十秒，客户端超时建议 `60s - 360s` |
-
-**定价**：标准 `$0.003 / 张`，当前 `$0 / 张`。
-
-### 5.7 接入检查清单
-
-- [ ] 请求 URL 为 `https://apihub.agnes-ai.com/v1/images/generations`
-- [ ] 模型名称为 `agnes-image-2.0-flash` / `agnes-image-2.1-flash`
-- [ ] 文生图请求不传 `image`，仅需 `model`、`prompt`、`size`
-- [ ] 图生图请求在 `extra_body.image` 中传入图片数组
-- [ ] `response_format` 放在 `extra_body` 内部，不传 `tags: ["img2img"]`
-
----
-
-## 六、五家模型对比速查
-
-| 维度 | OpenAI gpt-image-2 | Grok grok-imagine-image | Nano Banana（Gemini） | 即梦 Seedream 4.6 | Agnes Image 2.1 Flash |
-| --- | --- | --- | --- | --- | --- |
-| 端点 | `/v1/images/*`、Responses API | `/v1/images/*`（兼容 OpenAI SDK） | `/v1beta/interactions`、`:generateContent` | `visual.volcengineapi.com`（异步任务） | `apihub.agnes-ai.com/v1/images/generations` |
-| 输出形式 | base64（无 URL） | 临时 URL 或 base64 | base64 | base64 或 URL（24h） | URL 或 base64 |
-| 最大分辨率 | 3840×2160（4K，实验性） | 由宽高比参数控制 | 4096×4096（4K） | 4096×4096（4K） | 自定义尺寸（如 1024x768），文档未公布上限 |
-| 尺寸约束 | 长边 ≤3840、像素 655,360~8,294,400、边为 16 的倍数、比例 ≤3:1 | 通过 aspect_ratio 指定 | 0.5K/1K/2K/4K + 14 种宽高比 | 面积或宽高，比例 min/max 限制 | 任意 `WxH` 字符串，由调用方指定 |
-| 参考图数量 | 编辑最多 16 张（<50MB） | 最多 5 张 | 最多 14 张 | 最多 14 张（15MB/张） | 图生图支持图片数组（未公布上限） |
-| 多轮编辑 | Responses API 支持 | 链式调用支持 | 支持（多轮对话） | 不支持（单次任务） | 不支持（单次请求） |
-| 特色 | 4K、透明背景（gpt-image-1.5） | 风格迁移、批量变体 | Google 搜索接地、思考模式、SynthID | 人像写真、修图垂类、水印/隐式标识 | 高信息密度、多图合成、当前免费 |
+| 端点 | `/v1/images/*`、Responses API | `/v1/images/*`（兼容 OpenAI SDK） | `/v1beta/interactions`、`:generateContent` |
+| 输出形式 | base64（无 URL） | 临时 URL 或 base64 | base64 |
+| 最大分辨率 | 3840×2160（4K，实验性） | 由宽高比参数控制 | 4096×4096（4K） |
+| 尺寸约束 | 长边 ≤3840、像素 655,360~8,294,400、边为 16 的倍数、比例 ≤3:1 | 通过 aspect_ratio 指定 | 0.5K/1K/2K/4K + 14 种宽高比 |
+| 参考图数量 | 编辑最多 16 张（<50MB） | 最多 5 张 | 最多 14 张 |
+| 多轮编辑 | Responses API 支持 | 链式调用支持 | 支持（多轮对话） |
+| 特色 | 4K、透明背景（gpt-image-1.5） | 风格迁移、批量变体 | Google 搜索接地、思考模式、SynthID |
