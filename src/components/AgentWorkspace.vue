@@ -127,12 +127,17 @@
           :image-provider-id="imageProviderId"
           :busy="busy"
           :attachments="attachments"
+          :ratio="ratio"
+          :resolution="resolution"
           @send="$emit('send', $event)"
           @stop="$emit('stop')"
           @add-reference="$emit('add-reference')"
           @paste-reference="$emit('paste-reference', $event)"
           @drop-reference="$emit('drop-reference', $event)"
           @remove-attachment="$emit('remove-attachment', $event)"
+          @select-template="$emit('select-template')"
+          @update:ratio="$emit('update:ratio', $event)"
+          @update:resolution="$emit('update:resolution', $event)"
         />
       </template>
     </div>
@@ -163,6 +168,8 @@ defineProps({
   toolStatusText: { type: String, default: "" },
   answers: { type: Object, default: () => ({}) },
   agentLibraryVersion: { type: Number, default: 0 },
+  ratio: { type: String, default: "1:1" },
+  resolution: { type: String, default: "standard" },
 });
 const emit = defineEmits([
   "create", "select", "send", "stop", "add-reference", "remove-attachment",
@@ -171,6 +178,9 @@ const emit = defineEmits([
   "delete-session",
   "open-settings",
   "rename-session",
+  "select-template",
+  "update:ratio",
+  "update:resolution",
 ]);
 
 const panel = ref("chat");

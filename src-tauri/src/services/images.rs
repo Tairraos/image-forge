@@ -700,6 +700,7 @@ fn gemini_base_url(value: &str) -> Result<String, String> {
 fn gemini_image_size(value: &str) -> &'static str {
     match value.trim().to_lowercase().as_str() {
         "4k" => "4K",
+        "3k" => "3K",
         "2k" => "2K",
         _ => "1K",
     }

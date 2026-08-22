@@ -8,20 +8,16 @@
     @drop.prevent="dropFiles"
   >
     <div class="agent-composer-body">
-      <n-input
-        v-model:value="draft"
-        type="textarea"
-        :autosize="{ minRows: 2, maxRows: 5 }"
-        placeholder="输入消息；可粘贴或拖入参考图"
-        :disabled="busy"
-        @paste="$emit('paste-reference', $event)"
-        @keydown="handleKeydown"
-      />
-    </div>
-    <footer>
-      <div class="agent-composer-actions">
-        <div class="reference-strip agent-reference-strip">
-          <div v-for="attachment in attachments" :key="attachment.id" class="reference-tile">
+      <div
+        class="agent-composer-input-wrap"
+        :class="{ 'has-reference': attachments.length }"
+      >
+        <div v-if="attachments.length" class="agent-reference-overlay">
+          <div
+            v-for="attachment in attachments"
+            :key="attachment.id"
+            class="agent-reference-thumb"
+          >
             <img :src="attachment.dataUrl" :alt="attachment.fileName" />
             <button
               type="button"
@@ -29,24 +25,72 @@
               aria-label="移除参考图"
               @click.stop="$emit('remove-attachment', attachment.id)"
             >
-              <X :size="14" />
+              <X :size="12" />
             </button>
           </div>
-          <ClipboardImageMenu :disabled="busy" v-slot="{ open }" @paste="$emit('paste-reference', $event)">
+        </div>
+        <n-input
+          v-model:value="draft"
+          type="textarea"
+          :autosize="{ minRows: 2, maxRows: 5 }"
+          placeholder="输入消息；可粘贴或拖入参考图"
+          :disabled="busy"
+          @paste="handlePaste"
+          @keydown="handleKeydown"
+        />
+      </div>
+    </div>
+    <footer class="agent-composer-footer">
+      <div class="agent-composer-toolbar">
+        <button
+          type="button"
+          class="agent-toolbar-btn"
+          :disabled="busy"
+          @click="$emit('add-reference')"
+        >
+          <ImagePlus :size="15" />
+          <span>参考图</span>
+        </button>
+        <button
+          type="button"
+          class="agent-toolbar-btn"
+          :disabled="busy"
+          @click="$emit('select-template')"
+        >
+          <LayoutTemplate :size="15" />
+          <span>模板</span>
+        </button>
+
+        <div class="agent-param-group">
+          <span class="agent-param-label">比例</span>
+          <div class="agent-ratio-options">
             <button
-              class="reference-add"
-              data-reference-drop-target="agent"
-              :class="{ 'reference-drop-active': dragActive }"
+              v-for="opt in ratioOptions"
+              :key="opt.value"
               type="button"
-              title="点击添加，右键粘贴剪贴板图片"
+              class="agent-ratio-btn"
+              :class="{ active: ratio === opt.value }"
+              :title="opt.value"
               :disabled="busy"
-              @click="$emit('add-reference')"
-              @contextmenu="open"
-            >
-              <Plus :size="18" />
-              <span>参考图</span>
-            </button>
-          </ClipboardImageMenu>
+              @click="$emit('update:ratio', opt.value)"
+              v-html="opt.icon"
+            />
+          </div>
+        </div>
+
+        <div class="agent-param-group">
+          <span class="agent-param-label">分辨率</span>
+          <div class="agent-resolution-options">
+            <button
+              v-for="opt in currentResolutionOptions"
+              :key="opt.value"
+              type="button"
+              class="agent-resolution-btn"
+              :class="{ active: resolution === opt.value }"
+              :disabled="busy"
+              @click="$emit('update:resolution', opt.value)"
+            >{{ opt.label }}</button>
+          </div>
         </div>
       </div>
       <div class="agent-send-stack">
@@ -66,21 +110,67 @@
 </template>
 
 <script setup>
-import { Plus, X } from "@lucide/vue";
-import { ref } from "vue";
-import ClipboardImageMenu from "./ClipboardImageMenu.vue";
+import { ImagePlus, LayoutTemplate, X } from "@lucide/vue";
+import { computed, ref } from "vue";
 import { extractDroppedFilePaths } from "../lib/referenceFiles";
+import { imageSizePresets } from "../lib/options";
+
+const RATIO_LIST = ["1:1", "9:16", "2:3", "3:4", "4:3", "3:2", "16:9"];
+const RESOLUTION_LIST = [
+  { value: "standard", label: "1k" },
+  { value: "2k", label: "2k" },
+  { value: "3k", label: "3k" },
+  { value: "4k", label: "4k" },
+];
+
+function ratioSvg(ratio) {
+  const [w, h] = ratio.split(":").map(Number);
+  const maxDim = 18;
+  let rw, rh;
+  if (w >= h) {
+    rw = maxDim;
+    rh = Math.round((maxDim * h) / w);
+  } else {
+    rh = maxDim;
+    rw = Math.round((maxDim * w) / h);
+  }
+  const x = ((24 - rw) / 2).toFixed(1);
+  const y = ((24 - rh) / 2).toFixed(1);
+  return `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="${x}" y="${y}" width="${rw}" height="${rh}" rx="2" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>`;
+}
+
+const ratioOptions = RATIO_LIST.map((value) => ({
+  value,
+  icon: ratioSvg(value),
+}));
 
 const props = defineProps({
   providerId: { type: String, default: "" },
   imageProviderId: { type: String, default: "" },
   busy: Boolean,
   attachments: { type: Array, default: () => [] },
+  ratio: { type: String, default: "1:1" },
+  resolution: { type: String, default: "standard" },
 });
-const emit = defineEmits(["send", "stop", "add-reference", "paste-reference", "drop-reference", "remove-attachment"]);
+
+const emit = defineEmits([
+  "send", "stop", "add-reference", "paste-reference",
+  "drop-reference", "remove-attachment", "select-template",
+  "update:ratio", "update:resolution",
+]);
+
 const draft = ref("");
 const dragActive = ref(false);
 const drawThisTurn = ref(false);
+
+const currentResolutionOptions = computed(() =>
+  RESOLUTION_LIST.map((opt) => {
+    const preset = imageSizePresets[opt.value];
+    const dims = preset?.[props.ratio] || preset?.["1:1"];
+    const label = dims ? `${dims[0]} x ${dims[1]} ${opt.label}` : opt.label;
+    return { value: opt.value, label };
+  }),
+);
 
 function send() {
   const content = draft.value.trim();
@@ -95,6 +185,10 @@ function handleKeydown(event) {
   if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
   event.preventDefault();
   send();
+}
+
+function handlePaste(event) {
+  emit("paste-reference", event);
 }
 
 function dropFiles(event) {

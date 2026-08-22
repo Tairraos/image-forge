@@ -15,6 +15,8 @@
         :answers="agentAnswers"
         :attachments="agentAttachments"
         :agent-library-version="agentLibraryVersion"
+        :ratio="form.ratio"
+        :resolution="form.resolution"
         @create="createAgentConversation"
         @select="selectAgentConversation"
         @send="sendAgentConversationMessage"
@@ -36,6 +38,9 @@
         @download-output="downloadOutput"
         @reveal-output="reveal($event.path)"
         @open-settings="openDesign"
+        @select-template="selectTemplate"
+        @update:ratio="form.ratio = $event"
+        @update:resolution="form.resolution = $event"
       />
 
       <template #footer>
@@ -596,6 +601,10 @@ function createAgentAttachmentId() {
 
 function removeAgentAttachment(id) {
   agentAttachments.value = agentAttachments.value.filter((item) => item.id !== id);
+}
+
+function selectTemplate() {
+  openDesign();
 }
 
 function handleAgentProgressEvent(event) {

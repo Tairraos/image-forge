@@ -23,7 +23,7 @@ pub(crate) fn tool_definitions() -> Vec<Value> {
                                 "title": { "type": "string" },
                                 "prompt": { "type": "string" },
                                 "providerId": { "type": "string" },
-                                "resolution": { "enum": ["standard", "2k", "4k"] },
+                                "resolution": { "enum": ["standard", "2k", "3k", "4k"] },
                                 "ratio": { "type": "string" },
                                 "quality": { "enum": ["auto", "low", "medium", "high"] },
                                 "promptFidelity": { "enum": ["original", "strict", "off"] },
@@ -108,7 +108,7 @@ pub(crate) fn validate_tool_arguments(name: &str, arguments: &Value) -> Result<(
                 require_enum(
                     plan.get("resolution"),
                     &format!("{label}.resolution"),
-                    &["standard", "2k", "4k"],
+                    &["standard", "2k", "3k", "4k"],
                 )?;
                 require_non_empty_string(plan.get("ratio"), &format!("{label}.ratio"))?;
                 require_enum(
