@@ -63,34 +63,27 @@
 
         <div class="agent-param-group">
           <span class="agent-param-label">比例</span>
-          <div class="agent-ratio-options">
-            <button
-              v-for="opt in ratioOptions"
-              :key="opt.value"
-              type="button"
-              class="agent-ratio-btn"
-              :class="{ active: ratio === opt.value }"
-              :title="opt.value"
-              :disabled="busy"
-              @click="$emit('update:ratio', opt.value)"
-              v-html="opt.icon"
-            />
-          </div>
+          <n-select
+            class="agent-select agent-ratio-select"
+            size="small"
+            :value="ratio"
+            :options="ratioOptions"
+            :render-label="renderRatioLabel"
+            :disabled="busy"
+            @update:value="$emit('update:ratio', $event)"
+          />
         </div>
 
         <div class="agent-param-group">
           <span class="agent-param-label">分辨率</span>
-          <div class="agent-resolution-options">
-            <button
-              v-for="opt in currentResolutionOptions"
-              :key="opt.value"
-              type="button"
-              class="agent-resolution-btn"
-              :class="{ active: resolution === opt.value }"
-              :disabled="busy"
-              @click="$emit('update:resolution', opt.value)"
-            >{{ opt.label }}</button>
-          </div>
+          <n-select
+            class="agent-select agent-resolution-select"
+            size="small"
+            :value="resolution"
+            :options="currentResolutionOptions"
+            :disabled="busy"
+            @update:value="$emit('update:resolution', $event)"
+          />
         </div>
       </div>
       <div class="agent-send-stack">
@@ -111,7 +104,7 @@
 
 <script setup>
 import { ImagePlus, LayoutTemplate, X } from "@lucide/vue";
-import { computed, ref } from "vue";
+import { computed, h, ref } from "vue";
 import { extractDroppedFilePaths } from "../lib/referenceFiles";
 import { imageSizePresets } from "../lib/options";
 
@@ -125,7 +118,7 @@ const RESOLUTION_LIST = [
 
 function ratioSvg(ratio) {
   const [w, h] = ratio.split(":").map(Number);
-  const maxDim = 18;
+  const maxDim = w === h ? 14 : 18;
   let rw, rh;
   if (w >= h) {
     rw = maxDim;
@@ -141,8 +134,16 @@ function ratioSvg(ratio) {
 
 const ratioOptions = RATIO_LIST.map((value) => ({
   value,
+  label: value,
   icon: ratioSvg(value),
 }));
+
+function renderRatioLabel(option) {
+  return h("span", { class: "agent-ratio-option" }, [
+    h("span", { class: "agent-ratio-icon", innerHTML: option.icon }),
+    h("span", { class: "agent-ratio-text" }, option.label),
+  ]);
+}
 
 const props = defineProps({
   providerId: { type: String, default: "" },
