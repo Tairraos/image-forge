@@ -106,6 +106,8 @@
         @delete-task="$emit('delete-task', $event)"
         @download-output="$emit('download-output', $event)"
         @reveal-output="$emit('reveal-output', $event)"
+        @reference-to-agent="handleReferenceToAgent"
+        @add-to-template="$emit('add-to-template', $event)"
       />
       <template v-else>
         <AgentMessageList
@@ -129,6 +131,7 @@
           :attachments="attachments"
           :ratio="ratio"
           :resolution="resolution"
+          :prefill-prompt="prefillPrompt"
           @send="$emit('send', $event)"
           @stop="$emit('stop')"
           @add-reference="$emit('add-reference')"
@@ -170,6 +173,7 @@ defineProps({
   agentLibraryVersion: { type: Number, default: 0 },
   ratio: { type: String, default: "1:1" },
   resolution: { type: String, default: "standard" },
+  prefillPrompt: { type: String, default: "" },
 });
 const emit = defineEmits([
   "create", "select", "send", "stop", "add-reference", "remove-attachment",
@@ -181,12 +185,19 @@ const emit = defineEmits([
   "select-template",
   "update:ratio",
   "update:resolution",
+  "reference-to-agent",
+  "add-to-template",
 ]);
 
 const panel = ref("chat");
 const renaming = ref(null);
 const titleDraft = ref("");
 let renameInputEl = null;
+
+function handleReferenceToAgent(payload) {
+  panel.value = "chat";
+  emit("reference-to-agent", payload);
+}
 
 function selectSession(id) {
   panel.value = "chat";

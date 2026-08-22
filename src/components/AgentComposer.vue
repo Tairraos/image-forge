@@ -104,7 +104,7 @@
 
 <script setup>
 import { ImagePlus, LayoutTemplate, X } from "@lucide/vue";
-import { computed, h, ref } from "vue";
+import { computed, h, ref, watch } from "vue";
 import { extractDroppedFilePaths } from "../lib/referenceFiles";
 import { imageSizePresets } from "../lib/options";
 
@@ -152,6 +152,7 @@ const props = defineProps({
   attachments: { type: Array, default: () => [] },
   ratio: { type: String, default: "1:1" },
   resolution: { type: String, default: "standard" },
+  prefillPrompt: { type: String, default: "" },
 });
 
 const emit = defineEmits([
@@ -163,6 +164,15 @@ const emit = defineEmits([
 const draft = ref("");
 const dragActive = ref(false);
 const drawThisTurn = ref(false);
+
+watch(
+  () => props.prefillPrompt,
+  (value) => {
+    if (value) {
+      draft.value = value;
+    }
+  },
+);
 
 const currentResolutionOptions = computed(() =>
   RESOLUTION_LIST.map((opt) => {

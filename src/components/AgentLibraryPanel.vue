@@ -28,21 +28,53 @@
           </header>
 
           <div class="image-batch-grid">
-            <figure v-for="output in task.outputs" :key="output.path" class="library-image-card">
-              <button type="button" class="library-image-preview" @click="openPreview(output.path)">
-                <img loading="lazy" :src="fileUrl(output.path)" :alt="output.fileName || task.prompt" />
-              </button>
-              <figcaption>
-                <span>{{ output.size || task.params?.size }}</span>
-                <div>
-                  <button type="button" title="下载图片" aria-label="下载图片" @click="$emit('download-output', output)">
-                    <Download :size="15" />
-                  </button>
-                  <button type="button" title="在 Finder 中显示" aria-label="在 Finder 中显示" @click="$emit('reveal-output', output)">
-                    <FolderOpen :size="15" />
-                  </button>
+            <figure
+              v-for="output in task.outputs"
+              :key="output.path"
+              class="library-image-card"
+            >
+              <div class="library-image-frame">
+                <button type="button" class="library-image-preview" @click="openPreview(output.path)">
+                  <img loading="lazy" :src="fileUrl(output.path)" :alt="output.fileName || task.prompt" />
+                </button>
+                <div class="library-image-overlay">
+                  <span class="library-image-size">{{ output.size || task.params?.size }}</span>
+                  <div class="library-image-actions">
+                    <button
+                      type="button"
+                      title="引用到 Agent"
+                      aria-label="引用到 Agent"
+                      @click.stop="$emit('reference-to-agent', { task, output })"
+                    >
+                      <Link2 :size="14" />
+                    </button>
+                    <button
+                      type="button"
+                      title="添加到模板"
+                      aria-label="添加到模板"
+                      @click.stop="$emit('add-to-template', { task, output })"
+                    >
+                      <BookmarkPlus :size="14" />
+                    </button>
+                    <button
+                      type="button"
+                      title="下载图片"
+                      aria-label="下载图片"
+                      @click.stop="$emit('download-output', output)"
+                    >
+                      <Download :size="14" />
+                    </button>
+                    <button
+                      type="button"
+                      title="在 Finder 中显示"
+                      aria-label="在 Finder 中显示"
+                      @click.stop="$emit('reveal-output', output)"
+                    >
+                      <FolderOpen :size="14" />
+                    </button>
+                  </div>
                 </div>
-              </figcaption>
+              </div>
             </figure>
           </div>
         </article>
@@ -91,12 +123,14 @@
 
 <script setup>
 import {
+  BookmarkPlus,
   Calendar,
   ChevronLeft,
   ChevronRight,
   Download,
   FolderOpen,
   Images,
+  Link2,
   Search,
   Trash2,
 } from "@lucide/vue";
@@ -119,7 +153,7 @@ import { invoke } from "../tauri";
 const props = defineProps({
   version: { type: Number, default: 0 },
 });
-const emit = defineEmits(["preview-images", "delete-task", "download-output", "reveal-output"]);
+const emit = defineEmits(["preview-images", "delete-task", "download-output", "reveal-output", "reference-to-agent", "add-to-template"]);
 
 const month = ref(monthKey(new Date()));
 const query = ref("");

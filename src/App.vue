@@ -17,6 +17,7 @@
         :agent-library-version="agentLibraryVersion"
         :ratio="form.ratio"
         :resolution="form.resolution"
+        :prefill-prompt="agentPrefillPrompt"
         @create="createAgentConversation"
         @select="selectAgentConversation"
         @send="sendAgentConversationMessage"
@@ -41,6 +42,8 @@
         @select-template="selectTemplate"
         @update:ratio="form.ratio = $event"
         @update:resolution="form.resolution = $event"
+        @reference-to-agent="handleLibraryReferenceToAgent"
+        @add-to-template="handleLibraryAddToTemplate"
       />
 
       <template #footer>
@@ -188,6 +191,7 @@ const agentStreamText = ref("");
 const agentToolStatus = ref("");
 const agentAnswers = ref({});
 const agentAttachments = ref([]);
+const agentPrefillPrompt = ref("");
 const settings = ref(defaultSettings());
 const history = ref([]);
 const agentLibraryVersion = ref(0);
@@ -601,6 +605,49 @@ function createAgentAttachmentId() {
 
 function removeAgentAttachment(id) {
   agentAttachments.value = agentAttachments.value.filter((item) => item.id !== id);
+}
+
+async function handleLibraryReferenceToAgent({ task, output }) {
+  // 添加输出图作为参考图
+  try {
+    const preview = await invoke("reference_from_path", { path: output.path });
+    agentAttachments.value.push({
+      id: createAgentAttachmentId(),
+      path: preview.path,
+      fileName: preview.fileName,
+      mimeType: preview.mimeType,
+      dataUrl: preview.dataUrl,
+    });
+  } catch (error) {
+    setStatus(String(error), "error");
+  }
+  // 预填提示词到输入框
+  agentPrefillPrompt.value = task.prompt || "";
+  // 清除预填（避免下次重复触发）
+  setTimeout(() => {
+    agentPrefillPrompt.value = "";
+  }, 100);
+  setStatus("已引用到当前对话", "ok");
+}
+
+async function handleLibraryAddToTemplate({ task, output }) {
+  Object.assign(templateDraft, emptyTemplate());
+  templateDraft.title = (task.prompt || "未命名模板").slice(0, 40);
+  templateDraft.prompt = task.prompt || "";
+  templateDraft.referencePaths = [];
+  templateDraftReferences.value = [];
+  templateDraftEffectImage.value = null;
+  if (output?.path) {
+    try {
+      const preview = await invoke("reference_from_path", { path: output.path });
+      templateDraftReferences.value = [{ ...preview, previewUrl: preview.dataUrl }];
+    } catch {
+      // 参考图加载失败不阻塞模板创建
+    }
+  }
+  templateEditorMode.value = "new";
+  showTemplateEditor.value = true;
+  setStatus("已添加到模板编辑器", "ok");
 }
 
 function selectTemplate() {

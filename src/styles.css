@@ -3544,8 +3544,7 @@ button:disabled {
 }
 
 .image-calendar-head button,
-.image-batch-actions button,
-.library-image-card figcaption button {
+.image-batch-actions button {
   display: grid;
   place-items: center;
   border: 1px solid var(--line);
@@ -3745,21 +3744,19 @@ button:disabled {
   gap: 6px;
 }
 
-.image-batch-actions button,
-.library-image-card figcaption button {
+.image-batch-actions button {
   width: 30px;
   height: 28px;
 }
 
-.image-batch-actions button:hover,
-.library-image-card figcaption button:hover {
+.image-batch-actions button:hover {
   border-color: var(--primary);
   color: var(--primary);
 }
 
 .image-batch-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fill, 300px);
   gap: 12px;
 }
 
@@ -3779,14 +3776,21 @@ button:disabled {
   box-shadow: 0 10px 26px rgba(73, 54, 130, 0.1);
 }
 
+.library-image-frame {
+  position: relative;
+  overflow: hidden;
+  width: 300px;
+  height: 300px;
+}
+
 .library-image-preview {
   display: block;
-  overflow: hidden;
-  width: 100%;
-  aspect-ratio: 1;
+  width: 300px;
+  height: 300px;
   border: 0;
   padding: 0;
   background: #f5f2fa;
+  cursor: pointer;
 }
 
 .library-image-preview img {
@@ -3801,21 +3805,60 @@ button:disabled {
   opacity: 0.9;
 }
 
-.library-image-card figcaption {
+.library-image-overlay {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 38px;
-  gap: 8px;
-  padding: 5px 6px 5px 10px;
+  gap: 6px;
+  min-height: 36px;
+  padding: 5px 8px;
+  background: rgba(0, 0, 0, 0.65);
+  opacity: 0;
+  transform: translateY(100%);
+  transition: opacity 180ms ease, transform 180ms ease;
 }
 
-.library-image-card figcaption > span {
+.library-image-frame:hover .library-image-overlay,
+.library-image-frame:focus-within .library-image-overlay {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.library-image-size {
   overflow: hidden;
-  color: var(--muted);
+  color: rgba(255, 255, 255, 0.9);
   font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.library-image-actions {
+  display: flex;
+  flex: none;
+  gap: 4px;
+}
+
+.library-image-actions button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 26px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.9);
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.library-image-actions button:hover {
+  border-color: rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.25);
+  color: #fff;
 }
 
 .image-library-empty {
