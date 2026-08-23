@@ -56,7 +56,7 @@ export const moveTemplate = (templateId, targetTemplateId) =>
 
 // ── 数据导出/导入 ──
 export const exportDataBundle = (categories) => invoke("export_data_bundle", { categories });
-export const importDataBundle = (filePath) => invoke("import_data_bundle", { filePath });
+export const importDataBundle = (file) => invoke("import_data_bundle", { filePath: file.path || file });
 
 // ── 清理 ──
 export const scanCleanupCandidates = () => invoke("scan_cleanup_candidates");

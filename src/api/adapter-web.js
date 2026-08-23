@@ -478,11 +478,145 @@ export async function importTemplates(archivePath) {
 }
 
 export async function exportDataBundle(categories) {
-  throw new Error("Web 版暂不支持导出数据包，请使用桌面版。");
+  const JSZip = (await import("jszip")).default;
+  const zip = new JSZip();
+  const now = new Date().toISOString();
+
+  const settings = categories.includes("settings") ? readJSON(KEYS.settings, null) : null;
+  const templates = categories.includes("templates") ? readJSON(KEYS.templates, []) : [];
+  const sessions = categories.includes("sessions") ? readJSON(KEYS.agentSessions, []) : [];
+  let tasks = [];
+  if (categories.includes("tasks")) {
+    tasks = await db.getAllTasks();
+  }
+
+  // 收集所有引用文件路径
+  const fileSet = new Set();
+  for (const tpl of templates) {
+    for (const p of tpl.referencePaths || []) fileSet.add(p);
+    if (tpl.effectImagePath) fileSet.add(tpl.effectImagePath);
+  }
+  for (const s of sessions) {
+    for (const msg of s.messages || []) {
+      for (const att of msg.attachments || []) { if (att.path) fileSet.add(att.path); }
+      if (msg.taskGroup) {
+        for (const task of msg.taskGroup.tasks || []) {
+          for (const p of task.referencePaths || []) fileSet.add(p);
+          for (const o of task.outputs || []) { if (o.path) fileSet.add(o.path); }
+        }
+      }
+    }
+  }
+  for (const t of tasks) {
+    for (const p of t.referencePaths || []) fileSet.add(p);
+    for (const o of t.outputs || []) { if (o.path) fileSet.add(o.path); }
+  }
+
+  // 按内容哈希去重，添加到 ZIP
+  const added = new Set();
+  for (const path of fileSet) {
+    try {
+      const url = toLocalFileUrl(path);
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      const blob = await res.blob();
+      const hash = await sha256(await blob.arrayBuffer());
+      const ext = (path.split(".").pop() || "png").split("?")[0];
+      const name = `files/${hash.slice(0, 16)}.${ext}`;
+      if (added.has(hash)) continue;
+      added.add(hash);
+      zip.file(name, blob);
+    } catch { /* 文件不可访问，跳过 */ }
+  }
+
+  // 写入 manifest
+  const manifest = {
+    format: "image-forge-data-bundle",
+    version: 1,
+    exportedAt: now,
+    hasSettings: !!settings,
+    settings,
+    templates,
+    sessions,
+    tasks,
+  };
+  zip.file("manifest.json", JSON.stringify(manifest, null, 2));
+
+  // 生成 ZIP 并触发下载
+  const zipBlob = await zip.generateAsync({ type: "blob", compression: "DEFLATE" });
+  const url = URL.createObjectURL(zipBlob);
+  const a = document.createElement("a");
+  a.href = url;
+  const date = new Date().toISOString().slice(0, 16).replace("T", "-").replace(/:/g, "");
+  a.download = `export-${date}.zip`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  return `export-${date}.zip`;
 }
 
-export async function importDataBundle(filePath) {
-  throw new Error("Web 版暂不支持导入数据包，请使用桌面版。");
+async function sha256(buffer) {
+  const hash = await crypto.subtle.digest("SHA-256", buffer);
+  return Array.from(new Uint8Array(hash)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+export async function importDataBundle(file) {
+  // Web 版接受 File 对象（来自文件选择器）
+  const JSZip = (await import("jszip")).default;
+  const arrayBuffer = await file.arrayBuffer();
+  const zip = await JSZip.loadAsync(arrayBuffer);
+
+  const manifestFile = zip.file("manifest.json");
+  if (!manifestFile) throw new Error("ZIP 缺少 manifest.json");
+  const manifest = JSON.parse(await manifestFile.async("text"));
+  if (manifest.format !== "image-forge-data-bundle") throw new Error("不支持的格式");
+
+  const result = { settings: 0, templates: 0, sessions: 0, tasks: 0 };
+
+  // 导入设置
+  if (manifest.hasSettings && manifest.settings) {
+    writeJSON(KEYS.settings, manifest.settings);
+    result.settings = 1;
+  }
+
+  // 导入模板
+  if (manifest.templates?.length) {
+    const existing = readJSON(KEYS.templates, []);
+    const ids = new Set(existing.map((t) => t.id));
+    for (const tpl of manifest.templates) {
+      if (!ids.has(tpl.id)) { existing.push(tpl); ids.add(tpl.id); }
+    }
+    writeJSON(KEYS.templates, existing);
+    result.templates = manifest.templates.length;
+  }
+
+  // 导入会话
+  if (manifest.sessions?.length) {
+    const existing = readJSON(KEYS.agentSessions, []);
+    const ids = new Set(existing.map((s) => s.id));
+    for (const s of manifest.sessions) {
+      if (!ids.has(s.id)) { existing.push(s); ids.add(s.id); }
+    }
+    writeJSON(KEYS.agentSessions, existing);
+    result.sessions = manifest.sessions.length;
+  }
+
+  // 导入图片库
+  if (manifest.tasks?.length) {
+    const existing = await db.getAllTasks();
+    const ids = new Set(existing.map((t) => t.id));
+    let imported = 0;
+    for (const t of manifest.tasks) {
+      if (!ids.has(t.id)) {
+        await db.upsertTask(t);
+        imported++;
+      }
+    }
+    result.tasks = imported;
+  }
+
+  return result;
 }
 
 export async function deleteTemplate(templateId) {

@@ -109,7 +109,7 @@ async function doExport() {
 async function doImport(file) {
   importResult.value = "导入中...";
   try {
-    const result = await api.importDataBundle(file.path);
+    const result = await api.importDataBundle(file);
     importResult.value = `导入完成：设置 ${result.settings} 个、模板 ${result.templates} 个、会话 ${result.sessions} 个、图片 ${result.tasks} 条`;
   } catch (error) {
     importResult.value = `导入失败：${String(error)}`;
