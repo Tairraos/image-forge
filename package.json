@@ -14,12 +14,14 @@
     "prerelease": "node scripts/prerelease.mjs",
     "release": "node scripts/release.mjs",
     "sync:web": "node scripts/sync-desktop-to-web.mjs",
-    "sync:web:serve": "node scripts/sync-desktop-to-web.mjs --serve"
+    "sync:web:serve": "node scripts/sync-desktop-to-web.mjs --serve",
+    "sync:desktop": "node scripts/sync-web-to-desktop.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
     "@vitejs/plugin-vue": "^6.0.7",
     "@vue/test-utils": "^2.4.11",
+    "better-sqlite3": "^13.0.3",
     "jsdom": "^29.1.1",
     "vite": "^8.1.3",
     "vitest": "^4.1.10"

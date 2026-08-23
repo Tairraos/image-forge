@@ -283,8 +283,9 @@ export async function retryAgentTaskGroup(taskGroupId) {
 }
 
 export async function referenceFromPath(path) {
-  // Web 版：通过 fetch 读取本地 Blob URL 或远程 URL
-  const res = await fetch(path);
+  // 本地文件路径转为开发服务器 HTTP URL
+  const url = toLocalFileUrl(path);
+  const res = await fetch(url);
   if (!res.ok) throw new Error(`读取图片失败: ${res.status}`);
   const blob = await res.blob();
   const dataUrl = await blobToDataUrl(blob);
@@ -295,6 +296,16 @@ export async function referenceFromPath(path) {
     mimeType: blob.type || "image/png",
     dataUrl,
   };
+}
+
+/** 本地 .image-forge 路径转为开发服务器 URL */
+function toLocalFileUrl(path) {
+  if (!path) return path;
+  const idx = path.indexOf("/.image-forge/");
+  if (idx >= 0) {
+    return "/image-forge-data" + path.slice(idx + "/.image-forge".length);
+  }
+  return path;
 }
 
 export async function referenceFromClipboard() {
