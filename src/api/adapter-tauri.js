@@ -61,3 +61,7 @@ export const cleanupDataFiles = () => invoke("cleanup_data_files");
 // ── 工具 ──
 export const readClipboardText = () => invoke("read_clipboard_text");
 export const listProviderModels = (provider) => invoke("list_provider_models", { provider });
+
+// Web-only helpers（Tauri 端为 no-op）
+export const onAgentEvent = () => () => {};
+export const onQueueChange = () => () => {};

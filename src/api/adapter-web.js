@@ -3,6 +3,7 @@
 
 import * as db from "./db.js";
 import * as queue from "./queue.js";
+import * as agent from "./agent.js";
 import { uploadImage, downloadImage, deleteImage } from "./blob.js";
 
 // ── 本地存储键 ──
@@ -180,14 +181,97 @@ export async function createAgentDirectImageTask(sessionId, content, attachments
   };
 }
 
-// ── Agent 消息（阶段 5 实现，先占位） ──
+// ── Agent 消息 ──
 
-export async function sendAgentMessage() {
-  throw new Error("Web 版 Agent 对话尚未实现");
+let agentEventListeners = [];
+
+/** 注册 Agent 事件监听（对应 Tauri 的 listenEvent("agent-progress") 和 ("agent-task-group")） */
+export function onAgentEvent(callback) {
+  agentEventListeners.push(callback);
+  return () => {
+    agentEventListeners = agentEventListeners.filter((cb) => cb !== callback);
+  };
+}
+
+function emitAgentEvent(event, payload) {
+  for (const cb of agentEventListeners) {
+    try { cb(event, payload); } catch {}
+  }
+}
+
+export async function sendAgentMessage(sessionId, providerId, content, attachments) {
+  const settings = readJSON(KEYS.settings) || { providers: [] };
+  const provider = (settings.providers || []).find(
+    (p) => p.id === providerId && p.modelType === "chat"
+  ) || (settings.providers || []).find((p) => p.modelType === "chat");
+  if (!provider) throw new Error("还没有配置对话模型");
+
+  const sessions = readSessions();
+  let session = sessions.find((s) => s.id === sessionId);
+  if (!session) throw new Error("找不到 Agent 会话");
+
+  // 添加用户消息
+  const now = new Date().toISOString();
+  const userMsg = {
+    id: `web-msg-${Date.now()}`,
+    role: "user",
+    content,
+    createdAt: now,
+    attachments: (attachments || []).map((a) => ({
+      id: a.id,
+      path: a.path || "",
+      fileName: a.fileName || "image.png",
+      mimeType: a.mimeType || "image/png",
+      dataUrl: a.dataUrl || "",
+    })),
+  };
+  session.messages = [...(session.messages || []), userMsg];
+
+  try {
+    session = await agent.runAgentTurn(provider, session, content, attachments, (event) => {
+      emitAgentEvent("agent-progress", event);
+    });
+  } catch (error) {
+    const errorMsg = {
+      id: `web-msg-${Date.now()}`,
+      role: "assistant",
+      content: "",
+      error: error.message || String(error),
+      createdAt: new Date().toISOString(),
+    };
+    session.messages = [...(session.messages || []), errorMsg];
+    emitAgentEvent("agent-progress", {
+      phase: "error",
+      message: error.message || "Agent 调用失败",
+      sessionId,
+    });
+  }
+
+  // 检查是否有任务组创建
+  const lastMsg = session.messages?.[session.messages.length - 1];
+  if (lastMsg?.taskGroup?.id) {
+    emitAgentEvent("agent-task-group", {
+      ...lastMsg.taskGroup,
+      sessionId,
+      tasks: lastMsg.taskGroup.taskIds?.length || 0,
+    });
+  }
+
+  // 保存会话
+  const allSessions = readSessions();
+  const idx = allSessions.findIndex((s) => s.id === session.id);
+  if (idx >= 0) {
+    allSessions[idx] = session;
+  } else {
+    allSessions.push(session);
+  }
+  writeSessions(allSessions);
+
+  return session;
 }
 
 export async function cancelAgentTurn() {
-  // 占位
+  // Web 版可通过 AbortController 实现，当前占位
 }
 
 export async function cancelAgentTaskGroup(taskGroupId) {

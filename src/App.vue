@@ -343,12 +343,19 @@ onMounted(async () => {
   try {
     unlistenAgentProgress = await listenEvent("agent-progress", handleAgentProgressEvent);
   } catch {
-    // 预览环境可能没有事件通道。
+    unlistenAgentProgress = api.onAgentEvent((event, payload) => {
+      if (event === "agent-progress") handleAgentProgressEvent({ payload });
+    });
   }
   try {
     unlistenAgentTaskGroup = await listenEvent("agent-task-group", handleAgentTaskGroupEvent);
   } catch {
-    // 预览环境可能没有事件通道。
+    const unlistenTaskGroup = api.onAgentEvent((event, payload) => {
+      if (event === "agent-task-group") handleAgentTaskGroupEvent({ payload });
+    });
+    // 合并清理
+    const prev = unlistenAgentProgress;
+    unlistenAgentProgress = () => { prev(); unlistenTaskGroup(); };
   }
   try {
     unlistenMenuOpenSettings = await listenEvent("menu-open-settings", () => {

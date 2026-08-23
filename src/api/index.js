@@ -39,4 +39,6 @@ export const {
   cleanupDataFiles,
   readClipboardText,
   listProviderModels,
+  onAgentEvent,
+  onQueueChange,
 } = adapter;
