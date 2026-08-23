@@ -157,6 +157,7 @@ import { computed, reactive, ref, watch } from "vue";
 import { ArrowDown, ArrowUp, Copy, Trash2 } from "@lucide/vue";
 import ConfirmDialog from "./ConfirmDialog.vue";
 import { invoke } from "../../tauri";
+import * as api from "../../api/index.js";
 import {
   createProviderId,
   deepClone,
@@ -291,7 +292,7 @@ async function pasteProvider() {
   let text = "";
   try {
     // 桌面端走 Tauri 原生剪贴板，避免浏览器权限限制
-    text = await invoke("read_clipboard_text");
+    text = await api.readClipboardText();
   } catch {
     shakePaste();
     return;
@@ -460,9 +461,9 @@ async function fetchModels({ autoSelectFirst = false } = {}) {
   loadingModels.value = true;
   modelFetchMessage.value = "";
   try {
-    const models = await invoke("list_provider_models", {
-      provider: normalizeProviderForSave(deepClone(provider)),
-    });
+    const models = await api.listProviderModels(
+      normalizeProviderForSave(deepClone(provider)),
+    );
     providerModels[provider.id] = models;
     modelFetchTone.value = "ok";
     modelFetchMessage.value = models.length ? `已获取 ${models.length} 个模型` : "模型列表为空";

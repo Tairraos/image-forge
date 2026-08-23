@@ -181,6 +181,7 @@ import {
 } from "./lib/options";
 import { themeOverrides } from "./lib/theme";
 import { invoke, listenDragDrop, listenEvent, listenWindowState, openDialog, restoreWindowState, saveDialog } from "./tauri";
+import * as api from "./api/index.js";
 
 const statusText = ref("启动中");
 const statusTone = ref("busy");
@@ -376,7 +377,7 @@ onUnmounted(() => {
 // 首次加载或重大变更后，重新拉取设置、历史、队列和模板。
 async function refreshAll() {
   try {
-    const state = await invoke("load_app_state");
+    const state = await api.loadAppState();
     applyState(state);
     setStatus("就绪", "ok");
   } catch (error) {
@@ -386,7 +387,7 @@ async function refreshAll() {
 
 async function refreshAgentSessions() {
   try {
-    const list = await invoke("list_agent_sessions");
+    const list = await api.listAgentSessions();
     agentSessions.value = sortAgentSessions(Array.isArray(list) ? list : []);
     if (!currentAgentSessionId.value && agentSessions.value[0]) {
       currentAgentSessionId.value = agentSessions.value[0].id;
@@ -421,7 +422,7 @@ function setAgentSession(session) {
 
 async function createAgentConversation() {
   try {
-    const session = await invoke("create_agent_session", { providerId: form.chatProviderId || "" });
+    const session = await api.createAgentSession(form.chatProviderId || "");
     setAgentSession(session);
     currentAgentSessionId.value = session.id;
   } catch (error) {
@@ -431,7 +432,7 @@ async function createAgentConversation() {
 
 async function selectAgentConversation(sessionId) {
   try {
-    const session = await invoke("get_agent_session", { sessionId });
+    const session = await api.getAgentSession(sessionId);
     setAgentSession(session);
     currentAgentSessionId.value = session.id;
     form.chatProviderId = session.modelProviderId || form.chatProviderId;
@@ -448,7 +449,7 @@ async function deleteAgentConversation(sessionId) {
   const confirmed = await requestConfirmation("删除 Agent 对话", "确认把这个 Agent 对话移入系统回收站？关联的绘图任务不会删除。");
   if (!confirmed) return;
   try {
-    await invoke("delete_agent_session", { sessionId });
+    await api.deleteAgentSession(sessionId);
     if (currentAgentSessionId.value === sessionId) currentAgentSessionId.value = "";
     await refreshAgentSessions();
     setStatus("Agent 对话已移入回收站", "ok");
@@ -459,7 +460,7 @@ async function deleteAgentConversation(sessionId) {
 
 async function renameAgentConversation({ sessionId, title }) {
   try {
-    const session = await invoke("rename_agent_session", { sessionId, title });
+    const session = await api.renameAgentSession(sessionId, title);
     setAgentSession(session);
     setStatus("对话标题已更新", "ok");
   } catch (error) {
@@ -479,12 +480,12 @@ async function sendAgentConversationMessage(payload) {
   agentBusy.value = true;
   agentStreamText.value = "";
   try {
-    const session = await invoke("send_agent_message", {
-      sessionId: currentAgentSessionId.value,
-      providerId: form.chatProviderId,
+    const session = await api.sendAgentMessage(
+      currentAgentSessionId.value,
+      form.chatProviderId,
       content,
-      attachments: agentAttachments.value.map(({ dataUrl, ...attachment }) => attachment),
-    });
+      agentAttachments.value.map(({ dataUrl, ...attachment }) => attachment),
+    );
     setAgentSession(session);
     agentAttachments.value = [];
     await refreshAgentTaskGroups();
@@ -510,11 +511,11 @@ async function createAgentDrawingTask(content) {
   const attachments = agentAttachments.value.map(({ dataUrl, ...attachment }) => attachment);
   agentBusy.value = true;
   try {
-    await invoke("create_agent_direct_image_task", {
-      sessionId: currentAgentSessionId.value,
+    await api.createAgentDirectImageTask(
+      currentAgentSessionId.value,
       content,
       attachments,
-      plan: {
+      {
         title: content.split(/\r?\n/, 1)[0].slice(0, 32) || "直接绘画",
         prompt: content,
         providerId: activeProvider.value.id,
@@ -525,7 +526,7 @@ async function createAgentDrawingTask(content) {
         referencePolicy: attachments.length ? "use" : "none",
         referenceIds: attachments.map((attachment) => attachment.id),
       },
-    });
+    );
     agentAttachments.value = [];
     await refreshQueueOnly();
     await selectAgentConversation(currentAgentSessionId.value);
@@ -541,7 +542,7 @@ async function createAgentDrawingTask(content) {
 async function stopAgentConversation() {
   if (currentAgentSessionId.value) {
     try {
-      await invoke("cancel_agent_turn", { sessionId: currentAgentSessionId.value });
+      await api.cancelAgentTurn(currentAgentSessionId.value);
       await selectAgentConversation(currentAgentSessionId.value);
     } catch (error) {
       setStatus(String(error), "error");
@@ -560,7 +561,7 @@ async function addAgentReferenceImages() {
 async function addAgentReferencePaths(paths) {
   for (const path of paths || []) {
     try {
-      const preview = await invoke("reference_from_path", { path });
+      const preview = await api.referenceFromPath(path);
       agentAttachments.value.push({
         id: createAgentAttachmentId(),
         path: preview.path,
@@ -583,7 +584,7 @@ async function pasteAgentReferenceImage(event) {
     return;
   }
   try {
-    const preview = await invoke("reference_from_clipboard");
+    const preview = await api.referenceFromClipboard();
     if (preview && !agentAttachments.value.some((item) => item.path === preview.path)) {
       agentAttachments.value.push({
         id: createAgentAttachmentId(),
@@ -613,7 +614,7 @@ async function handleLibraryReferenceToAgent({ task, output }) {
   if (refPaths.length) {
     for (const path of refPaths) {
       try {
-        const preview = await invoke("reference_from_path", { path });
+        const preview = await api.referenceFromPath(path);
         if (!agentAttachments.value.some((item) => item.path === preview.path)) {
           agentAttachments.value.push({
             id: createAgentAttachmentId(),
@@ -649,7 +650,7 @@ async function handleLibraryAddToTemplate({ task, output }) {
   if (refPaths.length) {
     for (const path of refPaths) {
       try {
-        const preview = await invoke("reference_from_path", { path });
+        const preview = await api.referenceFromPath(path);
         templateDraftReferences.value.push({ ...preview, previewUrl: preview.dataUrl });
       } catch {
         // 参考图加载失败不阻塞模板创建
@@ -695,7 +696,7 @@ async function cancelAgentTaskGroup(group) {
   const confirmed = await requestConfirmation("取消任务组", "确认取消这个 Agent 任务组？已完成的任务不会删除，失败项仍可重试。");
   if (!confirmed) return;
   try {
-    await invoke("cancel_agent_task_group", { taskGroupId: group.id });
+    await api.cancelAgentTaskGroup(group.id);
     await refreshQueueOnly();
     if (currentAgentSessionId.value) await selectAgentConversation(currentAgentSessionId.value);
     await refreshAgentTaskGroups();
@@ -708,7 +709,7 @@ async function cancelAgentTaskGroup(group) {
 async function retryAgentTaskGroup(group) {
   if (!group?.id) return;
   try {
-    await invoke("retry_agent_task_group", { taskGroupId: group.id });
+    await api.retryAgentTaskGroup(group.id);
     await refreshQueueOnly();
     if (currentAgentSessionId.value) await selectAgentConversation(currentAgentSessionId.value);
     await refreshAgentTaskGroups();
@@ -764,7 +765,7 @@ async function refreshAgentTaskGroups({ silent = true } = {}) {
   try {
     const updates = await Promise.all(groups.map(async (group) => {
       try {
-        const tasks = await invoke("get_task_status", { taskGroupId: group.id, taskId: "" });
+        const tasks = await api.getTaskStatus(group.id, "");
         const records = Array.isArray(tasks) ? tasks : [];
         return {
           id: group.id,
@@ -855,7 +856,7 @@ async function refreshQueueOnly({ silent = true } = {}) {
   }
   queueRefreshInFlight = true;
   try {
-    const snapshot = await invoke("queue_snapshot");
+    const snapshot = await api.queueSnapshot();
     applyQueue(snapshot);
     return snapshot;
   } catch (error) {
@@ -945,7 +946,7 @@ async function addReferencePathsWithOptions(target, paths, successMessage, optio
   try {
     for (const path of paths) {
       try {
-        const preview = await invoke("reference_from_path", { path });
+        const preview = await api.referenceFromPath(path);
         if (appendReferencePreview(target, preview)) added += 1;
       } catch (error) {
         lastError = error;
@@ -1051,7 +1052,7 @@ async function pasteReferenceImage(event, target, successMessage) {
 
 async function pasteClipboardReference(target, successMessage) {
   try {
-    const preview = await invoke("reference_from_clipboard");
+    const preview = await api.referenceFromClipboard();
     if (!preview) {
       setStatus("剪贴板中没有可用图片", "error");
       return false;
@@ -1086,7 +1087,7 @@ async function restoreReferencePreviews(paths) {
   let missing = 0;
   for (const path of paths || []) {
     try {
-      const preview = await invoke("reference_from_path", { path });
+      const preview = await api.referenceFromPath(path);
       restored.push({ ...preview, previewUrl: preview.dataUrl });
     } catch {
       missing += 1;
@@ -1103,7 +1104,7 @@ async function deleteTask(task) {
   );
   if (!confirmed) return;
   try {
-    await invoke("delete_task", { taskId: task.id });
+    await api.deleteTask(task.id);
     setStatus("生成记录已删除", "ok");
     await refreshAll();
     agentLibraryVersion.value += 1;
@@ -1115,7 +1116,7 @@ async function deleteTask(task) {
 // 保存 API 源配置后，重新选择可用的生图和对话模型。
 async function saveApiSettings(nextSettings) {
   try {
-    const saved = await invoke("save_settings", { settings: nextSettings });
+    const saved = await api.saveSettings(nextSettings);
     settings.value = normalizeSettingsForUi(saved);
     ensureSelectedModels(true);
     setStatus("API 源已保存", "ok");
@@ -1145,7 +1146,7 @@ async function selectApiProvider(kind, providerId) {
     settings.value.activeChatProviderId = providerId;
   }
   try {
-    const saved = await invoke("save_settings", { settings: deepClone(settings.value) });
+    const saved = await api.saveSettings(deepClone(settings.value));
     settings.value = normalizeSettingsForUi(saved);
     setStatus("当前 API 已切换", "ok");
   } catch (error) {
@@ -1156,7 +1157,7 @@ async function selectApiProvider(kind, providerId) {
 // 下载输出图到系统 Downloads，并立即在 Finder 中定位。
 async function downloadOutput(output) {
   try {
-    const savedPath = await invoke("download_output", { path: output.path });
+    const savedPath = await api.downloadOutput(output.path);
     setStatus(`已保存到下载目录：${fileName(savedPath)}`, "ok");
     await reveal(savedPath);
   } catch (error) {
@@ -1198,7 +1199,7 @@ async function savePromptTemplate() {
   try {
     templateDraft.referencePaths = templateDraftReferences.value.map((item) => item.path);
     templateDraft.effectImagePath = templateDraftEffectImage.value?.path || "";
-    templates.value = await invoke("save_template", { template: deepClone(templateDraft) });
+    templates.value = await api.saveTemplate(deepClone(templateDraft));
     showTemplateEditor.value = false;
     setStatus("模板已保存", "ok");
   } catch (error) {
@@ -1218,7 +1219,7 @@ async function addTemplateDraftEffectImage() {
     });
     const path = Array.isArray(selected) ? selected[0] : selected;
     if (!path) return;
-    const preview = await invoke("reference_from_path", { path });
+    const preview = await api.referenceFromPath(path);
     templateDraftEffectImage.value = { ...preview, previewUrl: preview.dataUrl };
     setStatus("已添加模板效果图", "ok");
   } catch (error) {
@@ -1228,7 +1229,7 @@ async function addTemplateDraftEffectImage() {
 
 async function pasteTemplateDraftEffectImage() {
   try {
-    const preview = await invoke("reference_from_clipboard");
+    const preview = await api.referenceFromClipboard();
     if (!preview) {
       setStatus("剪贴板中没有可用图片", "error");
       return;
@@ -1256,7 +1257,7 @@ async function exportPromptTemplates() {
       filters: [{ name: "ZIP 压缩包", extensions: ["zip"] }],
     });
     if (!destination) return;
-    const savedPath = await invoke("export_templates", { destination });
+    const savedPath = await api.exportTemplates(destination);
     setStatus(`模板已导出：${fileName(savedPath)}`, "ok");
   } catch (error) {
     setStatus(String(error), "error");
@@ -1272,7 +1273,7 @@ async function importPromptTemplates() {
     });
     const archivePath = Array.isArray(selected) ? selected[0] : selected;
     if (!archivePath) return;
-    const result = await invoke("import_templates", { archivePath });
+    const result = await api.importTemplates(archivePath);
     templates.value = result.templates || [];
     const message = `导入 ${result.importedCount || 0} 个，重复 ${result.skippedCount || 0} 个。`;
     await showNotice("模板导入结果", message);
@@ -1292,7 +1293,7 @@ async function deletePromptTemplate(id) {
   );
   if (!confirmed) return;
   try {
-    templates.value = await invoke("delete_template", { templateId: id });
+    templates.value = await api.deleteTemplate(id);
   } catch (error) {
     setStatus(String(error), "error");
   }
@@ -1301,7 +1302,7 @@ async function deletePromptTemplate(id) {
 // 交换当前模板与搜索结果中相邻模板的位置，并持久化完整模板顺序。
 async function movePromptTemplate({ templateId, targetTemplateId }) {
   try {
-    templates.value = await invoke("move_template", { templateId, targetTemplateId });
+    templates.value = await api.moveTemplate(templateId, targetTemplateId);
   } catch (error) {
     setStatus(String(error), "error");
   }
@@ -1310,7 +1311,7 @@ async function movePromptTemplate({ templateId, targetTemplateId }) {
 async function restoreEffectImage(path) {
   if (!path) return null;
   try {
-    const preview = await invoke("reference_from_path", { path });
+    const preview = await api.referenceFromPath(path);
     return { ...preview, previewUrl: preview.dataUrl };
   } catch {
     return null;
@@ -1329,7 +1330,7 @@ function showTemplateEffect(template) {
 async function openDesign() {
   showDesignDialog.value = true;
   try {
-    aboutInfo.value = await invoke("about_info");
+    aboutInfo.value = await api.aboutInfo();
   } catch {
     aboutInfo.value = {
       version: "",
@@ -1340,7 +1341,7 @@ async function openDesign() {
 
 async function openRuntimeLogs() {
   try {
-    runtimeLogText.value = await invoke("runtime_logs");
+    runtimeLogText.value = await api.runtimeLogs();
   } catch (error) {
     runtimeLogText.value = `读取运行日志失败：${String(error)}`;
   }
@@ -1353,7 +1354,7 @@ async function openCleanup() {
   cleanupLoading.value = true;
   showCleanupDialog.value = true;
   try {
-    cleanupCandidates.value = await invoke("scan_cleanup_candidates");
+    cleanupCandidates.value = await api.scanCleanupCandidates();
   } catch (error) {
     cleanupError.value = String(error);
   } finally {
@@ -1365,7 +1366,7 @@ async function confirmCleanup() {
   cleanupConfirming.value = true;
   cleanupError.value = "";
   try {
-    const removed = await invoke("cleanup_data_files");
+    const removed = await api.cleanupDataFiles();
     cleanupCandidates.value = [];
     showCleanupDialog.value = false;
     setStatus(`已清理 ${removed.length} 个孤岛文件`, "ok");
@@ -1379,7 +1380,7 @@ async function confirmCleanup() {
 // 调用系统文件管理器定位文件或目录。
 async function reveal(path) {
   try {
-    await invoke("reveal_path", { path });
+    await api.revealPath(path);
   } catch (error) {
     setStatus(String(error), "error");
   }

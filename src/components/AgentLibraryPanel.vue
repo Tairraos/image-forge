@@ -182,6 +182,7 @@ import {
   taskTime,
 } from "../lib/libraryFormat";
 import { invoke } from "../tauri";
+import * as api from "../api/index.js";
 
 const props = defineProps({
   version: { type: Number, default: 0 },
@@ -235,7 +236,7 @@ async function load() {
   const current = ++requestId;
   loading.value = true;
   try {
-    const result = await invoke("agent_library", { month: month.value, query: query.value });
+    const result = await api.agentLibrary(month.value, query.value);
     if (current !== requestId) return;
     tasks.value = result.tasks || [];
     months.value = result.months || [];
