@@ -4,7 +4,7 @@
   "version": "1.0.81",
   "type": "module",
   "scripts": {
-    "dev": "vite --host 127.0.0.1 --port 1421",
+    "dev": "vite",
     "build": "vite build",
     "test": "vitest run",
     "preview": "vite preview --host 127.0.0.1 --port 1421",
