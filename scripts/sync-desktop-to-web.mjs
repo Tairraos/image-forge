@@ -212,6 +212,7 @@ function syncPage() {
     button { padding: 10px 24px; font-size: 15px; border: 0; border-radius: 8px; cursor: pointer; }
     .btn-primary { background: #7c5ce8; color: #fff; }
     .btn-primary:hover { background: #6a4dd4; }
+    .btn-row { display: flex; gap: 12px; margin-bottom: 16px; }
     .status { margin: 16px 0; padding: 12px; border-radius: 8px; font-size: 13px; line-height: 1.6; }
     .status-ok { background: #e8f7f0; color: #237257; }
     .status-err { background: #fff3f6; color: #c2415b; }
@@ -228,7 +229,10 @@ function syncPage() {
   <h1>Image Forge 双向同步</h1>
   <p class="sub">合并桌面版 SQLite 和浏览器数据，以较新记录为准</p>
 
-  <button class="btn-primary" onclick="doSync()">开始同步</button>
+  <div class="btn-row">
+    <button class="btn-primary" onclick="doSync('web-to-app')">Web → App</button>
+    <button class="btn-primary" onclick="doSync('app-to-web')">App → Web</button>
+  </div>
   <div id="result"></div>
 
   <div id="summary" style="display:none">
@@ -242,9 +246,10 @@ function syncPage() {
   </div>
 
   <script>
-    async function doSync() {
+    async function doSync(direction) {
       const el = document.getElementById("result");
-      el.innerHTML = '<div class="status">⏳ 正在同步...</div>';
+      const label = direction === "web-to-app" ? "Web → App" : "App → Web";
+      el.innerHTML = '<div class="status">⏳ 正在同步 ' + label + '...</div>';
 
       try {
         // 1. 读取浏览器数据
@@ -254,11 +259,7 @@ function syncPage() {
           if (raw) browserData[key] = JSON.parse(raw);
         });
 
-        const idb = await new Promise((resolve, reject) => {
-          const req = indexedDB.open("ImageForge", 1);
-          req.onsuccess = () => resolve(req.result);
-          req.onerror = () => reject(req.error);
-        });
+        const idb = await new Promise((r, j) => { const req = indexedDB.open("ImageForge"); req.onsuccess = () => r(req.result); req.onerror = () => j(req.error); });
         if (idb.objectStoreNames.contains("tasks")) {
           const tx = idb.transaction("tasks", "readonly");
           const rows = await new Promise((res) => {
@@ -271,11 +272,12 @@ function syncPage() {
         }
         idb.close();
 
-        // 2. 发送到服务器合并
+        // 2. 发送到服务器
         const res = await fetch("/sync-merge", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            direction,
             settings: browserData.if_settings || null,
             templates: browserData.if_templates || [],
             agentSessions: browserData.if_agent_sessions || [],
@@ -285,51 +287,46 @@ function syncPage() {
         if (!res.ok) throw new Error("服务器返回 " + res.status);
         const merged = await res.json();
 
-        // 3. 写回浏览器
-        if (merged.settings) {
-          localStorage.setItem("if_settings", JSON.stringify(merged.settings));
-        }
-        if (merged.templates?.length) {
-          localStorage.setItem("if_templates", JSON.stringify(merged.templates));
-        }
-        if (merged.agentSessions?.length) {
-          localStorage.setItem("if_agent_sessions", JSON.stringify(merged.agentSessions));
-        }
-        if (merged.tasks?.length) {
-          const db = await new Promise((r, j) => { const req = indexedDB.open("ImageForge"); req.onsuccess = () => r(req.result); req.onerror = () => j(req.error); });
-          const tx = db.transaction("tasks", "readwrite");
-          const store = tx.objectStore("tasks");
-          for (const t of merged.tasks) {
-            store.put({
-              id: t.id,
-              created_at: t.created_at || t.createdAt || "",
-              library_date: t.library_date || (t.completed_at || t.created_at || "").slice(0, 10),
-              status: t.status || "completed",
-              origin: t.origin || (t.agent_session_id || t.task_group_id ? "agent" : "drawing"),
-              task_group_id: t.task_group_id || t.taskGroupId || "",
-              prompt: t.prompt || "",
-              model: t.model || "",
-              record_json: JSON.stringify(t),
-            });
+        // 3. 写回浏览器（仅 app-to-web 方向）
+        if (direction === "app-to-web") {
+          if (merged.settings) {
+            localStorage.setItem("if_settings", JSON.stringify(merged.settings));
           }
-          await new Promise((resolve, reject) => {
-            tx.oncomplete = resolve;
-            tx.onerror = () => reject(tx.error);
-          });
-          db.close();
+          if (merged.templates?.length) {
+            localStorage.setItem("if_templates", JSON.stringify(merged.templates));
+          }
+          if (merged.agentSessions?.length) {
+            localStorage.setItem("if_agent_sessions", JSON.stringify(merged.agentSessions));
+          }
+          if (merged.tasks?.length) {
+            const db = await new Promise((r, j) => { const req = indexedDB.open("ImageForge"); req.onsuccess = () => r(req.result); req.onerror = () => j(req.error); });
+            const tx = db.transaction("tasks", "readwrite");
+            const store = tx.objectStore("tasks");
+            for (const t of merged.tasks) {
+              store.put({
+                id: t.id,
+                created_at: t.created_at || t.createdAt || "",
+                library_date: t.library_date || (t.completed_at || t.created_at || "").slice(0, 10),
+                status: t.status || "completed",
+                origin: t.origin || (t.agent_session_id || t.task_group_id ? "agent" : "drawing"),
+                task_group_id: t.task_group_id || t.taskGroupId || "",
+                prompt: t.prompt || "",
+                model: t.model || "",
+                record_json: JSON.stringify(t),
+              });
+            }
+            await new Promise((r, j) => { tx.oncomplete = r; tx.onerror = () => j(tx.error); });
+            db.close();
+          }
         }
 
         // 4. 显示结果
         document.getElementById("s-settings").textContent = merged.settings?.providers?.length || 0;
-        document.getElementById("s-settings").className = "count";
         document.getElementById("s-templates").textContent = merged.templates?.length || 0;
-        document.getElementById("s-templates").className = "count";
         document.getElementById("s-sessions").textContent = merged.agentSessions?.length || 0;
-        document.getElementById("s-sessions").className = "count";
         document.getElementById("s-tasks").textContent = merged.tasks?.length || 0;
-        document.getElementById("s-tasks").className = "count";
         document.getElementById("summary").style.display = "block";
-        el.innerHTML = '<div class="status status-ok">✅ 双向同步完成！桌面版 SQLite 和浏览器数据已合并。</div>';
+        el.innerHTML = '<div class="status status-ok">✅ ' + label + ' 同步完成！</div>';
       } catch (err) {
         el.innerHTML = '<div class="status status-err">❌ 同步失败：' + err.message + '</div>';
       }
@@ -348,14 +345,24 @@ async function handleMerge(req, res) {
   let body = "";
   for await (const chunk of req) body += chunk;
 
-  let browserData = { settings: null, templates: [], agentSessions: [], tasks: [] };
-  try { browserData = JSON.parse(body); } catch {}
+  let bodyData = {};
+  try { bodyData = JSON.parse(body); } catch {}
+
+  const browserData = {
+    settings: bodyData.settings || null,
+    templates: bodyData.templates || [],
+    agentSessions: bodyData.agentSessions || [],
+    tasks: bodyData.tasks || [],
+  };
+  const direction = bodyData.direction || "app-to-web";
 
   const desktop = readSQLite();
   const merged = mergeData(desktop, browserData);
 
-  // 写回 SQLite
-  try { writeSQLite(merged); } catch (e) { console.error("写入 SQLite 失败:", e); }
+  if (direction === "web-to-app") {
+    // Web → App：合并后写回 SQLite
+    try { writeSQLite(merged); } catch (e) { console.error("写入 SQLite 失败:", e); }
+  }
 
   res.writeHead(200, { "Content-Type": "application/json" });
   res.end(JSON.stringify(merged));
