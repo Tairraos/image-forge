@@ -1,5 +1,30 @@
 <template>
-  <n-config-provider :theme-overrides="themeOverrides" component-size="small">
+  <div v-if="isWeb && !unlocked" class="lock-screen">
+    <div class="lock-screen-card">
+      <img :src="logoUrl" alt="Image Forge" class="lock-screen-logo" />
+      <h1>Image Forge</h1>
+      <p>输入访问密码以继续</p>
+      <n-input
+        v-model:value="lockPassword"
+        type="password"
+        size="large"
+        placeholder="访问密码"
+        :status="lockError ? 'error' : undefined"
+        @keydown.enter="unlock"
+      />
+      <n-button
+        type="primary"
+        size="large"
+        :disabled="!lockPassword.trim()"
+        @click="unlock"
+        class="lock-screen-btn"
+      >
+        解锁
+      </n-button>
+      <p v-if="lockError" class="lock-screen-error">{{ lockError }}</p>
+    </div>
+  </div>
+  <n-config-provider v-else :theme-overrides="themeOverrides" component-size="small">
     <n-global-style />
     <AppShell>
 
@@ -182,9 +207,29 @@ import {
 import { themeOverrides } from "./lib/theme";
 import { invoke, listenDragDrop, listenEvent, listenWindowState, openDialog, restoreWindowState, saveDialog } from "./tauri";
 import * as api from "./api/index.js";
+import logoUrl from "./assets/title.png";
 
 const statusText = ref("启动中");
 const statusTone = ref("busy");
+
+// 密码锁（仅 Web 版生效）
+const isWeb = !window.__TAURI_INTERNALS__;
+const AUTH_KEY = "if_auth";
+const ACCESS_PASSWORD = import.meta.env.VITE_ACCESS_PASSWORD || "image-forge";
+const unlocked = ref(!isWeb || localStorage.getItem(AUTH_KEY) === ACCESS_PASSWORD);
+const lockPassword = ref("");
+const lockError = ref("");
+
+function unlock() {
+  if (lockPassword.value.trim() === ACCESS_PASSWORD) {
+    localStorage.setItem(AUTH_KEY, ACCESS_PASSWORD);
+    unlocked.value = true;
+    lockError.value = "";
+  } else {
+    lockError.value = "密码错误";
+    lockPassword.value = "";
+  }
+}
 const agentSessions = ref([]);
 const currentAgentSessionId = ref("");
 const agentBusy = ref(false);

@@ -143,6 +143,59 @@ button:disabled {
   color: var(--text);
 }
 
+/* ── 密码锁定界面 ── */
+
+.lock-screen {
+  display: grid;
+  place-items: center;
+  width: 100vw;
+  height: 100vh;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(255, 255, 255, 0) 32%),
+    #faf8ff;
+}
+
+.lock-screen-card {
+  display: grid;
+  justify-items: center;
+  gap: 16px;
+  width: 360px;
+  max-width: calc(100vw - 48px);
+  padding: 40px 32px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: 0 24px 70px rgba(43, 33, 82, 0.12);
+}
+
+.lock-screen-logo {
+  width: 200px;
+  height: 38px;
+  object-fit: contain;
+}
+
+.lock-screen-card h1 {
+  margin: 0;
+  color: var(--text);
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.lock-screen-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.lock-screen-btn {
+  width: 100%;
+}
+
+.lock-screen-error {
+  color: #c2415b;
+  font-size: 12px;
+}
+
 .app-shell-workspace {
   min-height: 0;
   overflow: hidden;
