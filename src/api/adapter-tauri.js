@@ -54,6 +54,10 @@ export const deleteTemplate = (templateId) => invoke("delete_template", { templa
 export const moveTemplate = (templateId, targetTemplateId) =>
   invoke("move_template", { templateId, targetTemplateId });
 
+// ── 数据导出/导入 ──
+export const exportDataBundle = (categories) => invoke("export_data_bundle", { categories });
+export const importDataBundle = (filePath) => invoke("import_data_bundle", { filePath });
+
 // ── 清理 ──
 export const scanCleanupCandidates = () => invoke("scan_cleanup_candidates");
 export const cleanupDataFiles = () => invoke("cleanup_data_files");

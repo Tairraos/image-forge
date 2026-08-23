@@ -34,6 +34,7 @@ use crate::{
             prune_unreferenced_files_with_data, scan_orphan_files,
         },
         template_bundle::{export_templates_archive, import_templates_archive},
+        data_bundle,
     },
     state::{record_operation, runtime_logs_text, RuntimeState},
     store::{
@@ -1330,6 +1331,35 @@ pub(crate) fn export_templates(app: AppHandle, destination: String) -> Result<St
     let result = export_templates_archive(&templates, Path::new(&destination))
         .map(|archive| archive.to_string_lossy().into_owned());
     record_result("导出模板文件", &params, None, &result);
+    result
+}
+
+#[tauri::command]
+/// 导出数据包：按分类打包 ZIP，文件去重。
+pub(crate) fn export_data_bundle(app: AppHandle, categories: Vec<String>) -> Result<String, String> {
+    let data_dir = ensure_data_dir(&app)?;
+    let params = format!("categories={}", categories.join(","));
+    let result = data_bundle::export_data_bundle(&data_dir, &categories);
+    record_result("导出数据包", &params, None, &result);
+    result
+}
+
+#[tauri::command]
+/// 导入数据包从 ZIP 文件。
+pub(crate) fn import_data_bundle(
+    app: AppHandle,
+    file_path: String,
+) -> Result<data_bundle::ImportResult, String> {
+    let data_dir = ensure_data_dir(&app)?;
+    let params = format!("path={}", file_path);
+    let result = data_bundle::import_data_bundle(&data_dir, &file_path);
+    let log_result: Result<String, String> = result.as_ref().map(|r| {
+        format!(
+            "s={} t={} c={} i={}",
+            r.settings, r.templates, r.sessions, r.tasks
+        )
+    }).map_err(|e| e.clone());
+    record_result("导入数据包", &params, None, &log_result);
     result
 }
 

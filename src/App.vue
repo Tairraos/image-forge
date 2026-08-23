@@ -112,6 +112,8 @@
           @show-template-effect="showTemplateEffect"
           @show-logs="openRuntimeLogs"
           @cleanup="openCleanup"
+          @export-data="openExportData"
+          @import-data="openImportData"
         />
 
 
@@ -133,6 +135,11 @@
         @reference-drag-leave="templateDraftDragActive = false"
         @drop-reference="handleTemplateDraftDropEvent"
         @update:show="templateDraftDragActive = false"
+      />
+
+      <DataTransferDialog
+        v-model:show="showDataTransfer"
+        :mode="dataTransferMode"
       />
 
       <EffectImageViewer
@@ -191,6 +198,7 @@ import EffectImageViewer from "./components/dialogs/EffectImageViewer.vue";
 import NoticeDialog from "./components/dialogs/NoticeDialog.vue";
 import RuntimeLogDialog from "./components/dialogs/RuntimeLogDialog.vue";
 import TemplateEditorDialog from "./components/dialogs/TemplateEditorDialog.vue";
+import DataTransferDialog from "./components/dialogs/DataTransferDialog.vue";
 import { fileName } from "./lib/formatters";
 import {
   deepClone,
@@ -249,6 +257,8 @@ const templateDraftDragActive = ref(false);
 
 const showApiDialog = ref(false);
 const showTemplateEditor = ref(false);
+const showDataTransfer = ref(false);
+const dataTransferMode = ref("export");
 const showDesignDialog = ref(false);
 const showRuntimeLogDialog = ref(false);
 const showCleanupDialog = ref(false);
@@ -1412,6 +1422,18 @@ async function openCleanup() {
   } finally {
     cleanupLoading.value = false;
   }
+}
+
+function openExportData() {
+  showDesignDialog.value = false;
+  dataTransferMode.value = "export";
+  showDataTransfer.value = true;
+}
+
+function openImportData() {
+  showDesignDialog.value = false;
+  dataTransferMode.value = "import";
+  showDataTransfer.value = true;
 }
 
 async function confirmCleanup() {

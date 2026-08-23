@@ -477,6 +477,14 @@ export async function importTemplates(archivePath) {
   return { templates: existing, importedCount: imported, skippedCount: skipped };
 }
 
+export async function exportDataBundle(categories) {
+  throw new Error("Web 版暂不支持导出数据包，请使用桌面版。");
+}
+
+export async function importDataBundle(filePath) {
+  throw new Error("Web 版暂不支持导入数据包，请使用桌面版。");
+}
+
 export async function deleteTemplate(templateId) {
   const templates = readJSON(KEYS.templates, []).filter((t) => t.id !== templateId);
   writeJSON(KEYS.templates, templates);

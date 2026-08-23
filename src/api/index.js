@@ -33,6 +33,8 @@ export const {
   saveTemplate,
   exportTemplates,
   importTemplates,
+  exportDataBundle,
+  importDataBundle,
   deleteTemplate,
   moveTemplate,
   scanCleanupCandidates,

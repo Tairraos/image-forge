@@ -68,6 +68,8 @@
             v-else-if="tab === 'backup'"
             :settings="settings"
             :templates="templates"
+            @export-data="emit('export-data')"
+            @import-data="emit('import-data')"
           />
           <AboutPanel
             v-else
@@ -111,6 +113,8 @@ const emit = defineEmits([
   "create-template",
   "import-template",
   "export-template",
+  "export-data",
+  "import-data",
   "move-template",
   "show-template-effect",
   "show-logs",

@@ -9,3 +9,4 @@ pub(crate) mod provider_bundle;
 pub(crate) mod queue;
 pub(crate) mod references;
 pub(crate) mod template_bundle;
+pub(crate) mod data_bundle;
