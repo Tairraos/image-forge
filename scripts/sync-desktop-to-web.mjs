@@ -8,7 +8,7 @@ import { readFile } from "node:fs/promises";
 import { createServer } from "node:https";
 import { homedir } from "node:os";
 import { join, extname } from "node:path";
-import { createReadStream, readFileSync } from "node:fs";
+import { createReadStream, readFileSync, statSync, existsSync, readdirSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import Database from "better-sqlite3";
 
@@ -24,10 +24,111 @@ const MIME_MAP = {
   ".json": "application/json",
 };
 
+// ── JSON → SQLite 迁移 ──
+
+function migrateJsonToSQLite(db) {
+  const now = new Date().toISOString();
+
+  // settings.json
+  try {
+    const settingsPath = join(DATA_DIR, "settings.json");
+    if (existsSync(settingsPath)) {
+      const text = readFileSync(settingsPath, "utf-8");
+      const existing = db.prepare("SELECT value FROM app_settings WHERE key = 'settings'").get();
+      if (!existing) {
+        db.prepare("INSERT INTO app_settings (key, value) VALUES ('settings', ?)").run(text);
+        console.log("  ✅ 已迁移 settings.json → SQLite");
+      }
+    }
+  } catch {}
+
+  // prompt-templates.json
+  try {
+    const tplPath = join(DATA_DIR, "prompt-templates.json");
+    if (existsSync(tplPath)) {
+      const existing = db.prepare("SELECT COUNT(*) as cnt FROM app_templates").get();
+      if (existing.cnt === 0) {
+        const text = readFileSync(tplPath, "utf-8");
+        const templates = JSON.parse(text);
+        const insert = db.prepare(
+          "INSERT INTO app_templates (id, position, created_at, updated_at, record_json) VALUES (?, ?, ?, ?, ?)"
+        );
+        for (let i = 0; i < templates.length; i++) {
+          const t = templates[i];
+          insert.run(t.id || `tpl-${i}`, i, t.createdAt || now, t.updatedAt || now, JSON.stringify(t));
+        }
+        console.log(`  ✅ 已迁移 prompt-templates.json → SQLite（${templates.length} 个模板）`);
+      }
+    }
+  } catch {}
+
+  // agent/sessions/*.json
+  try {
+    const sessionsDir = join(DATA_DIR, "agent", "sessions");
+    if (existsSync(sessionsDir)) {
+      const existing = db.prepare("SELECT COUNT(*) as cnt FROM agent_sessions").get();
+      if (existing.cnt === 0) {
+        const files = readdirSync(sessionsDir).filter((f) => f.endsWith(".json"));
+        const upsert = db.prepare(
+          "INSERT INTO agent_sessions (id, created_at, updated_at, title, model_provider_id, status, record_json) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        );
+        for (const file of files) {
+          const text = readFileSync(join(sessionsDir, file), "utf-8");
+          const s = JSON.parse(text);
+          upsert.run(
+            s.id, s.created_at || s.createdAt || now, s.updated_at || s.updatedAt || now,
+            s.title || "", s.model_provider_id || s.modelProviderId || "",
+            s.status || "idle", text,
+          );
+        }
+        console.log(`  ✅ 已迁移 agent/sessions/ → SQLite（${files.length} 个会话）`);
+      }
+    }
+  } catch {}
+
+  // queue.json
+  try {
+    const queuePath = join(DATA_DIR, "queue.json");
+    if (existsSync(queuePath)) {
+      const existing = db.prepare("SELECT COUNT(*) as cnt FROM app_queue").get();
+      if (existing.cnt === 0) {
+        const text = readFileSync(queuePath, "utf-8");
+        const queue = JSON.parse(text);
+        const waiting = queue.waiting || [];
+        const running = queue.running || [];
+        const insert = db.prepare(
+          "INSERT INTO app_queue (id, position, status, provider_id, record_json) VALUES (?, ?, ?, ?, ?)"
+        );
+        for (let i = 0; i < waiting.length; i++) {
+          insert.run(waiting[i], i, "waiting", "", JSON.stringify({ taskId: waiting[i] }));
+        }
+        for (let i = 0; i < running.length; i++) {
+          const r = running[i];
+          insert.run(r.task_id, waiting.length + i, "running", r.provider_id || "", JSON.stringify(r));
+        }
+        console.log(`  ✅ 已迁移 queue.json → SQLite`);
+      }
+    }
+  } catch {}
+}
+
+function ensureTables(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS app_templates (id TEXT PRIMARY KEY, position INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, record_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS agent_sessions (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, title TEXT NOT NULL DEFAULT '', model_provider_id TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'idle', record_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS app_queue (id TEXT PRIMARY KEY, position INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'waiting', provider_id TEXT NOT NULL DEFAULT '', record_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, completed_at TEXT NOT NULL, library_date TEXT NOT NULL, prompt TEXT NOT NULL, model TEXT NOT NULL, provider_name TEXT NOT NULL, origin TEXT NOT NULL, task_group_id TEXT NOT NULL, status TEXT NOT NULL, record_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS task_outputs (task_id TEXT NOT NULL, position INTEGER NOT NULL, path TEXT NOT NULL, PRIMARY KEY (task_id, position));
+  `);
+  migrateJsonToSQLite(db);
+}
+
 // ── SQLite 读取 ──
 
 function readSQLite() {
-  const db = new Database(SQLITE_FILE, { readonly: true });
+  const db = new Database(SQLITE_FILE);
+  ensureTables(db);
   const data = {
     settings: null,
     templates: [],
@@ -63,6 +164,7 @@ function readSQLite() {
 
 function writeSQLite(data) {
   const db = new Database(SQLITE_FILE);
+  ensureTables(db);
   const tx = db.transaction(() => {
     const now = new Date().toISOString();
 
