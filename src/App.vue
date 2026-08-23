@@ -608,18 +608,25 @@ function removeAgentAttachment(id) {
 }
 
 async function handleLibraryReferenceToAgent({ task, output }) {
-  // 添加输出图作为参考图
-  try {
-    const preview = await invoke("reference_from_path", { path: output.path });
-    agentAttachments.value.push({
-      id: createAgentAttachmentId(),
-      path: preview.path,
-      fileName: preview.fileName,
-      mimeType: preview.mimeType,
-      dataUrl: preview.dataUrl,
-    });
-  } catch (error) {
-    setStatus(String(error), "error");
+  // 添加生成此图时使用的所有参考图
+  const refPaths = task.reference_paths || [];
+  if (refPaths.length) {
+    for (const path of refPaths) {
+      try {
+        const preview = await invoke("reference_from_path", { path });
+        if (!agentAttachments.value.some((item) => item.path === preview.path)) {
+          agentAttachments.value.push({
+            id: createAgentAttachmentId(),
+            path: preview.path,
+            fileName: preview.fileName,
+            mimeType: preview.mimeType,
+            dataUrl: preview.dataUrl,
+          });
+        }
+      } catch {
+        // 参考图加载失败跳过
+      }
+    }
   }
   // 预填提示词到输入框
   agentPrefillPrompt.value = task.prompt || "";
@@ -627,22 +634,26 @@ async function handleLibraryReferenceToAgent({ task, output }) {
   setTimeout(() => {
     agentPrefillPrompt.value = "";
   }, 100);
-  setStatus("已引用到当前对话", "ok");
+  setStatus(`已引用到当前对话（${refPaths.length ? refPaths.length + " 张参考图" : "无参考图"}）`, "ok");
 }
 
 async function handleLibraryAddToTemplate({ task, output }) {
   Object.assign(templateDraft, emptyTemplate());
-  templateDraft.title = (task.prompt || "未命名模板").slice(0, 40);
+  templateDraft.title = "";
   templateDraft.prompt = task.prompt || "";
   templateDraft.referencePaths = [];
   templateDraftReferences.value = [];
   templateDraftEffectImage.value = null;
-  if (output?.path) {
-    try {
-      const preview = await invoke("reference_from_path", { path: output.path });
-      templateDraftReferences.value = [{ ...preview, previewUrl: preview.dataUrl }];
-    } catch {
-      // 参考图加载失败不阻塞模板创建
+  // 添加生成此图时使用的所有参考图
+  const refPaths = task.reference_paths || [];
+  if (refPaths.length) {
+    for (const path of refPaths) {
+      try {
+        const preview = await invoke("reference_from_path", { path });
+        templateDraftReferences.value.push({ ...preview, previewUrl: preview.dataUrl });
+      } catch {
+        // 参考图加载失败不阻塞模板创建
+      }
     }
   }
   templateEditorMode.value = "new";
