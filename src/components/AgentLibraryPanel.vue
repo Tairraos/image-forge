@@ -12,14 +12,6 @@
 
         <article v-for="task in group.tasks" :key="task.id" class="image-batch">
           <header class="image-batch-head">
-            <div>
-              <div class="image-batch-source">
-                <span :data-source="taskSource(task)">{{ taskSourceLabel(task) }}</span>
-                <time>{{ formatTime(taskTime(task)) }}</time>
-              </div>
-              <strong :title="task.prompt">{{ task.prompt || "空提示词" }}</strong>
-              <small>{{ task.model || task.providerName || task.id }}</small>
-            </div>
             <div class="image-batch-actions">
               <button type="button" title="删除任务及图片" aria-label="删除任务及图片" @click="$emit('delete-task', task)">
                 <Trash2 :size="16" />
@@ -33,45 +25,87 @@
               :key="output.path"
               class="library-image-card"
             >
+              <div class="library-image-info">
+                <time>{{ formatTime(taskTime(task)) }}</time>
+                <span>{{ task.model || task.providerName || "" }}</span>
+                <span>{{ output.size || task.params?.size || "" }}</span>
+                <span v-if="(task.reference_paths || []).length">{{ task.reference_paths.length }} 参考图</span>
+              </div>
               <div class="library-image-frame">
                 <button type="button" class="library-image-preview" @click="openPreview(output.path)">
                   <img loading="lazy" :src="fileUrl(output.path)" :alt="output.fileName || task.prompt" />
                 </button>
                 <div class="library-image-overlay">
-                  <span class="library-image-size">{{ output.size || task.params?.size }}</span>
+                  <div class="library-image-ref-thumbs">
+                    <img
+                      v-for="(refPath, ri) in (task.reference_paths || [])"
+                      :key="refPath"
+                      :src="fileUrl(refPath)"
+                      :alt="`参考图 ${ri + 1}`"
+                      class="library-image-ref-thumb"
+                    />
+                  </div>
                   <div class="library-image-actions">
-                    <button
-                      type="button"
-                      title="引用到 Agent"
-                      aria-label="引用到 Agent"
-                      @click.stop="$emit('reference-to-agent', { task, output })"
-                    >
-                      <Link2 :size="14" />
-                    </button>
-                    <button
-                      type="button"
-                      title="添加到模板"
-                      aria-label="添加到模板"
-                      @click.stop="$emit('add-to-template', { task, output })"
-                    >
-                      <BookmarkPlus :size="14" />
-                    </button>
-                    <button
-                      type="button"
-                      title="下载图片"
-                      aria-label="下载图片"
-                      @click.stop="$emit('download-output', output)"
-                    >
-                      <Download :size="14" />
-                    </button>
-                    <button
-                      type="button"
-                      title="在 Finder 中显示"
-                      aria-label="在 Finder 中显示"
-                      @click.stop="$emit('reveal-output', output)"
-                    >
-                      <FolderOpen :size="14" />
-                    </button>
+                    <n-tooltip trigger="hover" :delay="0">
+                      <template #trigger>
+                        <button
+                          type="button"
+                          aria-label="复制提示词"
+                          @click.stop="copyPrompt(task)"
+                        >
+                          <Copy :size="14" />
+                        </button>
+                      </template>
+                      复制提示词
+                    </n-tooltip>
+                    <n-tooltip trigger="hover" :delay="0">
+                      <template #trigger>
+                        <button
+                          type="button"
+                          aria-label="引用到 Agent"
+                          @click.stop="$emit('reference-to-agent', { task, output })"
+                        >
+                          <Link2 :size="14" />
+                        </button>
+                      </template>
+                      引用到 Agent
+                    </n-tooltip>
+                    <n-tooltip trigger="hover" :delay="0">
+                      <template #trigger>
+                        <button
+                          type="button"
+                          aria-label="添加到模板"
+                          @click.stop="$emit('add-to-template', { task, output })"
+                        >
+                          <BookmarkPlus :size="14" />
+                        </button>
+                      </template>
+                      添加到模板
+                    </n-tooltip>
+                    <n-tooltip trigger="hover" :delay="0">
+                      <template #trigger>
+                        <button
+                          type="button"
+                          aria-label="下载图片"
+                          @click.stop="$emit('download-output', output)"
+                        >
+                          <Download :size="14" />
+                        </button>
+                      </template>
+                      下载
+                    </n-tooltip>
+                    <n-tooltip trigger="hover" :delay="0">
+                      <template #trigger>
+                        <button
+                          type="button"
+                          aria-label="在 Finder 中显示"
+                          @click.stop="$emit('reveal-output', output)"
+                        >
+                          <FolderOpen :size="14" />
+                        </button>
+                      </template>
+                      在 Finder 中显示
+                    </n-tooltip>
                   </div>
                 </div>
               </div>
@@ -127,6 +161,7 @@ import {
   Calendar,
   ChevronLeft,
   ChevronRight,
+  Copy,
   Download,
   FolderOpen,
   Images,
@@ -144,8 +179,6 @@ import {
   formatTime,
   monthKey,
   previewItem,
-  taskSource,
-  taskSourceLabel,
   taskTime,
 } from "../lib/libraryFormat";
 import { invoke } from "../tauri";
@@ -220,6 +253,14 @@ function goMonth(value) {
 function openPreview(path) {
   const index = visibleImages.value.findIndex((item) => item.path === path);
   emit("preview-images", { items: visibleImages.value, index: Math.max(0, index) });
+}
+
+async function copyPrompt(task) {
+  try {
+    await navigator.clipboard.writeText(task.prompt || "");
+  } catch {
+    // 复制失败静默忽略
+  }
 }
 
 watch(month, load, { immediate: true });
