@@ -13,7 +13,16 @@ export function invoke(command, args = {}) {
 }
 
 export function convertFileSrc(path) {
-  return tauri?.convertFileSrc(path) ?? path;
+  if (tauri) {
+    return tauri.convertFileSrc(path);
+  }
+  // Web 版：本地 .image-forge 路径转为开发服务器 HTTP URL
+  if (!path) return "";
+  const idx = path.indexOf("/.image-forge/");
+  if (idx >= 0) {
+    return "/image-forge-data" + path.slice(idx + "/.image-forge".length);
+  }
+  return path;
 }
 
 export function openDialog(options) {
