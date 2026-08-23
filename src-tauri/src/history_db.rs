@@ -281,6 +281,9 @@ fn open(data_dir: &Path) -> Result<Connection, String> {
     if schema_version == 0 {
         initialize_schema(&connection)?;
     }
+    if schema_version < 2 {
+        migrate_json_to_sqlite(data_dir, &connection)?;
+    }
     Ok(connection)
 }
 
@@ -317,7 +320,34 @@ fn initialize_schema(connection: &Connection) -> Result<(), String> {
              CREATE INDEX IF NOT EXISTS idx_tasks_task_group_id ON tasks(task_group_id);
              CREATE INDEX IF NOT EXISTS idx_tasks_library_date ON tasks(library_date DESC);
              CREATE UNIQUE INDEX IF NOT EXISTS idx_task_outputs_path ON task_outputs(path);
-             PRAGMA user_version = 1;",
+             CREATE TABLE IF NOT EXISTS app_settings (
+               key TEXT PRIMARY KEY,
+               value TEXT NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS app_templates (
+               id TEXT PRIMARY KEY,
+               position INTEGER NOT NULL DEFAULT 0,
+               created_at TEXT NOT NULL,
+               updated_at TEXT NOT NULL,
+               record_json TEXT NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS agent_sessions (
+               id TEXT PRIMARY KEY,
+               created_at TEXT NOT NULL,
+               updated_at TEXT NOT NULL,
+               title TEXT NOT NULL DEFAULT '',
+               model_provider_id TEXT NOT NULL DEFAULT '',
+               status TEXT NOT NULL DEFAULT 'idle',
+               record_json TEXT NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS app_queue (
+               id TEXT PRIMARY KEY,
+               position INTEGER NOT NULL DEFAULT 0,
+               status TEXT NOT NULL DEFAULT 'waiting',
+               provider_id TEXT NOT NULL DEFAULT '',
+               record_json TEXT NOT NULL
+             );
+             PRAGMA user_version = 2;",
         )
         .map_err(db_error)
 }
@@ -522,6 +552,288 @@ fn parse_record(value: String) -> Result<TaskRecord, String> {
 
 fn db_error(error: rusqlite::Error) -> String {
     format!("图片库数据库操作失败: {error}")
+}
+
+// ── JSON → SQLite 迁移 ──
+
+fn migrate_json_to_sqlite(data_dir: &Path, connection: &Connection) -> Result<(), String> {
+    // 迁移 settings.json
+    let settings_path = data_dir.join("settings.json");
+    if settings_path.is_file() {
+        let text = fs::read_to_string(&settings_path)
+            .map_err(|e| format!("读取 settings.json 失败: {e}"))?;
+        connection
+            .execute(
+                "INSERT OR REPLACE INTO app_settings (key, value) VALUES (?1, ?2)",
+                params!["settings", text],
+            )
+            .map_err(db_error)?;
+    }
+
+    // 迁移 prompt-templates.json
+    let templates_path = data_dir.join("prompt-templates.json");
+    if templates_path.is_file() {
+        let text = fs::read_to_string(&templates_path)
+            .map_err(|e| format!("读取 prompt-templates.json 失败: {e}"))?;
+        let templates: Vec<serde_json::Value> =
+            serde_json::from_str(&text).unwrap_or_default();
+        let now = chrono::Local::now().to_rfc3339();
+        for (i, tpl) in templates.iter().enumerate() {
+            let id = tpl["id"].as_str().unwrap_or("").to_string();
+            if id.is_empty() {
+                continue;
+            }
+            connection
+                .execute(
+                    "INSERT OR REPLACE INTO app_templates (id, position, created_at, updated_at, record_json) VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![id, i as i64, now, now, serde_json::to_string(tpl).unwrap_or_default()],
+                )
+                .map_err(db_error)?;
+        }
+    }
+
+    // 迁移 agent/sessions/*.json
+    let sessions_dir = data_dir.join("agent").join("sessions");
+    let now = chrono::Local::now().to_rfc3339();
+    if sessions_dir.is_dir() {
+        for entry in fs::read_dir(&sessions_dir)
+            .map_err(|e| format!("读取 Agent 会话目录失败: {e}"))?
+        {
+            let entry = entry.map_err(|e| format!("读取 Agent 会话失败: {e}"))?;
+            let path = entry.path();
+            if path.extension().and_then(|v| v.to_str()) != Some("json") {
+                continue;
+            }
+            let text = fs::read_to_string(&path)
+                .map_err(|e| format!("读取 {} 失败: {e}", path.display()))?;
+            let session: serde_json::Value =
+                serde_json::from_str(&text).unwrap_or_default();
+            let id = session["id"].as_str().unwrap_or("").to_string();
+            if id.is_empty() {
+                continue;
+            }
+            let title = session["title"].as_str().unwrap_or("").to_string();
+            let model_provider_id = session["model_provider_id"]
+                .as_str()
+                .unwrap_or("")
+                .to_string();
+            let status = session["status"].as_str().unwrap_or("idle").to_string();
+            let created_at = session["created_at"].as_str().unwrap_or(&now).to_string();
+            let updated_at = session["updated_at"].as_str().unwrap_or(&now).to_string();
+            connection
+                .execute(
+                    "INSERT OR REPLACE INTO agent_sessions (id, created_at, updated_at, title, model_provider_id, status, record_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                    params![id, created_at, updated_at, title, model_provider_id, status, text],
+                )
+                .map_err(db_error)?;
+        }
+    }
+
+    // 迁移 queue.json
+    let queue_path = data_dir.join("queue.json");
+    if queue_path.is_file() {
+        let text = fs::read_to_string(&queue_path)
+            .map_err(|e| format!("读取 queue.json 失败: {e}"))?;
+        let queue: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
+        let waiting = queue["waiting"].as_array().cloned().unwrap_or_default();
+        let running = queue["running"].as_array().cloned().unwrap_or_default();
+        for (i, id) in waiting.iter().enumerate() {
+            let task_id = id.as_str().unwrap_or("").to_string();
+            if task_id.is_empty() {
+                continue;
+            }
+            connection
+                .execute(
+                    "INSERT OR REPLACE INTO app_queue (id, position, status, provider_id, record_json) VALUES (?1, ?2, 'waiting', '', ?3)",
+                    params![task_id, i as i64, serde_json::to_string(&serde_json::json!({"taskId": task_id})).unwrap_or_default()],
+                )
+                .map_err(db_error)?;
+        }
+        for (i, run) in running.iter().enumerate() {
+            let task_id = run["task_id"].as_str().unwrap_or("").to_string();
+            if task_id.is_empty() {
+                continue;
+            }
+            let provider_id = run["provider_id"].as_str().unwrap_or("").to_string();
+            connection
+                .execute(
+                    "INSERT OR REPLACE INTO app_queue (id, position, status, provider_id, record_json) VALUES (?1, ?2, 'running', ?3, ?4)",
+                    params![task_id, (waiting.len() + i) as i64, provider_id, serde_json::to_string(run).unwrap_or_default()],
+                )
+                .map_err(db_error)?;
+        }
+    }
+
+    connection
+        .execute_batch("PRAGMA user_version = 2;")
+        .map_err(db_error)?;
+    Ok(())
+}
+
+// ── 设置 CRUD ──
+
+pub(crate) fn read_settings(data_dir: &Path) -> Result<Option<String>, String> {
+    let connection = open(data_dir)?;
+    let mut stmt = connection
+        .prepare("SELECT value FROM app_settings WHERE key = 'settings'")
+        .map_err(db_error)?;
+    let mut rows = stmt.query([]).map_err(db_error)?;
+    Ok(rows.next().map_err(db_error)?.map(|row| row.get::<_, String>(0).unwrap_or_default()))
+}
+
+pub(crate) fn write_settings(data_dir: &Path, json: &str) -> Result<(), String> {
+    let connection = open(data_dir)?;
+    connection
+        .execute(
+            "INSERT OR REPLACE INTO app_settings (key, value) VALUES ('settings', ?1)",
+            params![json],
+        )
+        .map_err(db_error)?;
+    Ok(())
+}
+
+// ── 模板 CRUD ──
+
+pub(crate) fn read_templates(data_dir: &Path) -> Result<Vec<String>, String> {
+    let connection = open(data_dir)?;
+    let mut stmt = connection
+        .prepare("SELECT record_json FROM app_templates ORDER BY position ASC")
+        .map_err(db_error)?;
+    let rows = stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(db_error)?;
+    let mut templates = Vec::new();
+    for row in rows {
+        templates.push(row.map_err(db_error)?);
+    }
+    Ok(templates)
+}
+
+pub(crate) fn write_templates(data_dir: &Path, records: &[String]) -> Result<(), String> {
+    let mut connection = open(data_dir)?;
+    let transaction = connection.transaction().map_err(db_error)?;
+    transaction
+        .execute("DELETE FROM app_templates", [])
+        .map_err(db_error)?;
+    let now = chrono::Local::now().to_rfc3339();
+    for (i, json) in records.iter().enumerate() {
+        let tpl: serde_json::Value =
+            serde_json::from_str(json).unwrap_or_default();
+        let id = tpl["id"].as_str().unwrap_or("").to_string();
+        if id.is_empty() {
+            continue;
+        }
+        transaction
+            .execute(
+                "INSERT INTO app_templates (id, position, created_at, updated_at, record_json) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![id, i as i64, now, now, json],
+            )
+            .map_err(db_error)?;
+    }
+    transaction.commit().map_err(db_error)
+}
+
+// ── Agent 会话 CRUD ──
+
+pub(crate) fn read_agent_sessions(data_dir: &Path) -> Result<Vec<String>, String> {
+    let connection = open(data_dir)?;
+    let mut stmt = connection
+        .prepare("SELECT record_json FROM agent_sessions ORDER BY updated_at DESC")
+        .map_err(db_error)?;
+    let rows = stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(db_error)?;
+    let mut sessions = Vec::new();
+    for row in rows {
+        sessions.push(row.map_err(db_error)?);
+    }
+    Ok(sessions)
+}
+
+pub(crate) fn read_agent_session(data_dir: &Path, session_id: &str) -> Result<Option<String>, String> {
+    let connection = open(data_dir)?;
+    let mut stmt = connection
+        .prepare("SELECT record_json FROM agent_sessions WHERE id = ?1")
+        .map_err(db_error)?;
+    let mut rows = stmt.query(params![session_id]).map_err(db_error)?;
+    Ok(rows
+        .next()
+        .map_err(db_error)?
+        .map(|row| row.get::<_, String>(0).unwrap_or_default()))
+}
+
+pub(crate) fn upsert_agent_session(data_dir: &Path, session: &str) -> Result<(), String> {
+    let connection = open(data_dir)?;
+    let s: serde_json::Value = serde_json::from_str(session).unwrap_or_default();
+    let id = s["id"].as_str().unwrap_or("").to_string();
+    let title = s["title"].as_str().unwrap_or("").to_string();
+    let model_provider_id = s["model_provider_id"].as_str().unwrap_or("").to_string();
+    let status = s["status"].as_str().unwrap_or("idle").to_string();
+    let now = chrono::Local::now().to_rfc3339();
+    let created_at = s["created_at"].as_str().unwrap_or(&now).to_string();
+    let updated_at = s["updated_at"].as_str().unwrap_or(&now).to_string();
+    connection
+        .execute(
+            "INSERT OR REPLACE INTO agent_sessions (id, created_at, updated_at, title, model_provider_id, status, record_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![id, created_at, updated_at, title, model_provider_id, status, session],
+        )
+        .map_err(db_error)?;
+    Ok(())
+}
+
+pub(crate) fn delete_agent_session(data_dir: &Path, session_id: &str) -> Result<(), String> {
+    let connection = open(data_dir)?;
+    connection
+        .execute("DELETE FROM agent_sessions WHERE id = ?1", params![session_id])
+        .map_err(db_error)?;
+    Ok(())
+}
+
+// ── 队列 CRUD ──
+
+pub(crate) fn read_queue_json(data_dir: &Path) -> Result<Option<String>, String> {
+    let connection = open(data_dir)?;
+    let mut stmt = connection
+        .prepare("SELECT id, position, status, provider_id, record_json FROM app_queue ORDER BY position ASC")
+        .map_err(db_error)?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "position": row.get::<_, i64>(1)?,
+                "status": row.get::<_, String>(2)?,
+                "provider_id": row.get::<_, String>(3)?,
+                "record": row.get::<_, String>(4)?,
+            }))
+        })
+        .map_err(db_error)?;
+    let items: Vec<serde_json::Value> = rows.filter_map(|r| r.ok()).collect();
+    if items.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(serde_json::to_string(&items).unwrap_or_default()))
+}
+
+pub(crate) fn write_queue_items(data_dir: &Path, items: &str) -> Result<(), String> {
+    let mut connection = open(data_dir)?;
+    let transaction = connection.transaction().map_err(db_error)?;
+    transaction
+        .execute("DELETE FROM app_queue", [])
+        .map_err(db_error)?;
+    let items: Vec<serde_json::Value> = serde_json::from_str(items).unwrap_or_default();
+    for (i, item) in items.iter().enumerate() {
+        let id = item["id"].as_str().unwrap_or("").to_string();
+        let status = item["status"].as_str().unwrap_or("waiting").to_string();
+        let provider_id = item["provider_id"].as_str().unwrap_or("").to_string();
+        let record = item["record"].as_str().unwrap_or("").to_string();
+        transaction
+            .execute(
+                "INSERT INTO app_queue (id, position, status, provider_id, record_json) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![id, i as i64, status, provider_id, record],
+            )
+            .map_err(db_error)?;
+    }
+    transaction.commit().map_err(db_error)
 }
 
 #[cfg(test)]

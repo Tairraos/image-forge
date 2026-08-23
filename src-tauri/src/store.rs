@@ -83,18 +83,26 @@ pub(crate) fn output_dir_for(data_dir: &Path, settings: &Settings) -> Result<Pat
 }
 
 pub(crate) fn read_settings(data_dir: &Path) -> Result<Settings, String> {
-    let path = settings_path(data_dir);
-    let settings: Settings = read_json(&path)?;
+    let raw = history_db::read_settings(data_dir)?;
+    let settings: Settings = match raw {
+        Some(json) => serde_json::from_str(&json)
+            .map_err(|e| format!("解析设置 JSON 失败: {e}"))?,
+        None => Settings::default(),
+    };
     let original = serde_json::to_value(&settings).ok();
     let normalized = normalize_settings(settings);
     if original != serde_json::to_value(&normalized).ok() {
-        write_json(&path, &normalized)?;
+        let json = serde_json::to_string(&normalized)
+            .map_err(|e| format!("序列化设置失败: {e}"))?;
+        history_db::write_settings(data_dir, &json)?;
     }
     Ok(normalized)
 }
 
 pub(crate) fn write_settings(data_dir: &Path, settings: &Settings) -> Result<(), String> {
-    write_json(&settings_path(data_dir), settings)
+    let json = serde_json::to_string(settings)
+        .map_err(|e| format!("序列化设置失败: {e}"))?;
+    history_db::write_settings(data_dir, &json)
 }
 
 /// 兼容旧配置并归一化 API 源、默认模型和输出路径。
@@ -353,13 +361,68 @@ pub(crate) fn fallback_failed_record(task_id: &str, error: &str) -> TaskRecord {
 }
 
 pub(crate) fn read_queue(data_dir: &Path) -> Result<QueueState, String> {
-    read_json(&queue_path(data_dir))
+    let raw = history_db::read_queue_json(data_dir)?;
+    match raw {
+        Some(json) => {
+            let items: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap_or_default();
+            let mut waiting = Vec::new();
+            let mut running = Vec::new();
+            for item in items {
+                let status = item["status"].as_str().unwrap_or("waiting");
+                let id = item["id"].as_str().unwrap_or("").to_string();
+                match status {
+                    "running" => {
+                        let record: serde_json::Value = serde_json::from_str(
+                            item["record"].as_str().unwrap_or("{}"),
+                        ).unwrap_or_default();
+                        running.push(QueueRun {
+                            task_id: id,
+                            provider_id: item["provider_id"].as_str().unwrap_or("").to_string(),
+                            provider_name: String::new(),
+                            started_at: record["started_at"].as_str().unwrap_or("").to_string(),
+                        });
+                    }
+                    _ => {
+                        waiting.push(id);
+                    }
+                }
+            }
+            Ok(QueueState {
+                waiting,
+                running,
+                updated_at: String::new(),
+            })
+        }
+        None => Ok(QueueState::default()),
+    }
 }
 
 pub(crate) fn write_queue(data_dir: &Path, queue: &QueueState) -> Result<(), String> {
-    let mut queue = queue.clone();
-    queue.updated_at = utc_now();
-    write_json(&queue_path(data_dir), &queue)
+    let mut items = Vec::new();
+    for (i, id) in queue.waiting.iter().enumerate() {
+        items.push(serde_json::json!({
+            "id": id,
+            "position": i,
+            "status": "waiting",
+            "provider_id": "",
+            "record": serde_json::to_string(&serde_json::json!({"taskId": id})).unwrap_or_default(),
+        }));
+    }
+    for (i, run) in queue.running.iter().enumerate() {
+        items.push(serde_json::json!({
+            "id": run.task_id,
+            "position": queue.waiting.len() + i,
+            "status": "running",
+            "provider_id": run.provider_id,
+            "record": serde_json::to_string(&serde_json::json!({
+                "taskId": run.task_id,
+                "providerId": run.provider_id,
+                "startedAt": run.started_at,
+            })).unwrap_or_default(),
+        }));
+    }
+    let json = serde_json::to_string(&items).map_err(|e| format!("序列化队列失败: {e}"))?;
+    history_db::write_queue_items(data_dir, &json)
 }
 
 pub(crate) fn write_generation_batch(
@@ -379,8 +442,10 @@ pub(crate) fn write_generation_batch(
         queue.waiting.retain(|task_id| task_id != &record.id);
         queue.waiting.push(record.id.clone());
     }
+    // 队列先写入 SQLite
+    write_queue(data_dir, &queue)?;
 
-    write_generation_transaction(data_dir, requests, &history, &queue)
+    write_generation_transaction(data_dir, requests, &history)
 }
 
 pub(crate) fn write_history_queue_transaction(
@@ -388,31 +453,27 @@ pub(crate) fn write_history_queue_transaction(
     history: &[TaskRecord],
     queue: &QueueState,
 ) -> Result<(), String> {
-    write_generation_transaction(data_dir, &[], history, queue)
+    write_queue(data_dir, queue)?;
+    write_generation_transaction(data_dir, &[], history)
 }
 
 fn write_generation_transaction(
     data_dir: &Path,
     requests: &[(String, GenerateRequest)],
     history: &[TaskRecord],
-    queue: &QueueState,
 ) -> Result<(), String> {
-    let mut queue = queue.clone();
-    queue.updated_at = utc_now();
-
     let transaction_id = format!("generation-batch-{}", Uuid::new_v4());
     let transaction_dir = data_dir.join(".staging").join(&transaction_id);
-    let mut targets = requests
+    let targets = requests
         .iter()
         .map(|(task_id, _)| format!("requests/{task_id}.json"))
         .collect::<Vec<_>>();
-    targets.push("queue.json".into());
     let transaction = GenerationTransaction {
         schema_version: 1,
         targets,
     };
     if let Err(error) =
-        prepare_generation_transaction(data_dir, &transaction_dir, &transaction, requests, &queue)
+        prepare_generation_transaction(data_dir, &transaction_dir, &transaction, requests)
     {
         move_transaction_to_trash(&transaction_dir, "准备生成任务事务");
         return Err(error);
@@ -453,7 +514,6 @@ fn prepare_generation_transaction(
     transaction_dir: &Path,
     transaction: &GenerationTransaction,
     requests: &[(String, GenerateRequest)],
-    queue: &QueueState,
 ) -> Result<(), String> {
     fs::create_dir_all(transaction_dir.join("new/requests"))
         .map_err(|error| format!("创建生成任务事务目录失败: {error}"))?;
@@ -466,7 +526,6 @@ fn prepare_generation_transaction(
             request,
         )?;
     }
-    write_json(&transaction_dir.join("new/queue.json"), queue)?;
     let _ = data_dir;
     Ok(())
 }
@@ -682,16 +741,27 @@ pub(crate) fn clear_running_task(data_dir: &Path, task_id: &str) -> Result<(), S
 }
 
 pub(crate) fn read_templates(data_dir: &Path) -> Result<Vec<PromptTemplate>, String> {
-    let path = templates_path(data_dir);
-    let mut templates: Vec<PromptTemplate> = read_json(&path)?;
+    let jsons = history_db::read_templates(data_dir)?;
+    let mut templates: Vec<PromptTemplate> = jsons
+        .iter()
+        .filter_map(|json| serde_json::from_str(json).ok())
+        .collect();
     let mut changed = false;
     for template in &mut templates {
         changed |= migrate_template_title(template);
     }
     if changed {
-        write_json(&path, &templates)?;
+        write_templates_to_db(data_dir, &templates)?;
     }
     Ok(templates)
+}
+
+pub(crate) fn write_templates_to_db(data_dir: &Path, templates: &[PromptTemplate]) -> Result<(), String> {
+    let jsons: Vec<String> = templates
+        .iter()
+        .filter_map(|t| serde_json::to_string(t).ok())
+        .collect();
+    history_db::write_templates(data_dir, &jsons)
 }
 
 /// 清理模板字段并为旧数据补齐标题、短标题等兼容字段。
@@ -889,10 +959,6 @@ pub(crate) fn request_path(data_dir: &Path, task_id: &str) -> PathBuf {
     data_dir.join("requests").join(format!("{task_id}.json"))
 }
 
-pub(crate) fn templates_path(data_dir: &Path) -> PathBuf {
-    data_dir.join("prompt-templates.json")
-}
-
 pub(crate) fn agent_sessions_dir(data_dir: &Path) -> PathBuf {
     data_dir.join("agent").join("sessions")
 }
@@ -905,36 +971,33 @@ pub(crate) fn read_agent_session(
     data_dir: &Path,
     session_id: &str,
 ) -> Result<crate::models::AgentSession, String> {
-    read_json(&agent_session_path(data_dir, session_id))
+    let raw = history_db::read_agent_session(data_dir, session_id)?;
+    match raw {
+        Some(json) => serde_json::from_str(&json)
+            .map_err(|e| format!("解析 Agent 会话失败: {e}")),
+        None => Err(format!("找不到 Agent 会话: {session_id}")),
+    }
 }
 
 pub(crate) fn write_agent_session(
     data_dir: &Path,
     session: &crate::models::AgentSession,
 ) -> Result<(), String> {
-    write_json(&agent_session_path(data_dir, &session.id), session)
+    let json = serde_json::to_string(session)
+        .map_err(|e| format!("序列化 Agent 会话失败: {e}"))?;
+    history_db::upsert_agent_session(data_dir, &json)
 }
 
 pub(crate) fn list_agent_sessions(
     data_dir: &Path,
 ) -> Result<Vec<crate::models::AgentSession>, String> {
-    let dir = agent_sessions_dir(data_dir);
-    if !dir.is_dir() {
-        return Ok(Vec::new());
-    }
-    let mut sessions = Vec::new();
-    for entry in fs::read_dir(dir).map_err(|error| format!("读取 Agent 会话目录失败: {error}"))?
-    {
-        let entry = entry.map_err(|error| format!("读取 Agent 会话失败: {error}"))?;
-        if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
-            continue;
-        }
-        let path = entry.path();
-        let session = read_json::<crate::models::AgentSession>(&path)?;
-        sessions.push(session);
-    }
-    sessions.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
-    Ok(sessions)
+    let jsons = history_db::read_agent_sessions(data_dir)?;
+    jsons
+        .iter()
+        .map(|json| {
+            serde_json::from_str(json).map_err(|e| format!("解析 Agent 会话失败: {e}"))
+        })
+        .collect()
 }
 
 /// 归一化单个 API 源，隐藏并固定不再由界面维护的字段。
@@ -1002,14 +1065,6 @@ fn running_counts_by_provider(queue: &QueueState) -> HashMap<String, usize> {
     counts
 }
 
-fn settings_path(data_dir: &Path) -> PathBuf {
-    data_dir.join("settings.json")
-}
-
-fn queue_path(data_dir: &Path) -> PathBuf {
-    data_dir.join("queue.json")
-}
-
 #[cfg(test)]
 mod transaction_tests {
     use super::*;
@@ -1072,21 +1127,19 @@ mod transaction_tests {
         let transaction_dir = root.join(".staging").join("generation-batch-test");
         let transaction = GenerationTransaction {
             schema_version: 1,
-            targets: vec!["queue.json".into()],
+            targets: vec!["requests/rollback-test.json".into()],
         };
         prepare_generation_transaction(
             &root,
             &transaction_dir,
             &transaction,
-            &[],
-            &QueueState::default(),
+            &[("rollback-test".into(), GenerateRequest::default())],
         )
         .unwrap();
         commit_generation_transaction(&root, &transaction_dir, &transaction).unwrap();
         rollback_generation_transaction(&root, &transaction_dir, &transaction).unwrap();
 
         assert_eq!(read_history(&root).unwrap()[0].id, "old");
-        assert!(read_queue(&root).unwrap().waiting.is_empty());
         recycle(&root);
     }
 

@@ -40,8 +40,9 @@ use crate::{
         enqueue_task, ensure_data_dir, next_template_id, normalize_request, normalize_settings,
         normalize_template, params_from_request, provider_for_request, read_history, read_json,
         read_queue, read_recent_history, read_settings, read_templates,
-        refresh_history_output_sizes, request_path, templates_path, write_generation_batch,
-        write_history, write_history_queue_transaction, write_json, write_queue, write_settings,
+        refresh_history_output_sizes, request_path, write_generation_batch,
+        write_history, write_history_queue_transaction, write_queue, write_settings,
+        write_templates_to_db,
     },
     utils::{recycle_path, utc_now},
 };
@@ -1315,7 +1316,7 @@ pub(crate) fn save_template(
     } else {
         templates.push(next);
     }
-    write_json(&templates_path(&data_dir), &templates)?;
+    write_templates_to_db(&data_dir, &templates)?;
     prune_unreferenced_files(&data_dir)?;
     Ok(templates)
 }
@@ -1350,7 +1351,7 @@ pub(crate) fn import_templates(
     };
     let templates = read_templates(&data_dir)?;
     let result = merge_imported_templates(templates, imported)?;
-    if let Err(error) = write_json(&templates_path(&data_dir), &result.templates) {
+    if let Err(error) = write_templates_to_db(&data_dir, &result.templates) {
         let _ = prune_unreferenced_files(&data_dir);
         record_operation("导入模板文件", "失败", &params, None, Some(&error));
         return Err(error);
@@ -1433,7 +1434,7 @@ pub(crate) fn delete_template(
     let data_dir = ensure_data_dir(&app)?;
     let mut templates = read_templates(&data_dir)?;
     templates.retain(|template| template.id != template_id);
-    write_json(&templates_path(&data_dir), &templates)?;
+    write_templates_to_db(&data_dir, &templates)?;
     prune_unreferenced_files(&data_dir)?;
     Ok(templates)
 }
@@ -1448,7 +1449,7 @@ pub(crate) fn move_template(
     let data_dir = ensure_data_dir(&app)?;
     let mut templates = read_templates(&data_dir)?;
     swap_template_order(&mut templates, &template_id, &target_template_id)?;
-    write_json(&templates_path(&data_dir), &templates)?;
+    write_templates_to_db(&data_dir, &templates)?;
     Ok(templates)
 }
 
@@ -1484,7 +1485,7 @@ pub(crate) fn mark_template_used(
         template.usage_count = template.usage_count.saturating_add(1);
         template.updated_at = utc_now();
     }
-    write_json(&templates_path(&data_dir), &templates)?;
+    write_templates_to_db(&data_dir, &templates)?;
     Ok(templates)
 }
 
