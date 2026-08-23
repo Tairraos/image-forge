@@ -1,6 +1,6 @@
 import vue from "@vitejs/plugin-vue";
 import { defineConfig, loadEnv } from "vite";
-import { createReadStream } from "node:fs";
+import { createReadStream, readFileSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, normalize, extname } from "node:path";
@@ -87,9 +87,26 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   const host = env.VITE_DEV_HOST || "127.0.0.1";
   const port = parseInt(env.VITE_DEV_PORT, 10) || 1421;
+  const useHttps = env.VITE_DEV_HTTPS === "true";
   const allowedHosts = [host, "127.0.0.1", "localhost"];
   if (host !== "127.0.0.1" && host !== "localhost") {
     allowedHosts.push(host);
+  }
+
+  let https = false;
+  if (useHttps) {
+    const certDir = join(IMAGE_FORGE_DIR, "certs");
+    const keyPath = join(certDir, `${host}-key.pem`);
+    const certPath = join(certDir, `${host}.pem`);
+    try {
+      https = {
+        key: readFileSync(keyPath),
+        cert: readFileSync(certPath),
+      };
+    } catch {
+      console.warn(`\x1b[33m⚠  HTTPS 证书未找到，回退到 HTTP。请先运行：`);
+      console.warn(`   mkcert -key-file ${keyPath} -cert-file ${certPath} ${host}\x1b[0m\n`);
+    }
   }
 
   return {
@@ -103,6 +120,7 @@ export default defineConfig(({ mode }) => {
       port,
       strictPort: true,
       allowedHosts,
+      https,
     },
     clearScreen: false,
   };
