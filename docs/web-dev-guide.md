@@ -47,11 +47,21 @@ pnpm dev
 
 ### 能和桌面版共用 `~/.image-forge` 吗？
 
-不能。桌面版和 Web 版的数据完全隔离：
+不能直接共用（数据存储机制不同），但提供了同步工具：
 
-- 桌面版的数据在 `~/.image-forge/` 目录下，由 Rust 后端管理
-- Web 版的数据在浏览器 IndexedDB 和 localStorage 中，由 JS 管理
-- 两者互不可见，也不互通
+**方式一：控制台导入**
+```bash
+pnpm sync:web
+```
+复制输出的 JS 代码，粘贴到浏览器控制台（F12 → Console），回车执行。
+
+**方式二：可视化页面导入**
+```bash
+pnpm sync:web:serve
+```
+浏览器打开 `http://localhost:1422`，点击「导入数据」按钮。
+
+同步内容包括：API 源设置、提示词模板、Agent 会话。
 
 ### 生图 API 调用从哪里发出？
 

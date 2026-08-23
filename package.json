@@ -12,7 +12,9 @@
     "patch": "node scripts/patch-version.mjs",
     "migrate:data": "node scripts/migrate-data-root.mjs",
     "prerelease": "node scripts/prerelease.mjs",
-    "release": "node scripts/release.mjs"
+    "release": "node scripts/release.mjs",
+    "sync:web": "node scripts/sync-desktop-to-web.mjs",
+    "sync:web:serve": "node scripts/sync-desktop-to-web.mjs --serve"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
