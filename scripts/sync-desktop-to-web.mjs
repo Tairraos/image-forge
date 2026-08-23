@@ -138,11 +138,13 @@ async function main() {
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
       res.end(html);
     });
-    const port = 1422;
+    const port = 1421;
     server.listen(port, () => {
-      console.log(`\n  数据同步页面已启动：http://localhost:${port}\n`);
-      console.log("  在浏览器中打开此地址，点击「导入数据」按钮即可。\n");
-      console.log("  按 Ctrl+C 停止服务。\n");
+      console.log(`\n  数据同步页面：http://localhost:${port}\n`);
+      console.log("  1. 确保 Vite 开发服务器已停止（Ctrl+C）");
+      console.log("  2. 在浏览器中打开此地址，点击「导入数据」");
+      console.log("  3. 关闭此页面，重新启动 Vite：pnpm dev");
+      console.log("\n  按 Ctrl+C 停止同步服务。\n");
     });
     return;
   }
