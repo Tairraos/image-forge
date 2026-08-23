@@ -1,7 +1,8 @@
-// Web 版适配器 — 阶段 2 实现（数据层）。
+// Web 版适配器 — 阶段 4 实现（生图 + 队列）。
 // 所有函数签名与 adapter-tauri.js 保持一致，桌面版代码无需改动。
 
 import * as db from "./db.js";
+import * as queue from "./queue.js";
 import { uploadImage, downloadImage, deleteImage } from "./blob.js";
 
 // ── 本地存储键 ──
@@ -30,11 +31,13 @@ export async function loadAppState() {
   const settings = readJSON(KEYS.settings) || { providers: [] };
   const history = await db.getAllTasks();
   const templates = readJSON(KEYS.templates) || [];
+  // 恢复遗留的 running 任务
+  await queue.recoverTasks();
   return {
     settings,
     history,
     templates,
-    queue: { waiting: [], running: [], recent: [], workerActive: false, updatedAt: "" },
+    queue: queue.snapshot(),
   };
 }
 
@@ -134,10 +137,66 @@ export async function getTaskStatus(taskGroupId, taskId) {
 // ── 队列 ──
 
 export async function queueSnapshot() {
-  return { waiting: [], running: [], recent: [], workerActive: false, updatedAt: "" };
+  return queue.snapshot();
 }
 
-// ── 参考图 ──
+/** 设置队列变化回调，供 UI 层监听 */
+export function onQueueChange(callback) {
+  queue.onQueueChange(callback);
+}
+
+// ── 生图（直接绘画模式） ──
+
+export async function createAgentDirectImageTask(sessionId, content, attachments, plan) {
+  const settings = readJSON(KEYS.settings) || { providers: [] };
+  const provider = (settings.providers || []).find((p) => p.id === plan.providerId);
+  if (!provider) throw new Error("找不到生图 API 配置");
+
+  const request = {
+    model: provider.imageModel || "",
+    prompt: plan.prompt || content,
+    ratio: plan.ratio || "1:1",
+    resolution: plan.resolution || "1K",
+    count: plan.count || 1,
+    output_format: "png",
+    quality: plan.quality || "",
+    background: plan.background || "",
+    reference_paths: (plan.referenceIds || []).map((id) => {
+      const att = (attachments || []).find((a) => a.id === id);
+      return att?.path || "";
+    }).filter(Boolean),
+    origin: "agent",
+    agent_session_id: sessionId,
+    task_group_id: `web-tg-${Date.now()}`,
+  };
+
+  const task = queue.enqueueTask(request, provider);
+  return {
+    id: task.task_group_id,
+    sessionId,
+    status: "queued",
+    taskIds: [task.id],
+    titles: [plan.title || "直接绘画"],
+  };
+}
+
+// ── Agent 消息（阶段 5 实现，先占位） ──
+
+export async function sendAgentMessage() {
+  throw new Error("Web 版 Agent 对话尚未实现");
+}
+
+export async function cancelAgentTurn() {
+  // 占位
+}
+
+export async function cancelAgentTaskGroup(taskGroupId) {
+  queue.cancelTaskGroup(taskGroupId);
+}
+
+export async function retryAgentTaskGroup(taskGroupId) {
+  queue.retryTaskGroup(taskGroupId);
+}
 
 export async function referenceFromPath(path) {
   // Web 版：通过 fetch 读取本地 Blob URL 或远程 URL
@@ -258,22 +317,4 @@ export async function listProviderModels(provider) {
   return (data.data || data.models || data || [])
     .map((m) => m.id || m.name || m)
     .filter((id) => typeof id === "string");
-}
-
-// ── Agent 消息（阶段 5 实现，先占位） ──
-
-export async function sendAgentMessage() {
-  throw new Error("Web 版 Agent 对话尚未实现");
-}
-export async function createAgentDirectImageTask() {
-  throw new Error("Web 版直接绘画尚未实现");
-}
-export async function cancelAgentTurn() {
-  // 占位，Web 版可通过 AbortController 实现
-}
-export async function cancelAgentTaskGroup() {
-  throw new Error("Web 版任务组取消尚未实现");
-}
-export async function retryAgentTaskGroup() {
-  throw new Error("Web 版任务组重试尚未实现");
 }
