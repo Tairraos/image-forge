@@ -5,16 +5,18 @@
 //   node scripts/sync-desktop-to-web.mjs --serve  # 启动双向同步服务
 
 import { readFile } from "node:fs/promises";
-import { createServer } from "node:http";
+import { createServer } from "node:https";
 import { homedir } from "node:os";
 import { join, extname } from "node:path";
-import { createReadStream } from "node:fs";
+import { createReadStream, readFileSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import Database from "better-sqlite3";
 
 const DATA_DIR = join(homedir(), ".image-forge");
 const SQLITE_FILE = join(DATA_DIR, "library.sqlite");
-const PORT = 1421;
+const PORT = 443;
+const HOST = "image.xiaole.qzz.io";
+const CERT_DIR = join(DATA_DIR, "certs");
 
 const MIME_MAP = {
   ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
@@ -369,7 +371,10 @@ async function handleMerge(req, res) {
   res.end(JSON.stringify(merged));
 }
 
-const server = createServer(async (req, res) => {
+const server = createServer({
+  key: readFileSync(join(CERT_DIR, `${HOST}-key.pem`)),
+  cert: readFileSync(join(CERT_DIR, `${HOST}.pem`)),
+}, async (req, res) => {
   if (req.url === "/sync-merge") return handleMerge(req, res);
   if (serveFile(req, res)) return;
 
@@ -378,10 +383,10 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`\n  双向同步服务：http://localhost:${PORT}\n`);
-  console.log("  1. 确保 Vite 已停止（Ctrl+C）");
-  console.log("  2. 浏览器打开此地址，点击「开始同步」");
-  console.log("  3. 桌面版 SQLite 和浏览器数据自动合并");
-  console.log("  4. 关闭页面，重启 Vite：pnpm dev\n");
-  console.log("  按 Ctrl+C 停止。\n");
+  console.log(`\n  双向同步服务：https://${HOST}/\n`);
+  console.log(`  1. 确保 Vite 已停止（Ctrl+C）`);
+  console.log(`  2. 浏览器打开 https://${HOST}，点击「开始同步」`);
+  console.log(`  3. 桌面版 SQLite 和浏览器数据自动合并`);
+  console.log(`  4. 关闭页面，重启 Vite：sudo pnpm dev\n`);
+  console.log(`  按 Ctrl+C 停止。\n`);
 });
