@@ -296,17 +296,7 @@ function syncPage() {
           localStorage.setItem("if_agent_sessions", JSON.stringify(merged.agentSessions));
         }
         if (merged.tasks?.length) {
-          const db = await new Promise((resolve, reject) => {
-            const req = indexedDB.open("ImageForge", 1);
-            req.onupgradeneeded = (e) => {
-              const db = e.target.result;
-              if (!db.objectStoreNames.contains("tasks")) {
-                db.createObjectStore("tasks", { keyPath: "id" });
-              }
-            };
-            req.onsuccess = () => resolve(req.result);
-            req.onerror = () => reject(req.error);
-          });
+          const db = await new Promise((r, j) => { const req = indexedDB.open("ImageForge"); req.onsuccess = () => r(req.result); req.onerror = () => j(req.error); });
           const tx = db.transaction("tasks", "readwrite");
           const store = tx.objectStore("tasks");
           for (const t of merged.tasks) {
