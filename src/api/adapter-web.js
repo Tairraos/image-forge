@@ -345,22 +345,142 @@ export async function revealPath() {
   // Web 版不支持 Finder 定位
 }
 
-// ── 模板（阶段 7 实现，先占位） ──
+// ── 模板 ──
 
-export async function saveTemplate() {
-  throw new Error("Web 版模板系统尚未实现");
+export async function saveTemplate(template) {
+  const templates = readJSON(KEYS.templates, []);
+  const idx = templates.findIndex((t) => t.id === template.id);
+  if (idx >= 0) {
+    templates[idx] = template;
+  } else {
+    templates.push(template);
+  }
+  writeJSON(KEYS.templates, templates);
+  return templates;
 }
-export async function exportTemplates() {
-  throw new Error("Web 版模板导出尚未实现");
+
+export async function exportTemplates(destination) {
+  const templates = readJSON(KEYS.templates, []);
+  if (!templates.length) throw new Error("没有可导出的模板");
+
+  const JSZip = (await import("jszip")).default;
+  const zip = new JSZip();
+
+  // manifest.json
+  const manifest = {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    templates: templates.map((t) => ({
+      id: t.id,
+      title: t.title,
+      prompt: t.prompt,
+      referencePaths: t.referencePaths || [],
+      effectImagePath: t.effectImagePath || "",
+      usageCount: t.usageCount || 0,
+    })),
+  };
+  zip.file("manifest.json", JSON.stringify(manifest, null, 2));
+
+  // 添加参考图
+  for (const tpl of templates) {
+    for (const refPath of tpl.referencePaths || []) {
+      try {
+        const res = await fetch(refPath);
+        if (res.ok) {
+          const blob = await res.blob();
+          const fileName = refPath.split("/").pop() || "image.png";
+          zip.file(`images/${fileName}`, blob);
+        }
+      } catch {
+        // 跳过不可用的参考图
+      }
+    }
+    if (tpl.effectImagePath) {
+      try {
+        const res = await fetch(tpl.effectImagePath);
+        if (res.ok) {
+          const blob = await res.blob();
+          const fileName = tpl.effectImagePath.split("/").pop() || "effect.png";
+          zip.file(`images/${fileName}`, blob);
+        }
+      } catch {
+        // 跳过
+      }
+    }
+  }
+
+  const blob = await zip.generateAsync({ type: "blob" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "ImageForge-templates.zip";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  return destination || "ImageForge-templates.zip";
 }
-export async function importTemplates() {
-  throw new Error("Web 版模板导入尚未实现");
+
+export async function importTemplates(archivePath) {
+  // Web 版：archivePath 可能是 File 对象或 Blob URL
+  let blob;
+  if (archivePath instanceof File || archivePath instanceof Blob) {
+    blob = archivePath;
+  } else {
+    const res = await fetch(archivePath);
+    if (!res.ok) throw new Error(`读取模板包失败: ${res.status}`);
+    blob = await res.blob();
+  }
+
+  const JSZip = (await import("jszip")).default;
+  const zip = await JSZip.loadAsync(blob);
+
+  const manifestFile = zip.file("manifest.json");
+  if (!manifestFile) throw new Error("模板包缺少 manifest.json");
+
+  const manifest = JSON.parse(await manifestFile.async("text"));
+  const incoming = manifest.templates || [];
+  const existing = readJSON(KEYS.templates, []);
+
+  let imported = 0;
+  let skipped = 0;
+  const existingIds = new Set(existing.map((t) => t.id));
+
+  for (const tpl of incoming) {
+    if (existingIds.has(tpl.id)) {
+      skipped++;
+      continue;
+    }
+    existing.push({
+      id: tpl.id || `tpl-${Date.now()}-${imported}`,
+      title: tpl.title || "",
+      prompt: tpl.prompt || "",
+      referencePaths: tpl.referencePaths || [],
+      effectImagePath: tpl.effectImagePath || "",
+      usageCount: tpl.usageCount || 0,
+    });
+    imported++;
+  }
+
+  writeJSON(KEYS.templates, existing);
+  return { templates: existing, importedCount: imported, skippedCount: skipped };
 }
-export async function deleteTemplate() {
-  throw new Error("Web 版模板系统尚未实现");
+
+export async function deleteTemplate(templateId) {
+  const templates = readJSON(KEYS.templates, []).filter((t) => t.id !== templateId);
+  writeJSON(KEYS.templates, templates);
+  return templates;
 }
-export async function moveTemplate() {
-  throw new Error("Web 版模板系统尚未实现");
+
+export async function moveTemplate(templateId, targetTemplateId) {
+  const templates = readJSON(KEYS.templates, []);
+  const idxA = templates.findIndex((t) => t.id === templateId);
+  const idxB = templates.findIndex((t) => t.id === targetTemplateId);
+  if (idxA >= 0 && idxB >= 0) {
+    [templates[idxA], templates[idxB]] = [templates[idxB], templates[idxA]];
+  }
+  writeJSON(KEYS.templates, templates);
+  return templates;
 }
 
 // ── 清理 ──
