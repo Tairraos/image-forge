@@ -1,7 +1,7 @@
 import vue from "@vitejs/plugin-vue";
 import { defineConfig, loadEnv } from "vite";
-import { createReadStream, readFileSync } from "node:fs";
-import { stat } from "node:fs/promises";
+import { createReadStream, readFileSync, unlinkSync } from "node:fs";
+import { mkdir, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, normalize, extname } from "node:path";
 
@@ -33,6 +33,52 @@ function serveImageForgeData() {
         if (!filePath.startsWith(IMAGE_FORGE_DIR)) {
           res.statusCode = 403;
           res.end("Forbidden");
+          return;
+        }
+        if (req.method === "POST" || req.method === "PUT") {
+          // 写文件：浏览器把 Blob / ArrayBuffer 直接放进 body，Content-Type 决定保存格式
+          const chunks = [];
+          req.on("data", (chunk) => chunks.push(chunk));
+          req.on("end", async () => {
+            try {
+              const body = Buffer.concat(chunks);
+              if (!body.length) {
+                res.statusCode = 400;
+                res.end("Empty body");
+                return;
+              }
+              await mkdir(join(filePath, ".."), { recursive: true });
+              await writeFile(filePath, body);
+              res.setHeader("Content-Type", "application/json");
+              res.end(
+                JSON.stringify({
+                  path: join(IMAGE_FORGE_DIR, urlPath),
+                  url: `/image-forge-data${urlPath}`,
+                  size: body.length,
+                }),
+              );
+            } catch (err) {
+              console.error("[image-forge-data] 写入失败:", err);
+              res.statusCode = 500;
+              res.end(String(err?.message || err));
+            }
+          });
+          return;
+        }
+        if (req.method === "DELETE") {
+          try {
+            unlinkSync(filePath);
+            res.statusCode = 204;
+            res.end();
+          } catch (err) {
+            if (err?.code === "ENOENT") {
+              res.statusCode = 404;
+              res.end("Not Found");
+            } else {
+              res.statusCode = 500;
+              res.end(String(err?.message || err));
+            }
+          }
           return;
         }
         try {

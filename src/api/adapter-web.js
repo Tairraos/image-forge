@@ -315,9 +315,15 @@ export async function referenceFromClipboard() {
       const imageType = item.types.find((t) => t.startsWith("image/"));
       if (imageType) {
         const blob = await item.getType(imageType);
-        const dataUrl = await blobToDataUrl(blob);
-        const path = `clipboard-${Date.now()}.png`;
-        return { path, fileName: "clipboard.png", mimeType: imageType, dataUrl };
+        // 把剪贴板图片直接写入 ~/.image-forge/references/，避免任何 data URL 持久化到会话/模板
+        const fileName = `clipboard-${Date.now()}.${(imageType.split("/")[1] || "png")}`;
+        const imageUrl = await uploadImage(fileName, blob, "references");
+        return {
+          path: imageUrl,
+          fileName,
+          mimeType: imageType,
+          dataUrl: imageUrl,
+        };
       }
     }
   } catch {
@@ -333,6 +339,50 @@ function blobToDataUrl(blob) {
     reader.onerror = reject;
     reader.readAsDataURL(blob);
   });
+}
+
+/**
+ * 把任意形态的图片路径规整为可持久化到 localStorage 的 URL：
+ *  - data URL：把图片字节写进 ~/.image-forge/<relPath>/，返回 dev 代理 URL
+ *  - blob: URL：读取后转 data URL，再走上面那条路
+ *  - 已是 http(s) 或 /image-forge-data 路径：原样返回
+ */
+async function normalizeImagePath(path, relPath) {
+  if (!path) return "";
+  if (path.startsWith("data:")) {
+    return dataUrlToStoredPath(path, relPath);
+  }
+  if (path.startsWith("blob:")) {
+    try {
+      const res = await fetch(path);
+      const blob = await res.blob();
+      const dataUrl = await blobToDataUrl(blob);
+      return dataUrlToStoredPath(dataUrl, relPath);
+    } catch {
+      return "";
+    }
+  }
+  return path;
+}
+
+async function dataUrlToStoredPath(dataUrl, relPath) {
+  const match = /^data:([^;,]+)(;base64)?,(.*)$/.exec(dataUrl);
+  if (!match) return "";
+  const mime = match[1] || "image/png";
+  const isBase64 = !!match[2];
+  const payload = match[3] || "";
+  const bytes = isBase64
+    ? Uint8Array.from(atob(payload), (c) => c.charCodeAt(0))
+    : new TextEncoder().encode(decodeURIComponent(payload));
+  const ext = mime.split("/")[1] || "png";
+  const fileName = `${Date.now()}-${Math.random().toString(16).slice(2, 8)}.${ext}`;
+  const blob = new Blob([bytes], { type: mime });
+  try {
+    return await uploadImage(fileName, blob, relPath);
+  } catch {
+    // 极端兜底：把 data URL 留在字段里，至少不丢失数据
+    return dataUrl;
+  }
 }
 
 // ── 输出 ──
@@ -462,12 +512,18 @@ export async function importTemplates(archivePath) {
       skipped++;
       continue;
     }
+    // 把 data URL 形态的图片字节转写到 ~/.image-forge（本地开发）或 Vercel Blob，
+    // 避免把图片 base64 持久化进 localStorage 的 if_templates
+    const referencePaths = await Promise.all(
+      (tpl.referencePaths || []).map((p) => normalizeImagePath(p, "template-references")),
+    );
+    const effectImagePath = await normalizeImagePath(tpl.effectImagePath || "", "template-effects");
     existing.push({
       id: tpl.id || `tpl-${Date.now()}-${imported}`,
       title: tpl.title || "",
       prompt: tpl.prompt || "",
-      referencePaths: tpl.referencePaths || [],
-      effectImagePath: tpl.effectImagePath || "",
+      referencePaths: referencePaths.filter(Boolean),
+      effectImagePath: effectImagePath || "",
       usageCount: tpl.usageCount || 0,
     });
     imported++;

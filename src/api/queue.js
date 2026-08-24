@@ -145,13 +145,11 @@ async function runWorker() {
         const blob = new Blob([result.bytes], { type: `image/${result.output_format || "png"}` });
         const fileName = `${timestamp}-${task.id}-${String(i + 1).padStart(2, "0")}.${result.output_format || "png"}`;
 
-        let imageUrl;
-        try {
-          imageUrl = await uploadImage(fileName, blob);
-        } catch {
-          // Vercel Blob 不可用时回退到 data URL
-          imageUrl = await blobToDataUrl(blob);
-        }
+        // 把图片写入 ~/.image-forge/tasks/<YYYY-MM-DD>/<fileName>（本地开发）；
+        // 配了 VITE_BLOB_READ_WRITE_TOKEN 则上传到 Vercel Blob。
+        // 任何分支都不再把图片字节写进 localStorage / IndexedDB。
+        const datePath = `tasks/${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+        const imageUrl = await uploadImage(fileName, blob, datePath);
 
         outputs.push({
           path: imageUrl,
@@ -255,15 +253,6 @@ async function loadProvider(providerId) {
   } catch {
     return null;
   }
-}
-
-function blobToDataUrl(blob) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
 }
 
 // 恢复：应用启动时把遗留的 running 任务恢复为 queued
