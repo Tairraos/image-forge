@@ -43,7 +43,9 @@ function migrateJsonToSQLite(db) {
         console.log('  ✅ 已迁移 settings.json → SQLite');
       }
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 
   // prompt-templates.json
   try {
@@ -69,7 +71,9 @@ function migrateJsonToSQLite(db) {
         console.log(`  ✅ 已迁移 prompt-templates.json → SQLite（${templates.length} 个模板）`);
       }
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 
   // agent/sessions/*.json
   try {
@@ -97,7 +101,9 @@ function migrateJsonToSQLite(db) {
         console.log(`  ✅ 已迁移 agent/sessions/ → SQLite（${files.length} 个会话）`);
       }
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 
   // queue.json
   try {
@@ -128,7 +134,9 @@ function migrateJsonToSQLite(db) {
         console.log(`  ✅ 已迁移 queue.json → SQLite`);
       }
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 }
 
 function ensureTables(db) {
@@ -158,24 +166,32 @@ function readSQLite() {
   try {
     const settingsRow = db.prepare("SELECT value FROM app_settings WHERE key = 'settings'").get();
     if (settingsRow) data.settings = JSON.parse(settingsRow.value);
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 
   try {
     const tpls = db.prepare('SELECT record_json FROM app_templates ORDER BY position ASC').all();
     data.templates = tpls.map((r) => JSON.parse(r.record_json));
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 
   try {
     const sessions = db
       .prepare('SELECT record_json FROM agent_sessions ORDER BY updated_at DESC')
       .all();
     data.agentSessions = sessions.map((r) => JSON.parse(r.record_json));
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 
   try {
     const tasks = db.prepare('SELECT record_json FROM tasks ORDER BY created_at DESC').all();
     data.tasks = tasks.map((r) => JSON.parse(r.record_json));
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 
   db.close();
   return data;
@@ -507,7 +523,9 @@ async function handleMerge(req, res) {
   let bodyData = {};
   try {
     bodyData = JSON.parse(body);
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 
   const browserData = {
     settings: bodyData.settings || null,

@@ -1,32 +1,62 @@
-# 代理工作说明
+# AGENTS.md — 项目导航
 
-- 本仓库所有回复尽量使用中文，尤其是最终交付说明、提交说明和文档类内容。
-- 每轮对话结束前，若有文件改动，必须升级应用 patch 版本、编译，并通过 prerelease 生成 `.app`；不再要求生成 `.dmg`。
-- 默认发布流程：`pnpm run patch -- <next-version>`、`pnpm build`、`cargo check --manifest-path src-tauri/Cargo.toml`、`pnpm run prerelease`。
-- 一键发布：`pnpm ship <next-version>`，等效于上述四条命令。
-- prerelease 成功后，`release/` 中旧文件全部移入系统回收站，只保留当前带版本号的 `.app`。
-- 每轮对话结束前，若有文件改动，必须提交 Git。
-- Git 提交信息必须使用 Conventional Commits 前缀，并使用中文描述，例如 `feat: 调整生图参数面板`。
-- 如果同一次会话包含多个独立任务，必须按任务拆分提交；每个任务单独提交一次，不要把无关改动混在同一个 commit 里。
+> 这是 Image Forge 的入口导航，给 Agent / Codex 快速定位。长期知识在 `docs/` 下，能自动检查的规则已转为脚本 / lint / 测试，不要在这里堆细节。
 
-## 开发工具
+## 项目是什么
 
-- `pnpm lint` — ESLint 检查
-- `pnpm lint:fix` — ESLint 自动修复
-- `pnpm fmt` — Prettier 格式化
-- `pnpm fmt:check` — Prettier 格式检查
-- `pnpm check` — 一键全检（lint + test + cargo check）
-- `pnpm fix` — 一键修复（eslint --fix + prettier --write）
-- `pnpm ship <version>` — 一键发布（patch + build + cargo check + prerelease）
-- 提交前自动运行 lint-staged（eslint --fix + prettier --write），通过 Husky pre-commit hook 触发。
-- 推荐 VS Code 扩展：Vue - Official (Volar)、ESLint、Prettier - Code formatter、EditorConfig for VS Code
+本地优先的 AI 图像生产工作台：Tauri 2 + Vue 3 桌面应用，同一套前端代码可编译为纯 Web 版（Vite + IndexedDB + Vercel Blob）。模型负责理解与规划，Rust 负责校验与执行，数据留在本机。
 
-## 删除与回收站规则
+## 关键目录
 
-- 具备完全磁盘访问能力不等于可以任意删除文件。除以下目录外，任何删除动作都必须先获得用户二次许可：
-  - `~/.image-forge`
-  - Tauri `app_data_dir()` 返回的目录
-  - `~/Workspaces/Tools/image-forge`
-- 允许删除的范围也必须优先使用系统回收站，不能直接 `rm -rf` 或永久删除。
-- 回收站不可用时，不执行必要删除；向用户说明原因，并提供由用户自行执行的删除命令。
-- 每轮会话结束时，最终说明必须明确报告实际移入回收站或删除的内容；没有执行删除也要明确说明。
+| 目录 | 作用 |
+| --- | --- |
+| `src/App.vue` | 前端唯一业务状态源，组件通过 props/events 协作 |
+| `src/api/` | 适配器层：`index.js` 运行时检测，自动切 Tauri / Web |
+| `src/components/` | Vue 组件（`dialogs/` 是对话框，`snippets/` 是微型组件） |
+| `src/lib/` | 纯函数工具（格式化、模型解析、主题等） |
+| `src-tauri/src/` | Rust 后端：`commands.rs` 命令层、`services/` 业务层、`store.rs` + `history_db.rs` SQLite |
+| `scripts/` | 构建 / 发布 / 数据同步 / 验证脚本 |
+| `tests/` | Vitest 测试（`api/` 适配器层、`lib/` 工具、`components/` 组件） |
+| `docs/` | 架构、黄金原则、开发指南、生图 API 参考 |
+
+## 快速开始
+
+```bash
+pnpm install        # 安装依赖
+pnpm tauri dev      # 桌面完整开发（Tauri 命令、队列、本地图片协议可用）
+pnpm dev            # 仅 Web 开发（http://localhost:1421，Tauri 能力不可用）
+```
+
+## 验证与发布
+
+```bash
+pnpm verify         # 完成任务后必跑：lint + 格式 + 测试 + Rust check（见 scripts/verify.mjs）
+pnpm check          # 同上，轻量版（不含 fmt:check 和 cargo test）
+pnpm ship <version> # 一键发布：patch + build + cargo check + prerelease
+```
+
+## 关键规则在哪
+
+- **黄金原则**（复用、边界、错误处理、数据、验证、发布）→ `docs/golden-principles.md`
+- **架构与模块边界** → `docs/technical-design.md`
+- **Web 版开发与调试** → `docs/web-dev-guide.md`
+- **生图 API 参数** → `docs/生图API使用说明.md`、`docs/生图参数参考.md`
+- **删除与回收站硬约束** → 见下方（每次会话都要遵守）
+
+## 遇到问题先看
+
+1. 先读 `docs/technical-design.md` 理解当前架构与数据流
+2. 再读 `docs/golden-principles.md` 理解不可违反的约束
+3. 跑 `pnpm verify` 确认当前是否干净
+4. 改代码后跑对应测试：`pnpm test -- tests/api/db.spec.js`
+
+## 完成一次任务的固定流程
+
+改代码 → `pnpm verify` → 修复失败 → `pnpm ship <version>` → 按任务拆分提交（Conventional Commits + 中文描述）
+
+## 删除与回收站规则（硬约束）
+
+- 除 `~/.image-forge`、Tauri `app_data_dir()`、`~/Workspaces/Tools/image-forge` 外，删除任何文件前必须先获得用户二次确认。
+- 允许删除的范围也优先用系统回收站，不直接 `rm -rf`。
+- 回收站不可用时，不执行必要删除；说明原因并给出用户可自行执行的命令。
+- 每轮结束的交付说明必须报告实际移入回收站 / 删除的内容；没有删除也要明确说明。

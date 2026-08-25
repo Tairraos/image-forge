@@ -39,7 +39,7 @@ flowchart LR
   Services --> Agent["agent.rs\n上下文与 Tool Loop"]
   Services --> DataBundle["data_bundle.rs\n数据导出/导入 + 文件去重"]
   Images --> Providers["GPT / Gemini / Grok"]
-  Store --> SQLite["library.sqlite\n5 张表：tasks / settings / templates / sessions / queue"]
+  Store --> SQLite["library.sqlite\n7 张表：metadata / tasks / task_outputs / app_settings / app_templates / agent_sessions / app_queue"]
   Queue --> Data["~/.image-forge\nSQLite + 图片文件"]
   Agent --> Queue
 ```
@@ -147,7 +147,7 @@ const adapter = isTauri
 | `models.rs` | Vue 与 Rust 共享的 serde 数据结构，包括任务、输出和 Agent envelope。 |
 | `state.rs` | 运行期状态：队列 worker 标记、取消/删除集合和运行日志。 |
 | `store.rs` | 数据目录、SQLite 读写（通过 `history_db`）、请求文件、历史/队列/模板归一化和事务。 |
-| `history_db.rs` | SQLite 数据库层：建表、迁移、CRUD。6 张表管理全部结构化数据。 |
+| `history_db.rs` | SQLite 数据库层：建表、迁移、CRUD。7 张表管理全部结构化数据。 |
 | `services/queue.rs` | 单 worker 调度、provider 并发限制、取消、重试和异常恢复。 |
 | `services/images.rs` | GPT/Gemini/Grok 请求组装、响应解析和输出落盘。 |
 | `services/chat.rs` | OpenAI 兼容 Chat Completions、流式回复和模板填充。 |
@@ -261,7 +261,7 @@ sequenceDiagram
 
 ## 生图协议适配
 
-`services/images.rs`（桌面版）和 `adapters/providers.js`（Web 版）按 `modelType` 选择请求协议，不把厂商差异交给前端。仅支持三家 API：
+`services/images.rs`（桌面版）和 `src/api/providers.js`（Web 版）按 `modelType` 选择请求协议，不把厂商差异交给前端。仅支持三家 API：
 
 | 类型 | 生成 | 编辑 / 参考图 | 鉴权 |
 | --- | --- | --- | --- |

@@ -81,7 +81,7 @@ Web 版直接从浏览器调用 OpenAI/Gemini/Grok API（`src/api/providers.js`�
 ### 图片存在哪里？
 
 1. 优先：Vercel Blob（需配置 `VITE_BLOB_READ_WRITE_TOKEN`）
-2. 回退：data URL 存在 IndexedDB 中（不适合大量图片，会撑爆浏览器存储）
+2. 本地开发：写入 `~/.image-forge/` 目录，通过 Vite dev server 的 `/image-forge-data/` 路径提供
 
 ## 项目结构
 
