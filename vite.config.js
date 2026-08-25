@@ -160,6 +160,12 @@ export default defineConfig(({ mode }) => {
     test: {
       environment: 'jsdom',
       setupFiles: ['./tests/setup.js'],
+      coverage: {
+        provider: 'v8',
+        reporter: ['text', 'text-summary', 'lcov'],
+        include: ['src/api/**/*.js', 'src/lib/**/*.js'],
+        exclude: ['src/api/index.js', 'src/api/adapter-tauri.js'],
+      },
     },
     server: {
       host: '0.0.0.0',

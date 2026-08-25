@@ -107,7 +107,8 @@ export function devUrlToAbsPath(url) {
 
 /** 判断是否为 Vercel Blob URL */
 export function isBlobUrl(url) {
-  return url?.startsWith('https://') && url.includes('blob.vercel-storage.com');
+  if (!url) return false;
+  return url.startsWith('https://') && url.includes('blob.vercel-storage.com');
 }
 
 function sanitizeFileName(name) {
