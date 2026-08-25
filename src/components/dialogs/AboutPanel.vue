@@ -5,11 +5,11 @@
       <dl class="about-details">
         <div>
           <dt>版本</dt>
-          <dd>{{ info.version || "未知" }}</dd>
+          <dd>{{ info.version || '未知' }}</dd>
         </div>
         <div>
           <dt>编译时间</dt>
-          <dd>{{ info.buildTime || "未知" }}</dd>
+          <dd>{{ info.buildTime || '未知' }}</dd>
         </div>
         <div>
           <dt>开发者</dt>
@@ -27,14 +27,14 @@
 </template>
 
 <script setup>
-import logoUrl from "../../assets/title.png";
+import logoUrl from '../../assets/title.png';
 
 defineProps({
   info: {
     type: Object,
-    default: () => ({ version: "", buildTime: "" }),
+    default: () => ({ version: '', buildTime: '' }),
   },
 });
 
-const emit = defineEmits(["show-logs", "cleanup", "close"]);
+const emit = defineEmits(['show-logs', 'cleanup', 'close']);
 </script>

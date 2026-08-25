@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawnSync } from 'node:child_process';
 import {
   chmodSync,
   cpSync,
@@ -8,14 +8,15 @@ import {
   readdirSync,
   renameSync,
   writeFileSync,
-} from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
+} from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 
 const home = homedir();
-const oldRoot = process.env.IMAGE_FORGE_OLD_ROOT
-  || join(home, "Library", "Application Support", "com.xiaole.imageforge");
-const newRoot = join(home, ".image-forge");
+const oldRoot =
+  process.env.IMAGE_FORGE_OLD_ROOT ||
+  join(home, 'Library', 'Application Support', 'com.xiaole.imageforge');
+const newRoot = join(home, '.image-forge');
 const stagingRoot = `${newRoot}.migrating`;
 
 if (!existsSync(oldRoot)) throw new Error(`找不到旧数据目录：${oldRoot}`);
@@ -39,7 +40,7 @@ try {
 
 function moveToTrash(path) {
   if (!existsSync(path)) return;
-  const result = spawnSync("trash", [path], { stdio: "inherit" });
+  const result = spawnSync('trash', [path], { stdio: 'inherit' });
   if (result.status !== 0) {
     throw new Error(`无法将路径移入系统回收站：${path}`);
   }
@@ -47,8 +48,8 @@ function moveToTrash(path) {
 
 function rewriteJsonPaths(root, oldPrefix, newPrefix) {
   for (const path of walk(root)) {
-    if (path.endsWith(".json")) {
-      const value = JSON.parse(readFileSync(path, "utf8"));
+    if (path.endsWith('.json')) {
+      const value = JSON.parse(readFileSync(path, 'utf8'));
       const rewritten = replaceStrings(value, oldPrefix, newPrefix);
       writeFileSync(path, `${JSON.stringify(rewritten, null, 2)}\n`);
     }
@@ -56,15 +57,15 @@ function rewriteJsonPaths(root, oldPrefix, newPrefix) {
 }
 
 function ensureLayout(root) {
-  for (const name of ["outputs", "requests", "clipboard", "references"]) {
+  for (const name of ['outputs', 'requests', 'clipboard', 'references']) {
     mkdirSync(join(root, name), { recursive: true });
   }
 }
 
 function verify(root) {
-  for (const name of ["settings.json", "history.json", "queue.json", "prompt-templates.json"]) {
+  for (const name of ['settings.json', 'history.json', 'queue.json', 'prompt-templates.json']) {
     const path = join(root, name);
-    if (existsSync(path)) JSON.parse(readFileSync(path, "utf8"));
+    if (existsSync(path)) JSON.parse(readFileSync(path, 'utf8'));
   }
 }
 
@@ -77,15 +78,14 @@ function* walk(root) {
 }
 
 function replaceStrings(value, oldPrefix, newPrefix) {
-  if (typeof value === "string") {
+  if (typeof value === 'string') {
     return value.startsWith(oldPrefix) ? `${newPrefix}${value.slice(oldPrefix.length)}` : value;
   }
   if (Array.isArray(value)) return value.map((item) => replaceStrings(item, oldPrefix, newPrefix));
-  if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).map(([key, item]) => [
-      key,
-      replaceStrings(item, oldPrefix, newPrefix),
-    ]));
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, replaceStrings(item, oldPrefix, newPrefix)])
+    );
   }
   return value;
 }

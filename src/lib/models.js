@@ -3,7 +3,7 @@ export function defaultSettings() {
   return {
     activeProviderId: provider.id,
     activeImageProviderId: provider.id,
-    activeChatProviderId: "",
+    activeChatProviderId: '',
     providers: [provider],
     outputDir: null,
     inputDir: null,
@@ -13,88 +13,85 @@ export function defaultSettings() {
   };
 }
 
-export const IMAGE_MODEL_TYPES = [
-  "image-gpt",
-  "image-gemini",
-  "image-grok",
-];
+export const IMAGE_MODEL_TYPES = ['image-gpt', 'image-gemini', 'image-grok'];
 
 /** 绘图 API 模型类型下拉选项（供设置面板使用） */
 export const IMAGE_MODEL_TYPE_OPTIONS = [
-  { label: "GPT / OpenAI 兼容", value: "image-gpt" },
-  { label: "Gemini / Nano Banana", value: "image-gemini" },
-  { label: "Grok / xAI", value: "image-grok" },
+  { label: 'GPT / OpenAI 兼容', value: 'image-gpt' },
+  { label: 'Gemini / Nano Banana', value: 'image-gemini' },
+  { label: 'Grok / xAI', value: 'image-grok' },
 ];
 
 /** 绘图 API 默认模型 ID */
-export const DEFAULT_IMAGE_MODEL = "gpt-image-2";
+export const DEFAULT_IMAGE_MODEL = 'gpt-image-2';
 /** 对话 API 默认模型 ID */
-export const DEFAULT_CHAT_MODEL = "gpt-5.6-luna";
+export const DEFAULT_CHAT_MODEL = 'gpt-5.6-luna';
 
 /**
  * 创建默认 API 源。
  * @param {number} index 序号（用于默认名称）
  * @param {string} modelType 模型类型：image-* 或 chat
  */
-export function defaultProvider(index = 1, modelType = "image-gpt") {
-  const isChat = modelType === "chat";
+export function defaultProvider(index = 1, modelType = 'image-gpt') {
+  const isChat = modelType === 'chat';
   return {
     id: createProviderId(),
-    name: index === 1 ? "默认" : `供应商 ${index}`,
+    name: index === 1 ? '默认' : `供应商 ${index}`,
     modelType,
-    baseUrl: "https://api.openai.com/v1",
-    apiKey: "",
-    proxyUrl: "",
+    baseUrl: 'https://api.openai.com/v1',
+    apiKey: '',
+    proxyUrl: '',
     // 对话默认 gpt-5.6-luna；绘图默认 gpt-image-2
     imageModel: isChat ? DEFAULT_CHAT_MODEL : DEFAULT_IMAGE_MODEL,
     imagesConcurrency: 1,
     enabled: true,
-    notes: "",
+    notes: '',
   };
 }
 
 export function normalizeSettingsForUi(value) {
   const next = { ...defaultSettings(), ...value };
-  next.providers = Array.isArray(next.providers) && next.providers.length ? next.providers : [defaultProvider()];
+  next.providers =
+    Array.isArray(next.providers) && next.providers.length ? next.providers : [defaultProvider()];
   next.providers = next.providers.map((provider, index) => ({
-    ...defaultProvider(index + 1, "image-gpt"),
+    ...defaultProvider(index + 1, 'image-gpt'),
     ...provider,
     id: provider.id || createProviderId(),
     modelType: normalizeModelType(provider.modelType, provider.imageModel, provider.baseUrl),
-    proxyUrl: provider.proxyUrl || "",
+    proxyUrl: provider.proxyUrl || '',
     imagesConcurrency: 1,
-    notes: "",
+    notes: '',
   }));
 
   const imageProviders = next.providers.filter((provider) => isImageModelType(provider.modelType));
-  const chatProviders = next.providers.filter((provider) => provider.modelType === "chat");
+  const chatProviders = next.providers.filter((provider) => provider.modelType === 'chat');
   const legacyActive = next.activeProviderId;
 
   next.activeImageProviderId = pickActiveProviderId(
     next.activeImageProviderId || legacyActive,
-    imageProviders,
+    imageProviders
   );
   next.activeChatProviderId = pickActiveProviderId(next.activeChatProviderId, chatProviders);
-  next.activeProviderId = next.activeImageProviderId || legacyActive || next.providers[0]?.id || "";
+  next.activeProviderId = next.activeImageProviderId || legacyActive || next.providers[0]?.id || '';
   return next;
 }
 
 export function emptyTemplate() {
   return {
-    id: "",
-    title: "",
-    shortTitle: "",
-    category: "常用",
-    content: "",
+    id: '',
+    title: '',
+    shortTitle: '',
+    category: '常用',
+    content: '',
     referencePaths: [],
-    effectImagePath: "",
-    notes: "",
+    effectImagePath: '',
+    notes: '',
     tags: [],
     favorite: false,
     usageCount: 0,
-    modelHint: "",
-    createdAt: "",
-    updatedAt: "",
+    modelHint: '',
+    createdAt: '',
+    updatedAt: '',
   };
 }
 
@@ -109,28 +106,28 @@ export function createProviderId() {
   return `provider-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-export function normalizeModelType(value, model = "", baseUrl = "") {
-  if (value === "chat") return "chat";
+export function normalizeModelType(value, model = '', baseUrl = '') {
+  if (value === 'chat') return 'chat';
   if (IMAGE_MODEL_TYPES.includes(value)) return value;
   return recommendImageModelType(model, baseUrl);
 }
 
-export function recommendImageModelType(model = "", baseUrl = "") {
+export function recommendImageModelType(model = '', baseUrl = '') {
   const hint = `${model} ${baseUrl}`.toLowerCase();
-  if (/gemini|imagen|nano[ -]?banana/.test(hint)) return "image-gemini";
-  if (/grok|api\.x\.ai/.test(hint)) return "image-grok";
-  return "image-gpt";
+  if (/gemini|imagen|nano[ -]?banana/.test(hint)) return 'image-gemini';
+  if (/grok|api\.x\.ai/.test(hint)) return 'image-grok';
+  return 'image-gpt';
 }
 
 export function isImageModelType(value) {
-  return value !== "chat";
+  return value !== 'chat';
 }
 
 function pickActiveProviderId(candidate, providers) {
   if (candidate && providers.some((provider) => provider.id === candidate)) {
     return candidate;
   }
-  return providers[0]?.id || "";
+  return providers[0]?.id || '';
 }
 
 /**
@@ -152,7 +149,7 @@ function pickActiveProviderId(candidate, providers) {
  * @returns {{ name: string, apiKey: string, baseUrl: string, imageModel?: string } | null}
  */
 export function parseClipboardProvider(raw) {
-  const text = String(raw || "").trim();
+  const text = String(raw || '').trim();
   if (!text) return null;
 
   // —— 策略 1：优先尝试 JSON ——
@@ -178,40 +175,40 @@ function parseClipboardProviderJson(text) {
   } catch {
     return null;
   }
-  if (!data || typeof data !== "object" || Array.isArray(data)) return null;
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
 
   // 优先用源文本里 "name" 字段的字面量，避免 JSON 解析后键顺序变化；
   // 若没有 name 字段，则退回第一个顶层 key 作为名称（嵌套配置场景）。
   const nameMatch = text.match(/"name"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/);
-  const firstKey = Object.keys(data)[0] || "";
-  let name = "";
+  const firstKey = Object.keys(data)[0] || '';
+  let name;
   if (nameMatch?.[1]) {
     name = unescapeJsonString(nameMatch[1]).trim();
   } else {
     name = firstKey.trim();
   }
 
-  const apiKey = firstProviderString(data, ["apiKey", "openAiApiKey", "api_key", "key"]);
+  const apiKey = firstProviderString(data, ['apiKey', 'openAiApiKey', 'api_key', 'key']);
   const baseUrl = firstProviderString(data, [
-    "baseURL",
-    "openAiBaseUrl",
-    "baseUrl",
-    "base_url",
-    "url",
+    'baseURL',
+    'openAiBaseUrl',
+    'baseUrl',
+    'base_url',
+    'url',
   ]);
   // 模型字段可选：有则带出，便于后续自动推测 modelType
   const imageModel = firstProviderString(data, [
-    "imageModel",
-    "openAiModelId",
-    "model",
-    "modelId",
-    "model_id",
+    'imageModel',
+    'openAiModelId',
+    'model',
+    'modelId',
+    'model_id',
   ]);
 
   if (!apiKey || !baseUrl) return null;
   // name 缺失时允许空串，由调用方或文本启发式补全；此处至少保证可创建源
   return {
-    name: name || "",
+    name: name || '',
     apiKey,
     baseUrl,
     ...(imageModel ? { imageModel } : {}),
@@ -240,10 +237,10 @@ function parseClipboardProviderText(text) {
   // 同时扫描：整行 + 行内被 '...' 或 "..." 包围的片段
   const tokens = collectClipboardTokens(lines);
 
-  let baseUrl = "";
-  let apiKey = "";
-  let imageModel = "";
-  let name = "";
+  let baseUrl = '';
+  let apiKey = '';
+  let imageModel = '';
+  let name = '';
 
   // 1) Base URL：http(s):// 开头
   for (const token of tokens) {
@@ -270,7 +267,7 @@ function parseClipboardProviderText(text) {
   }
 
   // 4) 名称：优先第一行短标题；排除 url/key/model，以及 "key: value" 标签行
-  const firstLine = lines[0] || "";
+  const firstLine = lines[0] || '';
   if (isClipboardNameCandidate(firstLine) && !isClipboardLabeledLine(firstLine)) {
     name = firstLine;
   }
@@ -280,13 +277,13 @@ function parseClipboardProviderText(text) {
   if (!name) {
     for (const token of tokens) {
       if (
-        token === baseUrl
-        || token === apiKey
-        || token === imageModel
-        || isClipboardBaseUrl(token)
-        || isClipboardApiKey(token)
-        || isClipboardImageModel(token)
-        || isClipboardLabeledLine(token)
+        token === baseUrl ||
+        token === apiKey ||
+        token === imageModel ||
+        isClipboardBaseUrl(token) ||
+        isClipboardApiKey(token) ||
+        isClipboardImageModel(token) ||
+        isClipboardLabeledLine(token)
       ) {
         continue;
       }
@@ -299,7 +296,7 @@ function parseClipboardProviderText(text) {
 
   if (!apiKey || !baseUrl) return null;
   return {
-    name: name || "",
+    name: name || '',
     apiKey,
     baseUrl,
     ...(imageModel ? { imageModel } : {}),
@@ -316,7 +313,7 @@ function collectClipboardTokens(lines) {
   const tokens = [];
   const seen = new Set();
   const push = (value) => {
-    const token = String(value || "").trim();
+    const token = String(value || '').trim();
     if (!token || seen.has(token)) return;
     seen.add(token);
     tokens.push(token);
@@ -335,12 +332,12 @@ function collectClipboardTokens(lines) {
 
 /** 是否为 http(s) Base URL */
 function isClipboardBaseUrl(value) {
-  return /^https?:\/\/\S+$/i.test(String(value || "").trim());
+  return /^https?:\/\/\S+$/i.test(String(value || '').trim());
 }
 
 /** 是否为 sk- 开头的 API Key（整段无空白） */
 function isClipboardApiKey(value) {
-  return /^sk-[^\s'"]+$/i.test(String(value || "").trim());
+  return /^sk-[^\s'"]+$/i.test(String(value || '').trim());
 }
 
 /**
@@ -350,7 +347,7 @@ function isClipboardApiKey(value) {
  * - 长度 ≤ 30
  */
 function isClipboardImageModel(value) {
-  const token = String(value || "").trim();
+  const token = String(value || '').trim();
   if (!token || token.length > 30) return false;
   if (!/^[A-Za-z0-9/_.-]+$/.test(token)) return false;
   return /image/i.test(token);
@@ -363,13 +360,9 @@ function isClipboardImageModel(value) {
  * - 不允许整段是 URL / Key / 模型 ID
  */
 function isClipboardNameCandidate(value) {
-  const token = String(value || "").trim();
+  const token = String(value || '').trim();
   if (!token) return false;
-  if (
-    isClipboardBaseUrl(token)
-    || isClipboardApiKey(token)
-    || isClipboardImageModel(token)
-  ) {
+  if (isClipboardBaseUrl(token) || isClipboardApiKey(token) || isClipboardImageModel(token)) {
     return false;
   }
   // 必须以中文或英文开头
@@ -390,9 +383,7 @@ function isClipboardNameCandidate(value) {
  * 这类整行不适合直接当名称，应优先取其中的引号值。
  */
 function isClipboardLabeledLine(value) {
-  return /^[A-Za-z\u4e00-\u9fff_][\w\u4e00-\u9fff.-]*\s*[:=]\s*\S/.test(
-    String(value || "").trim(),
-  );
+  return /^[A-Za-z\u4e00-\u9fff_][\w\u4e00-\u9fff.-]*\s*[:=]\s*\S/.test(String(value || '').trim());
 }
 
 /**
@@ -402,18 +393,18 @@ function isClipboardLabeledLine(value) {
 function firstProviderString(data, keys) {
   for (const key of keys) {
     const value = data?.[key];
-    if (typeof value === "string" && value.trim()) return value.trim();
+    if (typeof value === 'string' && value.trim()) return value.trim();
   }
-  if (data && typeof data === "object") {
+  if (data && typeof data === 'object') {
     for (const value of Object.values(data)) {
-      if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+      if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
       for (const key of keys) {
         const nested = value[key];
-        if (typeof nested === "string" && nested.trim()) return nested.trim();
+        if (typeof nested === 'string' && nested.trim()) return nested.trim();
       }
     }
   }
-  return "";
+  return '';
 }
 
 /** 还原 JSON 字符串字面量中的转义字符 */
@@ -424,4 +415,3 @@ function unescapeJsonString(value) {
     return value;
   }
 }
-

@@ -2,10 +2,10 @@
 // 支持 OpenAI / Gemini / Grok 三家协议，统一返回 { bytes, size, format } 结构。
 
 const IMAGE_SIZE_MAP = {
-  standard: "1K",
-  "2k": "2K",
-  "3k": "3K",
-  "4k": "4K",
+  standard: '1K',
+  '2k': '2K',
+  '3k': '3K',
+  '4k': '4K',
 };
 
 /**
@@ -15,18 +15,18 @@ const IMAGE_SIZE_MAP = {
  * @returns {Promise<Array<{bytes: Uint8Array, size: string, output_format: string, revised_prompt: string}>>}
  */
 export async function executeGeneration(provider, request) {
-  const type = provider.modelType || "";
-  if (type === "image-gemini") return callGemini(provider, request);
-  if (type === "image-grok") return callGrok(provider, request);
+  const type = provider.modelType || '';
+  if (type === 'image-gemini') return callGemini(provider, request);
+  if (type === 'image-grok') return callGrok(provider, request);
   return callOpenAI(provider, request);
 }
 
 // ── OpenAI Images API ──
 
 async function callOpenAI(provider, request) {
-  const baseUrl = (provider.baseUrl || "").replace(/\/+$/, "");
-  const apiKey = (provider.apiKey || "").trim();
-  const model = provider.imageModel || "gpt-image-2";
+  const baseUrl = (provider.baseUrl || '').replace(/\/+$/, '');
+  const apiKey = (provider.apiKey || '').trim();
+  const model = provider.imageModel || 'gpt-image-2';
 
   const refs = request.reference_paths || [];
   if (refs.length > 0) {
@@ -38,20 +38,20 @@ async function callOpenAI(provider, request) {
 async function callOpenAIGenerate(baseUrl, apiKey, model, request) {
   const payload = {
     model,
-    prompt: request.prompt || "",
+    prompt: request.prompt || '',
     n: request.count || 1,
-    output_format: request.output_format || "png",
+    output_format: request.output_format || 'png',
   };
   if (request.size) payload.size = request.size;
   if (request.quality) payload.quality = request.quality;
   if (request.background) payload.background = request.background;
 
   const res = await fetch(`${baseUrl}/images/generations`, {
-    method: "POST",
+    method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-      Accept: "application/json",
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
     },
     body: JSON.stringify(payload),
   });
@@ -61,21 +61,21 @@ async function callOpenAIGenerate(baseUrl, apiKey, model, request) {
 async function callOpenAIEdit(baseUrl, apiKey, model, request, refs) {
   // 参考图编辑使用 multipart/form-data
   const form = new FormData();
-  form.append("model", model);
-  form.append("prompt", request.prompt || "");
-  form.append("n", String(request.count || 1));
-  form.append("output_format", request.output_format || "png");
-  if (request.size) form.append("size", request.size);
-  if (request.quality) form.append("quality", request.quality);
+  form.append('model', model);
+  form.append('prompt', request.prompt || '');
+  form.append('n', String(request.count || 1));
+  form.append('output_format', request.output_format || 'png');
+  if (request.size) form.append('size', request.size);
+  if (request.quality) form.append('quality', request.quality);
 
   for (const refPath of refs) {
     const blob = await urlToBlob(refPath);
-    form.append("image", blob, "reference.png");
+    form.append('image', blob, 'reference.png');
   }
 
   const res = await fetch(`${baseUrl}/images/edits`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
     body: form,
   });
   return parseOpenAIResponse(res, request);
@@ -85,7 +85,11 @@ async function parseOpenAIResponse(res, request) {
   const body = await res.text();
   if (!res.ok) {
     let msg = body;
-    try { msg = JSON.parse(body).error?.message || body; } catch {}
+    try {
+      msg = JSON.parse(body).error?.message || body;
+    } catch {
+      /* ignore parse error */
+    }
     throw new Error(`OpenAI API 错误 (${res.status}): ${msg}`);
   }
   const json = JSON.parse(body);
@@ -96,17 +100,17 @@ async function parseOpenAIResponse(res, request) {
     if (item.b64_json) {
       bytes = Uint8Array.from(atob(item.b64_json), (c) => c.charCodeAt(0));
     } else if (item.url) {
-      throw new Error("OpenAI 返回了 URL 而非 base64，Web 版暂不支持 URL 下载");
+      throw new Error('OpenAI 返回了 URL 而非 base64，Web 版暂不支持 URL 下载');
     } else {
-      throw new Error("OpenAI 未返回图像数据");
+      throw new Error('OpenAI 未返回图像数据');
     }
     return {
       bytes,
-      size: item.size || request.size || "",
-      output_format: item.output_format || request.output_format || "png",
-      revised_prompt: item.revised_prompt || "",
-      background: item.background || "",
-      quality: item.quality || request.quality || "",
+      size: item.size || request.size || '',
+      output_format: item.output_format || request.output_format || 'png',
+      revised_prompt: item.revised_prompt || '',
+      background: item.background || '',
+      quality: item.quality || request.quality || '',
       usage,
     };
   });
@@ -115,11 +119,14 @@ async function parseOpenAIResponse(res, request) {
 // ── Gemini Images API ──
 
 async function callGemini(provider, request) {
-  const baseUrl = (provider.baseUrl || "https://generativelanguage.googleapis.com/v1beta").replace(/\/+$/, "");
-  const apiKey = (provider.apiKey || "").trim();
-  const model = (provider.imageModel || "gemini-3.1-flash-image").replace(/^models\//, "");
+  const baseUrl = (provider.baseUrl || 'https://generativelanguage.googleapis.com/v1beta').replace(
+    /\/+$/,
+    ''
+  );
+  const apiKey = (provider.apiKey || '').trim();
+  const model = (provider.imageModel || 'gemini-3.1-flash-image').replace(/^models\//, '');
 
-  const parts = [{ text: request.prompt || "" }];
+  const parts = [{ text: request.prompt || '' }];
   const refs = request.reference_paths || [];
   for (const refPath of refs.slice(0, 14)) {
     const dataUrl = await urlToDataUrl(refPath);
@@ -128,22 +135,22 @@ async function callGemini(provider, request) {
   }
 
   const payload = {
-    contents: [{ role: "user", parts }],
+    contents: [{ role: 'user', parts }],
     generationConfig: {
-      responseModalities: ["IMAGE"],
+      responseModalities: ['IMAGE'],
       imageConfig: {
-        aspectRatio: request.ratio || "1:1",
-        imageSize: IMAGE_SIZE_MAP[request.resolution] || "1K",
+        aspectRatio: request.ratio || '1:1',
+        imageSize: IMAGE_SIZE_MAP[request.resolution] || '1K',
       },
     },
   };
 
   const res = await fetch(`${baseUrl}/models/${model}:generateContent`, {
-    method: "POST",
+    method: 'POST',
     headers: {
-      "x-goog-api-key": apiKey,
-      "Content-Type": "application/json",
-      Accept: "application/json",
+      'x-goog-api-key': apiKey,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
     },
     body: JSON.stringify(payload),
   });
@@ -154,7 +161,11 @@ async function parseGeminiResponse(res, request) {
   const body = await res.text();
   if (!res.ok) {
     let msg = body;
-    try { msg = JSON.parse(body).error?.message || body; } catch {}
+    try {
+      msg = JSON.parse(body).error?.message || body;
+    } catch {
+      /* ignore parse error */
+    }
     throw new Error(`Gemini API 错误 (${res.status}): ${msg}`);
   }
   const json = JSON.parse(body);
@@ -166,35 +177,35 @@ async function parseGeminiResponse(res, request) {
         const bytes = Uint8Array.from(atob(part.inlineData.data), (c) => c.charCodeAt(0));
         results.push({
           bytes,
-          size: request.size || "",
-          output_format: "png",
-          revised_prompt: "",
-          background: "",
-          quality: "",
+          size: request.size || '',
+          output_format: 'png',
+          revised_prompt: '',
+          background: '',
+          quality: '',
           usage: json.usageMetadata || null,
         });
       }
     }
   }
-  if (!results.length) throw new Error("Gemini 未返回图像数据");
+  if (!results.length) throw new Error('Gemini 未返回图像数据');
   return results;
 }
 
 // ── Grok Images API ──
 
 async function callGrok(provider, request) {
-  const baseUrl = (provider.baseUrl || "https://api.x.ai/v1").replace(/\/+$/, "");
-  const apiKey = (provider.apiKey || "").trim();
-  const model = provider.imageModel || "grok-imagine-image-quality";
+  const baseUrl = (provider.baseUrl || 'https://api.x.ai/v1').replace(/\/+$/, '');
+  const apiKey = (provider.apiKey || '').trim();
+  const model = provider.imageModel || 'grok-imagine-image-quality';
 
   const refs = request.reference_paths || [];
   const payload = {
     model,
-    prompt: request.prompt || "",
+    prompt: request.prompt || '',
     n: request.count || 1,
-    aspect_ratio: request.ratio || "1:1",
-    resolution: (IMAGE_SIZE_MAP[request.resolution] || "1k").toLowerCase(),
-    response_format: "b64_json",
+    aspect_ratio: request.ratio || '1:1',
+    resolution: (IMAGE_SIZE_MAP[request.resolution] || '1k').toLowerCase(),
+    response_format: 'b64_json',
   };
 
   let url = `${baseUrl}/images/generations`;
@@ -202,18 +213,18 @@ async function callGrok(provider, request) {
     url = `${baseUrl}/images/edits`;
     const dataUrls = await Promise.all(refs.slice(0, 5).map(urlToDataUrl));
     if (dataUrls.length === 1) {
-      payload.image = { url: dataUrls[0], type: "image_url" };
+      payload.image = { url: dataUrls[0], type: 'image_url' };
     } else {
-      payload.images = dataUrls.map((url) => ({ url, type: "image_url" }));
+      payload.images = dataUrls.map((url) => ({ url, type: 'image_url' }));
     }
   }
 
   const res = await fetch(url, {
-    method: "POST",
+    method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-      Accept: "application/json",
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
     },
     body: JSON.stringify(payload),
   });
@@ -240,7 +251,7 @@ async function urlToDataUrl(url) {
 
 function splitDataUrl(dataUrl) {
   const match = /^data:([^;]+);base64,(.+)$/.exec(dataUrl);
-  if (!match) throw new Error("无效的 data URL");
+  if (!match) throw new Error('无效的 data URL');
   return [match[1], match[2]];
 }
 

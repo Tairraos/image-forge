@@ -3,9 +3,7 @@
 
 const isTauri = Boolean(window.__TAURI_INTERNALS__);
 
-const adapter = isTauri
-  ? await import("./adapter-tauri.js")
-  : await import("./adapter-web.js");
+const adapter = isTauri ? await import('./adapter-tauri.js') : await import('./adapter-web.js');
 
 export const {
   loadAppState,

@@ -1,16 +1,16 @@
 // Web 版适配器 — 阶段 4 实现（生图 + 队列）。
 // 所有函数签名与 adapter-tauri.js 保持一致，桌面版代码无需改动。
 
-import * as db from "./db.js";
-import * as queue from "./queue.js";
-import * as agent from "./agent.js";
-import { uploadImage, downloadImage, deleteImage } from "./blob.js";
+import * as db from './db.js';
+import * as queue from './queue.js';
+import * as agent from './agent.js';
+import { uploadImage, downloadImage, deleteImage } from './blob.js';
 
 // ── 本地存储键 ──
 const KEYS = {
-  settings: "if_settings",
-  templates: "if_templates",
-  agentSessions: "if_agent_sessions",
+  settings: 'if_settings',
+  templates: 'if_templates',
+  agentSessions: 'if_agent_sessions',
 };
 
 function readJSON(key, fallback = null) {
@@ -44,13 +44,13 @@ export async function loadAppState() {
 
 export async function aboutInfo() {
   return {
-    version: import.meta.env.VITE_APP_VERSION || "1.0.0-web",
-    buildTime: "",
+    version: import.meta.env.VITE_APP_VERSION || '1.0.0-web',
+    buildTime: '',
   };
 }
 
 export async function runtimeLogs() {
-  return "Web 版不支持运行日志";
+  return 'Web 版不支持运行日志';
 }
 
 // ── 设置 ──
@@ -84,10 +84,10 @@ export async function createAgentSession(providerId) {
   const now = new Date().toISOString();
   const session = {
     id: nextSessionId(),
-    title: "",
+    title: '',
     createdAt: now,
     updatedAt: now,
-    modelProviderId: providerId || "",
+    modelProviderId: providerId || '',
     messages: [],
   };
   const sessions = readSessions();
@@ -151,22 +151,24 @@ export function onQueueChange(callback) {
 export async function createAgentDirectImageTask(sessionId, content, attachments, plan) {
   const settings = readJSON(KEYS.settings) || { providers: [] };
   const provider = (settings.providers || []).find((p) => p.id === plan.providerId);
-  if (!provider) throw new Error("找不到生图 API 配置");
+  if (!provider) throw new Error('找不到生图 API 配置');
 
   const request = {
-    model: provider.imageModel || "",
+    model: provider.imageModel || '',
     prompt: plan.prompt || content,
-    ratio: plan.ratio || "1:1",
-    resolution: plan.resolution || "1K",
+    ratio: plan.ratio || '1:1',
+    resolution: plan.resolution || '1K',
     count: plan.count || 1,
-    output_format: "png",
-    quality: plan.quality || "",
-    background: plan.background || "",
-    reference_paths: (plan.referenceIds || []).map((id) => {
-      const att = (attachments || []).find((a) => a.id === id);
-      return att?.path || "";
-    }).filter(Boolean),
-    origin: "agent",
+    output_format: 'png',
+    quality: plan.quality || '',
+    background: plan.background || '',
+    reference_paths: (plan.referenceIds || [])
+      .map((id) => {
+        const att = (attachments || []).find((a) => a.id === id);
+        return att?.path || '';
+      })
+      .filter(Boolean),
+    origin: 'agent',
     agent_session_id: sessionId,
     task_group_id: `web-tg-${Date.now()}`,
   };
@@ -175,9 +177,9 @@ export async function createAgentDirectImageTask(sessionId, content, attachments
   return {
     id: task.task_group_id,
     sessionId,
-    status: "queued",
+    status: 'queued',
     taskIds: [task.id],
-    titles: [plan.title || "直接绘画"],
+    titles: [plan.title || '直接绘画'],
   };
 }
 
@@ -195,54 +197,58 @@ export function onAgentEvent(callback) {
 
 function emitAgentEvent(event, payload) {
   for (const cb of agentEventListeners) {
-    try { cb(event, payload); } catch {}
+    try {
+      cb(event, payload);
+    } catch {
+      /* ignore listener errors */
+    }
   }
 }
 
 export async function sendAgentMessage(sessionId, providerId, content, attachments) {
   const settings = readJSON(KEYS.settings) || { providers: [] };
-  const provider = (settings.providers || []).find(
-    (p) => p.id === providerId && p.modelType === "chat"
-  ) || (settings.providers || []).find((p) => p.modelType === "chat");
-  if (!provider) throw new Error("还没有配置对话模型");
+  const provider =
+    (settings.providers || []).find((p) => p.id === providerId && p.modelType === 'chat') ||
+    (settings.providers || []).find((p) => p.modelType === 'chat');
+  if (!provider) throw new Error('还没有配置对话模型');
 
   const sessions = readSessions();
   let session = sessions.find((s) => s.id === sessionId);
-  if (!session) throw new Error("找不到 Agent 会话");
+  if (!session) throw new Error('找不到 Agent 会话');
 
   // 添加用户消息
   const now = new Date().toISOString();
   const userMsg = {
     id: `web-msg-${Date.now()}`,
-    role: "user",
+    role: 'user',
     content,
     createdAt: now,
     attachments: (attachments || []).map((a) => ({
       id: a.id,
-      path: a.path || "",
-      fileName: a.fileName || "image.png",
-      mimeType: a.mimeType || "image/png",
-      dataUrl: a.dataUrl || "",
+      path: a.path || '',
+      fileName: a.fileName || 'image.png',
+      mimeType: a.mimeType || 'image/png',
+      dataUrl: a.dataUrl || '',
     })),
   };
   session.messages = [...(session.messages || []), userMsg];
 
   try {
     session = await agent.runAgentTurn(provider, session, content, attachments, (event) => {
-      emitAgentEvent("agent-progress", event);
+      emitAgentEvent('agent-progress', event);
     });
   } catch (error) {
     const errorMsg = {
       id: `web-msg-${Date.now()}`,
-      role: "assistant",
-      content: "",
+      role: 'assistant',
+      content: '',
       error: error.message || String(error),
       createdAt: new Date().toISOString(),
     };
     session.messages = [...(session.messages || []), errorMsg];
-    emitAgentEvent("agent-progress", {
-      phase: "error",
-      message: error.message || "Agent 调用失败",
+    emitAgentEvent('agent-progress', {
+      phase: 'error',
+      message: error.message || 'Agent 调用失败',
       sessionId,
     });
   }
@@ -250,7 +256,7 @@ export async function sendAgentMessage(sessionId, providerId, content, attachmen
   // 检查是否有任务组创建
   const lastMsg = session.messages?.[session.messages.length - 1];
   if (lastMsg?.taskGroup?.id) {
-    emitAgentEvent("agent-task-group", {
+    emitAgentEvent('agent-task-group', {
       ...lastMsg.taskGroup,
       sessionId,
       tasks: lastMsg.taskGroup.taskIds?.length || 0,
@@ -289,11 +295,11 @@ export async function referenceFromPath(path) {
   if (!res.ok) throw new Error(`读取图片失败: ${res.status}`);
   const blob = await res.blob();
   const dataUrl = await blobToDataUrl(blob);
-  const fileName = path.split("/").pop() || "image.png";
+  const fileName = path.split('/').pop() || 'image.png';
   return {
     path,
     fileName,
-    mimeType: blob.type || "image/png",
+    mimeType: blob.type || 'image/png',
     dataUrl,
   };
 }
@@ -301,9 +307,9 @@ export async function referenceFromPath(path) {
 /** 本地 .image-forge 路径转为开发服务器 URL */
 function toLocalFileUrl(path) {
   if (!path) return path;
-  const idx = path.indexOf("/.image-forge/");
+  const idx = path.indexOf('/.image-forge/');
   if (idx >= 0) {
-    return "/image-forge-data" + path.slice(idx + "/.image-forge".length);
+    return '/image-forge-data' + path.slice(idx + '/.image-forge'.length);
   }
   return path;
 }
@@ -312,12 +318,12 @@ export async function referenceFromClipboard() {
   try {
     const items = await navigator.clipboard.read();
     for (const item of items) {
-      const imageType = item.types.find((t) => t.startsWith("image/"));
+      const imageType = item.types.find((t) => t.startsWith('image/'));
       if (imageType) {
         const blob = await item.getType(imageType);
         // 把剪贴板图片直接写入 ~/.image-forge/references/，避免任何 data URL 持久化到会话/模板
-        const fileName = `clipboard-${Date.now()}.${(imageType.split("/")[1] || "png")}`;
-        const imageUrl = await uploadImage(fileName, blob, "references");
+        const fileName = `clipboard-${Date.now()}.${imageType.split('/')[1] || 'png'}`;
+        const imageUrl = await uploadImage(fileName, blob, 'references');
         return {
           path: imageUrl,
           fileName,
@@ -348,18 +354,18 @@ function blobToDataUrl(blob) {
  *  - 已是 http(s) 或 /image-forge-data 路径：原样返回
  */
 async function normalizeImagePath(path, relPath) {
-  if (!path) return "";
-  if (path.startsWith("data:")) {
+  if (!path) return '';
+  if (path.startsWith('data:')) {
     return dataUrlToStoredPath(path, relPath);
   }
-  if (path.startsWith("blob:")) {
+  if (path.startsWith('blob:')) {
     try {
       const res = await fetch(path);
       const blob = await res.blob();
       const dataUrl = await blobToDataUrl(blob);
       return dataUrlToStoredPath(dataUrl, relPath);
     } catch {
-      return "";
+      return '';
     }
   }
   return path;
@@ -367,14 +373,14 @@ async function normalizeImagePath(path, relPath) {
 
 async function dataUrlToStoredPath(dataUrl, relPath) {
   const match = /^data:([^;,]+)(;base64)?,(.*)$/.exec(dataUrl);
-  if (!match) return "";
-  const mime = match[1] || "image/png";
+  if (!match) return '';
+  const mime = match[1] || 'image/png';
   const isBase64 = !!match[2];
-  const payload = match[3] || "";
+  const payload = match[3] || '';
   const bytes = isBase64
     ? Uint8Array.from(atob(payload), (c) => c.charCodeAt(0))
     : new TextEncoder().encode(decodeURIComponent(payload));
-  const ext = mime.split("/")[1] || "png";
+  const ext = mime.split('/')[1] || 'png';
   const fileName = `${Date.now()}-${Math.random().toString(16).slice(2, 8)}.${ext}`;
   const blob = new Blob([bytes], { type: mime });
   try {
@@ -392,9 +398,9 @@ export async function downloadOutput(path) {
   const res = await fetch(path);
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
+  const a = document.createElement('a');
   a.href = url;
-  a.download = path.split("/").pop() || "image.png";
+  a.download = path.split('/').pop() || 'image.png';
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -422,9 +428,9 @@ export async function saveTemplate(template) {
 
 export async function exportTemplates(destination) {
   const templates = readJSON(KEYS.templates, []);
-  if (!templates.length) throw new Error("没有可导出的模板");
+  if (!templates.length) throw new Error('没有可导出的模板');
 
-  const JSZip = (await import("jszip")).default;
+  const JSZip = (await import('jszip')).default;
   const zip = new JSZip();
 
   // manifest.json
@@ -436,11 +442,11 @@ export async function exportTemplates(destination) {
       title: t.title,
       prompt: t.prompt,
       referencePaths: t.referencePaths || [],
-      effectImagePath: t.effectImagePath || "",
+      effectImagePath: t.effectImagePath || '',
       usageCount: t.usageCount || 0,
     })),
   };
-  zip.file("manifest.json", JSON.stringify(manifest, null, 2));
+  zip.file('manifest.json', JSON.stringify(manifest, null, 2));
 
   // 添加参考图
   for (const tpl of templates) {
@@ -449,7 +455,7 @@ export async function exportTemplates(destination) {
         const res = await fetch(refPath);
         if (res.ok) {
           const blob = await res.blob();
-          const fileName = refPath.split("/").pop() || "image.png";
+          const fileName = refPath.split('/').pop() || 'image.png';
           zip.file(`images/${fileName}`, blob);
         }
       } catch {
@@ -461,7 +467,7 @@ export async function exportTemplates(destination) {
         const res = await fetch(tpl.effectImagePath);
         if (res.ok) {
           const blob = await res.blob();
-          const fileName = tpl.effectImagePath.split("/").pop() || "effect.png";
+          const fileName = tpl.effectImagePath.split('/').pop() || 'effect.png';
           zip.file(`images/${fileName}`, blob);
         }
       } catch {
@@ -470,16 +476,16 @@ export async function exportTemplates(destination) {
     }
   }
 
-  const blob = await zip.generateAsync({ type: "blob" });
+  const blob = await zip.generateAsync({ type: 'blob' });
   const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
+  const a = document.createElement('a');
   a.href = url;
-  a.download = "ImageForge-templates.zip";
+  a.download = 'ImageForge-templates.zip';
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
-  return destination || "ImageForge-templates.zip";
+  return destination || 'ImageForge-templates.zip';
 }
 
 export async function importTemplates(archivePath) {
@@ -493,13 +499,13 @@ export async function importTemplates(archivePath) {
     blob = await res.blob();
   }
 
-  const JSZip = (await import("jszip")).default;
+  const JSZip = (await import('jszip')).default;
   const zip = await JSZip.loadAsync(blob);
 
-  const manifestFile = zip.file("manifest.json");
-  if (!manifestFile) throw new Error("模板包缺少 manifest.json");
+  const manifestFile = zip.file('manifest.json');
+  if (!manifestFile) throw new Error('模板包缺少 manifest.json');
 
-  const manifest = JSON.parse(await manifestFile.async("text"));
+  const manifest = JSON.parse(await manifestFile.async('text'));
   const incoming = manifest.templates || [];
   const existing = readJSON(KEYS.templates, []);
 
@@ -515,15 +521,15 @@ export async function importTemplates(archivePath) {
     // 把 data URL 形态的图片字节转写到 ~/.image-forge（本地开发）或 Vercel Blob，
     // 避免把图片 base64 持久化进 localStorage 的 if_templates
     const referencePaths = await Promise.all(
-      (tpl.referencePaths || []).map((p) => normalizeImagePath(p, "template-references")),
+      (tpl.referencePaths || []).map((p) => normalizeImagePath(p, 'template-references'))
     );
-    const effectImagePath = await normalizeImagePath(tpl.effectImagePath || "", "template-effects");
+    const effectImagePath = await normalizeImagePath(tpl.effectImagePath || '', 'template-effects');
     existing.push({
       id: tpl.id || `tpl-${Date.now()}-${imported}`,
-      title: tpl.title || "",
-      prompt: tpl.prompt || "",
+      title: tpl.title || '',
+      prompt: tpl.prompt || '',
       referencePaths: referencePaths.filter(Boolean),
-      effectImagePath: effectImagePath || "",
+      effectImagePath: effectImagePath || '',
       usageCount: tpl.usageCount || 0,
     });
     imported++;
@@ -534,15 +540,15 @@ export async function importTemplates(archivePath) {
 }
 
 export async function exportDataBundle(categories) {
-  const JSZip = (await import("jszip")).default;
+  const JSZip = (await import('jszip')).default;
   const zip = new JSZip();
   const now = new Date().toISOString();
 
-  const settings = categories.includes("settings") ? readJSON(KEYS.settings, null) : null;
-  const templates = categories.includes("templates") ? readJSON(KEYS.templates, []) : [];
-  const sessions = categories.includes("sessions") ? readJSON(KEYS.agentSessions, []) : [];
+  const settings = categories.includes('settings') ? readJSON(KEYS.settings, null) : null;
+  const templates = categories.includes('templates') ? readJSON(KEYS.templates, []) : [];
+  const sessions = categories.includes('sessions') ? readJSON(KEYS.agentSessions, []) : [];
   let tasks = [];
-  if (categories.includes("tasks")) {
+  if (categories.includes('tasks')) {
     tasks = await db.getAllTasks();
   }
 
@@ -554,18 +560,24 @@ export async function exportDataBundle(categories) {
   }
   for (const s of sessions) {
     for (const msg of s.messages || []) {
-      for (const att of msg.attachments || []) { if (att.path) fileSet.add(att.path); }
+      for (const att of msg.attachments || []) {
+        if (att.path) fileSet.add(att.path);
+      }
       if (msg.taskGroup) {
         for (const task of msg.taskGroup.tasks || []) {
           for (const p of task.referencePaths || []) fileSet.add(p);
-          for (const o of task.outputs || []) { if (o.path) fileSet.add(o.path); }
+          for (const o of task.outputs || []) {
+            if (o.path) fileSet.add(o.path);
+          }
         }
       }
     }
   }
   for (const t of tasks) {
     for (const p of t.referencePaths || []) fileSet.add(p);
-    for (const o of t.outputs || []) { if (o.path) fileSet.add(o.path); }
+    for (const o of t.outputs || []) {
+      if (o.path) fileSet.add(o.path);
+    }
   }
 
   // 按内容哈希去重，添加到 ZIP
@@ -577,17 +589,19 @@ export async function exportDataBundle(categories) {
       if (!res.ok) continue;
       const blob = await res.blob();
       const hash = await sha256(await blob.arrayBuffer());
-      const ext = (path.split(".").pop() || "png").split("?")[0];
+      const ext = (path.split('.').pop() || 'png').split('?')[0];
       const name = `files/${hash.slice(0, 16)}.${ext}`;
       if (added.has(hash)) continue;
       added.add(hash);
       zip.file(name, blob);
-    } catch { /* 文件不可访问，跳过 */ }
+    } catch {
+      /* 文件不可访问，跳过 */
+    }
   }
 
   // 写入 manifest
   const manifest = {
-    format: "image-forge-data-bundle",
+    format: 'image-forge-data-bundle',
     version: 1,
     exportedAt: now,
     hasSettings: !!settings,
@@ -596,14 +610,14 @@ export async function exportDataBundle(categories) {
     sessions,
     tasks,
   };
-  zip.file("manifest.json", JSON.stringify(manifest, null, 2));
+  zip.file('manifest.json', JSON.stringify(manifest, null, 2));
 
   // 生成 ZIP 并触发下载
-  const zipBlob = await zip.generateAsync({ type: "blob", compression: "DEFLATE" });
+  const zipBlob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
   const url = URL.createObjectURL(zipBlob);
-  const a = document.createElement("a");
+  const a = document.createElement('a');
   a.href = url;
-  const date = new Date().toISOString().slice(0, 16).replace("T", "-").replace(/:/g, "");
+  const date = new Date().toISOString().slice(0, 16).replace('T', '-').replace(/:/g, '');
   a.download = `export-${date}.zip`;
   document.body.appendChild(a);
   a.click();
@@ -613,20 +627,22 @@ export async function exportDataBundle(categories) {
 }
 
 async function sha256(buffer) {
-  const hash = await crypto.subtle.digest("SHA-256", buffer);
-  return Array.from(new Uint8Array(hash)).map((b) => b.toString(16).padStart(2, "0")).join("");
+  const hash = await crypto.subtle.digest('SHA-256', buffer);
+  return Array.from(new Uint8Array(hash))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
 }
 
 export async function importDataBundle(file) {
   // Web 版接受 File 对象（来自文件选择器）
-  const JSZip = (await import("jszip")).default;
+  const JSZip = (await import('jszip')).default;
   const arrayBuffer = await file.arrayBuffer();
   const zip = await JSZip.loadAsync(arrayBuffer);
 
-  const manifestFile = zip.file("manifest.json");
-  if (!manifestFile) throw new Error("ZIP 缺少 manifest.json");
-  const manifest = JSON.parse(await manifestFile.async("text"));
-  if (manifest.format !== "image-forge-data-bundle") throw new Error("不支持的格式");
+  const manifestFile = zip.file('manifest.json');
+  if (!manifestFile) throw new Error('ZIP 缺少 manifest.json');
+  const manifest = JSON.parse(await manifestFile.async('text'));
+  if (manifest.format !== 'image-forge-data-bundle') throw new Error('不支持的格式');
 
   const result = { settings: 0, templates: 0, sessions: 0, tasks: 0 };
 
@@ -641,7 +657,10 @@ export async function importDataBundle(file) {
     const existing = readJSON(KEYS.templates, []);
     const ids = new Set(existing.map((t) => t.id));
     for (const tpl of manifest.templates) {
-      if (!ids.has(tpl.id)) { existing.push(tpl); ids.add(tpl.id); }
+      if (!ids.has(tpl.id)) {
+        existing.push(tpl);
+        ids.add(tpl.id);
+      }
     }
     writeJSON(KEYS.templates, existing);
     result.templates = manifest.templates.length;
@@ -652,7 +671,10 @@ export async function importDataBundle(file) {
     const existing = readJSON(KEYS.agentSessions, []);
     const ids = new Set(existing.map((s) => s.id));
     for (const s of manifest.sessions) {
-      if (!ids.has(s.id)) { existing.push(s); ids.add(s.id); }
+      if (!ids.has(s.id)) {
+        existing.push(s);
+        ids.add(s.id);
+      }
     }
     writeJSON(KEYS.agentSessions, existing);
     result.sessions = manifest.sessions.length;
@@ -707,19 +729,19 @@ export async function readClipboardText() {
   try {
     return await navigator.clipboard.readText();
   } catch {
-    return "";
+    return '';
   }
 }
 
 export async function listProviderModels(provider) {
-  const baseUrl = (provider.baseUrl || "").replace(/\/+$/, "");
-  const apiKey = provider.apiKey || "";
-  if (!baseUrl || !apiKey) throw new Error("缺少 API 地址或 Key");
+  const baseUrl = (provider.baseUrl || '').replace(/\/+$/, '');
+  const apiKey = provider.apiKey || '';
+  if (!baseUrl || !apiKey) throw new Error('缺少 API 地址或 Key');
 
   const res = await fetch(`${baseUrl}/models`, {
     headers: {
       Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
+      'Content-Type': 'application/json',
     },
   });
   if (!res.ok) {
@@ -729,5 +751,5 @@ export async function listProviderModels(provider) {
   const data = await res.json();
   return (data.data || data.models || data || [])
     .map((m) => m.id || m.name || m)
-    .filter((id) => typeof id === "string");
+    .filter((id) => typeof id === 'string');
 }

@@ -1,8 +1,8 @@
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 
 export const GENERATION_TIMEOUT_SECONDS = 300;
 
-const ACTIVE_STATUSES = new Set(["queued", "running", "cancelling"]);
+const ACTIVE_STATUSES = new Set(['queued', 'running', 'cancelling']);
 
 export function useGenerationTimer(taskRef) {
   const now = ref(Date.now());
@@ -20,17 +20,13 @@ export function useGenerationTimer(taskRef) {
 
   const isWaitingForOutput = computed(() => {
     const task = taskRef.value;
-    return Boolean(
-      task
-        && ACTIVE_STATUSES.has(task.status)
-        && !(task.outputs?.length),
-    );
+    return Boolean(task && ACTIVE_STATUSES.has(task.status) && !task.outputs?.length);
   });
 
   const startedAt = computed(() => {
     const task = taskRef.value;
-    if (!task) return "";
-    return task.startedAt || task.createdAt || task.updatedAt || "";
+    if (!task) return '';
+    return task.startedAt || task.createdAt || task.updatedAt || '';
   });
 
   const elapsedDeciseconds = computed(() => {
@@ -46,19 +42,19 @@ export function useGenerationTimer(taskRef) {
   const isTimedOut = computed(() => {
     const task = taskRef.value;
     return Boolean(
-      task
-        && task.status !== "queued"
-        && isWaitingForOutput.value
-        && elapsedSeconds.value >= GENERATION_TIMEOUT_SECONDS,
+      task &&
+      task.status !== 'queued' &&
+      isWaitingForOutput.value &&
+      elapsedSeconds.value >= GENERATION_TIMEOUT_SECONDS
     );
   });
 
   const label = computed(() => {
     const status = taskRef.value?.status;
-    if (isTimedOut.value) return "超时处理中";
-    if (status === "queued") return "排队中";
-    if (status === "cancelling") return "取消中";
-    return "生成中";
+    if (isTimedOut.value) return '超时处理中';
+    if (status === 'queued') return '排队中';
+    if (status === 'cancelling') return '取消中';
+    return '生成中';
   });
 
   const elapsedText = computed(() => formatDuration(elapsedDeciseconds.value));
@@ -77,5 +73,5 @@ function formatDuration(totalDeciseconds) {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   const deciseconds = safeDeciseconds % 10;
-  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${deciseconds}`;
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${deciseconds}`;
 }

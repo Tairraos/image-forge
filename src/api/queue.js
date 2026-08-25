@@ -1,9 +1,9 @@
 // Web 版队列调度系统，对应桌面版 queue.rs。
 // 单 worker 顺序处理任务，支持并发限制、取消和重试。
 
-import * as db from "./db.js";
-import { executeGeneration } from "./providers.js";
-import { uploadImage } from "./blob.js";
+import * as db from './db.js';
+import { executeGeneration } from './providers.js';
+import { uploadImage } from './blob.js';
 
 // ── 队列状态 ──
 
@@ -52,31 +52,31 @@ export function enqueueTask(request, provider) {
     id,
     created_at: now,
     updated_at: now,
-    completed_at: "",
+    completed_at: '',
     library_date: now.slice(0, 10),
-    prompt: request.prompt || "",
-    model: request.model || provider?.imageModel || "",
-    provider_name: provider?.name || "",
-    provider_id: provider?.id || "",
-    origin: request.origin || "drawing",
-    agent_session_id: request.agent_session_id || "",
-    task_group_id: request.task_group_id || "",
-    status: "queued",
+    prompt: request.prompt || '',
+    model: request.model || provider?.imageModel || '',
+    provider_name: provider?.name || '',
+    provider_id: provider?.id || '',
+    origin: request.origin || 'drawing',
+    agent_session_id: request.agent_session_id || '',
+    task_group_id: request.task_group_id || '',
+    status: 'queued',
     reference_paths: request.reference_paths || [],
     params: {
-      ratio: request.ratio || "1:1",
-      resolution: request.resolution || "1K",
-      quality: request.quality || "",
+      ratio: request.ratio || '1:1',
+      resolution: request.resolution || '1K',
+      quality: request.quality || '',
       count: request.count || 1,
-      output_format: request.output_format || "png",
-      background: request.background || "",
-      size: request.size || "",
+      output_format: request.output_format || 'png',
+      background: request.background || '',
+      size: request.size || '',
     },
     outputs: [],
     usage: null,
   };
   // 持久化到 IndexedDB
-  db.upsertTask(task).catch((e) => console.warn("队列任务持久化失败:", e));
+  db.upsertTask(task).catch((e) => console.warn('队列任务持久化失败:', e));
   waiting.push(task);
   notifyChange();
   ensureWorker();
@@ -104,7 +104,7 @@ async function runWorker() {
     // 检查是否已被取消
     if (cancelSet.has(task.id)) {
       cancelSet.delete(task.id);
-      task.status = "cancelled";
+      task.status = 'cancelled';
       task.updated_at = new Date().toISOString();
       db.upsertTask(task).catch(() => {});
       recent.push(task);
@@ -112,7 +112,7 @@ async function runWorker() {
       continue;
     }
 
-    task.status = "running";
+    task.status = 'running';
     task.updated_at = new Date().toISOString();
     running.push(task);
     notifyChange();
@@ -123,13 +123,13 @@ async function runWorker() {
 
       const request = {
         prompt: task.prompt,
-        ratio: task.params?.ratio || "1:1",
-        resolution: task.params?.resolution || "1K",
+        ratio: task.params?.ratio || '1:1',
+        resolution: task.params?.resolution || '1K',
         count: task.params?.count || 1,
-        output_format: task.params?.output_format || "png",
-        quality: task.params?.quality || "",
-        background: task.params?.background || "",
-        size: task.params?.size || "",
+        output_format: task.params?.output_format || 'png',
+        quality: task.params?.quality || '',
+        background: task.params?.background || '',
+        size: task.params?.size || '',
         reference_paths: task.reference_paths || [],
       };
 
@@ -138,41 +138,41 @@ async function runWorker() {
       // 保存生成的图片
       const outputs = [];
       const now = new Date();
-      const timestamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}-${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}${String(now.getSeconds()).padStart(2, "0")}`;
+      const timestamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}-${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
 
       for (let i = 0; i < results.length; i++) {
         const result = results[i];
-        const blob = new Blob([result.bytes], { type: `image/${result.output_format || "png"}` });
-        const fileName = `${timestamp}-${task.id}-${String(i + 1).padStart(2, "0")}.${result.output_format || "png"}`;
+        const blob = new Blob([result.bytes], { type: `image/${result.output_format || 'png'}` });
+        const fileName = `${timestamp}-${task.id}-${String(i + 1).padStart(2, '0')}.${result.output_format || 'png'}`;
 
         // 把图片写入 ~/.image-forge/tasks/<YYYY-MM-DD>/<fileName>（本地开发）；
         // 配了 VITE_BLOB_READ_WRITE_TOKEN 则上传到 Vercel Blob。
         // 任何分支都不再把图片字节写进 localStorage / IndexedDB。
-        const datePath = `tasks/${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+        const datePath = `tasks/${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
         const imageUrl = await uploadImage(fileName, blob, datePath);
 
         outputs.push({
           path: imageUrl,
           file_name: fileName,
-          mime_type: `image/${result.output_format || "png"}`,
-          output_format: result.output_format || "png",
-          size: result.size || "",
-          background: result.background || "",
-          quality: result.quality || "",
-          revised_prompt: result.revised_prompt || "",
+          mime_type: `image/${result.output_format || 'png'}`,
+          output_format: result.output_format || 'png',
+          size: result.size || '',
+          background: result.background || '',
+          quality: result.quality || '',
+          revised_prompt: result.revised_prompt || '',
           usage: result.usage || null,
         });
       }
 
-      task.status = "completed";
+      task.status = 'completed';
       task.completed_at = new Date().toISOString();
       task.library_date = task.completed_at.slice(0, 10);
       task.outputs = outputs;
       task.usage = results[0]?.usage || null;
     } catch (error) {
-      task.status = "failed";
+      task.status = 'failed';
       task.error = error.message || String(error);
-      console.error("生图失败:", task.id, error);
+      console.error('生图失败:', task.id, error);
     }
 
     task.updated_at = new Date().toISOString();
@@ -198,7 +198,7 @@ export function cancelTask(taskId) {
   const idx = waiting.findIndex((t) => t.id === taskId);
   if (idx >= 0) {
     const task = waiting.splice(idx, 1)[0];
-    task.status = "cancelled";
+    task.status = 'cancelled';
     task.updated_at = new Date().toISOString();
     db.upsertTask(task).catch(() => {});
     recent.push(task);
@@ -221,11 +221,11 @@ export function cancelTaskGroup(taskGroupId) {
 export function retryTask(taskId) {
   const all = [...recent, ...waiting, ...running];
   const task = all.find((t) => t.id === taskId);
-  if (!task || !["failed", "cancelled"].includes(task.status)) return null;
+  if (!task || !['failed', 'cancelled'].includes(task.status)) return null;
 
-  task.status = "queued";
+  task.status = 'queued';
   task.updated_at = new Date().toISOString();
-  task.error = "";
+  task.error = '';
   waiting.push(task);
   recent = recent.filter((t) => t.id !== taskId);
   notifyChange();
@@ -236,7 +236,7 @@ export function retryTask(taskId) {
 export function retryTaskGroup(taskGroupId) {
   const all = [...recent, ...waiting, ...running];
   for (const task of all) {
-    if (task.task_group_id === taskGroupId && ["failed", "cancelled"].includes(task.status)) {
+    if (task.task_group_id === taskGroupId && ['failed', 'cancelled'].includes(task.status)) {
       retryTask(task.id);
     }
   }
@@ -245,7 +245,7 @@ export function retryTaskGroup(taskGroupId) {
 // ── 辅助 ──
 
 async function loadProvider(providerId) {
-  const raw = localStorage.getItem("if_settings");
+  const raw = localStorage.getItem('if_settings');
   if (!raw) return null;
   try {
     const settings = JSON.parse(raw);
@@ -259,8 +259,8 @@ async function loadProvider(providerId) {
 export async function recoverTasks() {
   const all = await db.getAllTasks();
   for (const task of all) {
-    if (task.status === "running") {
-      task.status = "queued";
+    if (task.status === 'running') {
+      task.status = 'queued';
       task.updated_at = new Date().toISOString();
       db.upsertTask(task).catch(() => {});
       waiting.push(task);
@@ -270,7 +270,9 @@ export async function recoverTasks() {
     ensureWorker();
   }
   // 加载最近完成的任务到 recent
-  const completed = all.filter((t) => t.status === "completed" || t.status === "failed" || t.status === "cancelled");
+  const completed = all.filter(
+    (t) => t.status === 'completed' || t.status === 'failed' || t.status === 'cancelled'
+  );
   recent = completed.slice(0, 50);
   notifyChange();
 }

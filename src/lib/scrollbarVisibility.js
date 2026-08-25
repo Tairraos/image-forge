@@ -1,6 +1,6 @@
-const SCROLLING_CLASS = "scrollbar-active";
-const NEAR_CLASS = "scrollbar-near";
-const OVERLAY_CLASS = "app-scrollbar-overlay";
+const SCROLLING_CLASS = 'scrollbar-active';
+const NEAR_CLASS = 'scrollbar-near';
+const OVERLAY_CLASS = 'app-scrollbar-overlay';
 const HIDE_DELAY = 160;
 const EDGE_DISTANCE = 12;
 const MIN_THUMB_SIZE = 26;
@@ -16,32 +16,34 @@ export function installAutoHideScrollbars() {
   const resizeObserver = new ResizeObserver(() => requestOverlayUpdate());
 
   function ownerFor(element) {
-    const naiveOwner = element.closest(".n-scrollbar");
+    const naiveOwner = element.closest('.n-scrollbar');
     if (naiveOwner) return naiveOwner;
     return element;
   }
 
   function isNaiveOwner(element) {
-    return element.classList.contains("n-scrollbar");
+    return element.classList.contains('n-scrollbar');
   }
 
   function usesPersistentNativeScrollbar(element) {
-    return Boolean(element.closest("[data-persistent-scrollbar]"));
+    return Boolean(element.closest('[data-persistent-scrollbar]'));
   }
 
   function scrollAxes(element) {
     const style = window.getComputedStyle(element);
-    const vertical = /(auto|scroll|overlay)/.test(style.overflowY)
-      && element.scrollHeight > element.clientHeight + 1;
-    const horizontal = /(auto|scroll|overlay)/.test(style.overflowX)
-      && element.scrollWidth > element.clientWidth + 1;
+    const vertical =
+      /(auto|scroll|overlay)/.test(style.overflowY) &&
+      element.scrollHeight > element.clientHeight + 1;
+    const horizontal =
+      /(auto|scroll|overlay)/.test(style.overflowX) &&
+      element.scrollWidth > element.clientWidth + 1;
     return { vertical, horizontal };
   }
 
   function createRail(orientation) {
-    const rail = document.createElement("div");
+    const rail = document.createElement('div');
     rail.className = `${OVERLAY_CLASS} ${OVERLAY_CLASS}--${orientation}`;
-    const thumb = document.createElement("div");
+    const thumb = document.createElement('div');
     thumb.className = `${OVERLAY_CLASS}__thumb`;
     rail.appendChild(thumb);
     document.body.appendChild(rail);
@@ -51,8 +53,8 @@ export function installAutoHideScrollbars() {
   function ensureNativeOverlay(element) {
     const existing = nativeOverlays.get(element);
     if (existing) return existing;
-    const vertical = createRail("vertical");
-    const horizontal = createRail("horizontal");
+    const vertical = createRail('vertical');
+    const horizontal = createRail('horizontal');
     const state = {
       element,
       vertical,
@@ -60,12 +62,12 @@ export function installAutoHideScrollbars() {
       scrolling: false,
       near: false,
       hovered: false,
-      dragging: "",
+      dragging: '',
       dragOffset: 0,
       hideTimer: 0,
     };
-    bindRail(state, vertical, "vertical");
-    bindRail(state, horizontal, "horizontal");
+    bindRail(state, vertical, 'vertical');
+    bindRail(state, horizontal, 'horizontal');
     nativeOverlays.set(element, state);
     resizeObserver.observe(element);
     updateNativeOverlay(state);
@@ -74,62 +76,66 @@ export function installAutoHideScrollbars() {
 
   function bindRail(state, parts, orientation) {
     const { rail, thumb } = parts;
-    rail.addEventListener("pointerenter", () => {
+    rail.addEventListener('pointerenter', () => {
       state.hovered = true;
       updateNativeVisibility(state);
     });
-    rail.addEventListener("pointerleave", () => {
+    rail.addEventListener('pointerleave', () => {
       state.hovered = false;
       updateNativeVisibility(state);
     });
-    rail.addEventListener("pointerdown", (event) => {
+    rail.addEventListener('pointerdown', (event) => {
       event.preventDefault();
       event.stopPropagation();
       state.dragging = orientation;
       state.hovered = true;
       const thumbRect = thumb.getBoundingClientRect();
-      const coordinate = orientation === "vertical" ? event.clientY : event.clientX;
-      const thumbStart = orientation === "vertical" ? thumbRect.top : thumbRect.left;
-      const thumbSize = orientation === "vertical" ? thumbRect.height : thumbRect.width;
+      const coordinate = orientation === 'vertical' ? event.clientY : event.clientX;
+      const thumbStart = orientation === 'vertical' ? thumbRect.top : thumbRect.left;
+      const thumbSize = orientation === 'vertical' ? thumbRect.height : thumbRect.width;
       state.dragOffset = event.target === thumb ? coordinate - thumbStart : thumbSize / 2;
       rail.setPointerCapture(event.pointerId);
       scrollFromPointer(state, orientation, coordinate);
       updateNativeVisibility(state);
     });
-    rail.addEventListener("pointermove", (event) => {
+    rail.addEventListener('pointermove', (event) => {
       if (state.dragging !== orientation) return;
-      const coordinate = orientation === "vertical" ? event.clientY : event.clientX;
+      const coordinate = orientation === 'vertical' ? event.clientY : event.clientX;
       scrollFromPointer(state, orientation, coordinate);
     });
     const stopDragging = (event) => {
       if (state.dragging !== orientation) return;
-      state.dragging = "";
+      state.dragging = '';
       if (rail.hasPointerCapture(event.pointerId)) rail.releasePointerCapture(event.pointerId);
       updateNativeVisibility(state);
     };
-    rail.addEventListener("pointerup", stopDragging);
-    rail.addEventListener("pointercancel", stopDragging);
-    rail.addEventListener("wheel", (event) => {
-      event.preventDefault();
-      if (orientation === "vertical") {
-        state.element.scrollTop += event.deltaY;
-      } else {
-        state.element.scrollLeft += event.deltaX || event.deltaY;
-      }
-    }, { passive: false });
+    rail.addEventListener('pointerup', stopDragging);
+    rail.addEventListener('pointercancel', stopDragging);
+    rail.addEventListener(
+      'wheel',
+      (event) => {
+        event.preventDefault();
+        if (orientation === 'vertical') {
+          state.element.scrollTop += event.deltaY;
+        } else {
+          state.element.scrollLeft += event.deltaX || event.deltaY;
+        }
+      },
+      { passive: false }
+    );
   }
 
   function scrollFromPointer(state, orientation, coordinate) {
-    const parts = orientation === "vertical" ? state.vertical : state.horizontal;
+    const parts = orientation === 'vertical' ? state.vertical : state.horizontal;
     const railRect = parts.rail.getBoundingClientRect();
     const thumbRect = parts.thumb.getBoundingClientRect();
-    const railStart = orientation === "vertical" ? railRect.top : railRect.left;
-    const railSize = orientation === "vertical" ? railRect.height : railRect.width;
-    const thumbSize = orientation === "vertical" ? thumbRect.height : thumbRect.width;
+    const railStart = orientation === 'vertical' ? railRect.top : railRect.left;
+    const railSize = orientation === 'vertical' ? railRect.height : railRect.width;
+    const thumbSize = orientation === 'vertical' ? thumbRect.height : thumbRect.width;
     const travel = Math.max(1, railSize - thumbSize);
     const offset = Math.max(0, Math.min(coordinate - railStart - state.dragOffset, travel));
     const ratio = offset / travel;
-    if (orientation === "vertical") {
+    if (orientation === 'vertical') {
       state.element.scrollTop = ratio * (state.element.scrollHeight - state.element.clientHeight);
     } else {
       state.element.scrollLeft = ratio * (state.element.scrollWidth - state.element.clientWidth);
@@ -143,10 +149,13 @@ export function installAutoHideScrollbars() {
     if (isNaiveOwner(owner)) {
       owner.classList.add(SCROLLING_CLASS);
       window.clearTimeout(naiveHideTimers.get(owner));
-      naiveHideTimers.set(owner, window.setTimeout(() => {
-        owner.classList.remove(SCROLLING_CLASS);
-        naiveHideTimers.delete(owner);
-      }, HIDE_DELAY));
+      naiveHideTimers.set(
+        owner,
+        window.setTimeout(() => {
+          owner.classList.remove(SCROLLING_CLASS);
+          naiveHideTimers.delete(owner);
+        }, HIDE_DELAY)
+      );
       return;
     }
     const state = ensureNativeOverlay(owner);
@@ -173,7 +182,8 @@ export function installAutoHideScrollbars() {
     const insideX = point.x >= rect.left && point.x <= rect.right;
     const insideY = point.y >= rect.top && point.y <= rect.bottom;
     const nearVertical = vertical && insideY && insideX && rect.right - point.x <= EDGE_DISTANCE;
-    const nearHorizontal = horizontal && insideX && insideY && rect.bottom - point.y <= EDGE_DISTANCE;
+    const nearHorizontal =
+      horizontal && insideX && insideY && rect.bottom - point.y <= EDGE_DISTANCE;
     return nearVertical || nearHorizontal;
   }
 
@@ -206,8 +216,8 @@ export function installAutoHideScrollbars() {
     const element = document.elementFromPoint(latestPointer.x, latestPointer.y);
     if (element) {
       collectScrollableAncestors(element, latestPointer, nextOwners);
-      const naiveScrollbar = element.closest(".n-scrollbar");
-      const naiveContainer = naiveScrollbar?.querySelector(":scope > .n-scrollbar-container");
+      const naiveScrollbar = element.closest('.n-scrollbar');
+      const naiveContainer = naiveScrollbar?.querySelector(':scope > .n-scrollbar-container');
       if (naiveContainer && isNearScrollbar(naiveContainer, latestPointer)) {
         nextOwners.add(naiveScrollbar);
       }
@@ -232,8 +242,8 @@ export function installAutoHideScrollbars() {
 
   function updateNativeVisibility(state) {
     const visible = state.scrolling || state.near || state.hovered || Boolean(state.dragging);
-    state.vertical.rail.classList.toggle("is-visible", visible);
-    state.horizontal.rail.classList.toggle("is-visible", visible);
+    state.vertical.rail.classList.toggle('is-visible', visible);
+    state.horizontal.rail.classList.toggle('is-visible', visible);
   }
 
   function updateNativeOverlay(state) {
@@ -251,13 +261,13 @@ export function installAutoHideScrollbars() {
     const verticalLength = Math.max(0, bottom - top - 4);
     const horizontalLength = Math.max(0, right - left - 4);
 
-    state.vertical.rail.classList.toggle("is-enabled", vertical && verticalLength > 0);
-    state.horizontal.rail.classList.toggle("is-enabled", horizontal && horizontalLength > 0);
+    state.vertical.rail.classList.toggle('is-enabled', vertical && verticalLength > 0);
+    state.horizontal.rail.classList.toggle('is-enabled', horizontal && horizontalLength > 0);
 
     if (vertical && verticalLength > 0) {
       const thumbSize = Math.min(
         verticalLength,
-        Math.max(MIN_THUMB_SIZE, verticalLength * element.clientHeight / element.scrollHeight),
+        Math.max(MIN_THUMB_SIZE, (verticalLength * element.clientHeight) / element.scrollHeight)
       );
       const travel = Math.max(0, verticalLength - thumbSize);
       const maxScroll = Math.max(1, element.scrollHeight - element.clientHeight);
@@ -265,13 +275,13 @@ export function installAutoHideScrollbars() {
       state.vertical.rail.style.left = `${Math.max(left, right - 7)}px`;
       state.vertical.rail.style.height = `${verticalLength}px`;
       state.vertical.thumb.style.height = `${thumbSize}px`;
-      state.vertical.thumb.style.transform = `translateY(${travel * element.scrollTop / maxScroll}px)`;
+      state.vertical.thumb.style.transform = `translateY(${(travel * element.scrollTop) / maxScroll}px)`;
     }
 
     if (horizontal && horizontalLength > 0) {
       const thumbSize = Math.min(
         horizontalLength,
-        Math.max(MIN_THUMB_SIZE, horizontalLength * element.clientWidth / element.scrollWidth),
+        Math.max(MIN_THUMB_SIZE, (horizontalLength * element.clientWidth) / element.scrollWidth)
       );
       const travel = Math.max(0, horizontalLength - thumbSize);
       const maxScroll = Math.max(1, element.scrollWidth - element.clientWidth);
@@ -279,7 +289,7 @@ export function installAutoHideScrollbars() {
       state.horizontal.rail.style.left = `${left + 2}px`;
       state.horizontal.rail.style.width = `${horizontalLength}px`;
       state.horizontal.thumb.style.width = `${thumbSize}px`;
-      state.horizontal.thumb.style.transform = `translateX(${travel * element.scrollLeft / maxScroll}px)`;
+      state.horizontal.thumb.style.transform = `translateX(${(travel * element.scrollLeft) / maxScroll}px)`;
     }
   }
 
@@ -299,18 +309,18 @@ export function installAutoHideScrollbars() {
     });
   }
 
-  document.addEventListener("scroll", onScroll, true);
-  document.addEventListener("pointermove", onPointerMove, { passive: true });
-  window.addEventListener("resize", requestOverlayUpdate);
-  window.addEventListener("blur", clearNearOwners);
-  document.documentElement.addEventListener("pointerleave", clearNearOwners);
+  document.addEventListener('scroll', onScroll, true);
+  document.addEventListener('pointermove', onPointerMove, { passive: true });
+  window.addEventListener('resize', requestOverlayUpdate);
+  window.addEventListener('blur', clearNearOwners);
+  document.documentElement.addEventListener('pointerleave', clearNearOwners);
 
   return () => {
-    document.removeEventListener("scroll", onScroll, true);
-    document.removeEventListener("pointermove", onPointerMove);
-    window.removeEventListener("resize", requestOverlayUpdate);
-    window.removeEventListener("blur", clearNearOwners);
-    document.documentElement.removeEventListener("pointerleave", clearNearOwners);
+    document.removeEventListener('scroll', onScroll, true);
+    document.removeEventListener('pointermove', onPointerMove);
+    window.removeEventListener('resize', requestOverlayUpdate);
+    window.removeEventListener('blur', clearNearOwners);
+    document.documentElement.removeEventListener('pointerleave', clearNearOwners);
     if (pointerFrame) window.cancelAnimationFrame(pointerFrame);
     if (overlayFrame) window.cancelAnimationFrame(overlayFrame);
     for (const timer of naiveHideTimers.values()) window.clearTimeout(timer);

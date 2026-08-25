@@ -4,10 +4,16 @@
       <template v-if="selectedProvider">
         <n-form class="provider-form" label-placement="top" :show-feedback="false">
           <n-form-item label="名称">
-            <n-input v-model:value="selectedProvider.name" placeholder="例如 OpenAI / Azure / 自建服务" />
+            <n-input
+              v-model:value="selectedProvider.name"
+              placeholder="例如 OpenAI / Azure / 自建服务"
+            />
           </n-form-item>
           <n-form-item label="Base URL">
-            <n-input v-model:value="selectedProvider.baseUrl" placeholder="https://api.openai.com/v1" />
+            <n-input
+              v-model:value="selectedProvider.baseUrl"
+              placeholder="https://api.openai.com/v1"
+            />
           </n-form-item>
           <n-form-item label="API Key">
             <n-input
@@ -33,9 +39,7 @@
                 placeholder="选择或输入模型 ID"
                 @update:value="updateSelectedModel"
               />
-              <n-button secondary :loading="loadingModels" @click="fetchModels">
-                获取
-              </n-button>
+              <n-button secondary :loading="loadingModels" @click="fetchModels"> 获取 </n-button>
             </div>
           </n-form-item>
           <!-- 绘图 API：可编辑模型类型；对话 API：只读展示「对话模型」 -->
@@ -48,12 +52,7 @@
               :consistent-menu-width="false"
               @update:value="updateSelectedModelType"
             />
-            <n-input
-              v-else
-              :value="chatModelTypeLabel"
-              readonly
-              disabled
-            />
+            <n-input v-else :value="chatModelTypeLabel" readonly disabled />
           </n-form-item>
           <p v-if="modelFetchMessage" class="model-fetch-message" :data-tone="modelFetchTone">
             {{ modelFetchMessage }}
@@ -102,10 +101,10 @@
             @click.stop="selectProvider(provider.id)"
           >
             <strong :title="provider.name || '未命名 API 源'">
-              {{ provider.name || "未命名 API 源" }}
+              {{ provider.name || '未命名 API 源' }}
             </strong>
             <span :title="provider.imageModel || '未设置模型'">
-              {{ provider.imageModel || "未设置模型" }}
+              {{ provider.imageModel || '未设置模型' }}
             </span>
             <small>{{ maskedApiKey(provider.apiKey) }}</small>
             <em v-if="index === 0" class="provider-default-badge">默认</em>
@@ -153,11 +152,11 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from "vue";
-import { ArrowDown, ArrowUp, Copy, Trash2 } from "@lucide/vue";
-import ConfirmDialog from "./ConfirmDialog.vue";
-import { invoke } from "../../tauri";
-import * as api from "../../api/index.js";
+import { computed, reactive, ref, watch } from 'vue';
+import { ArrowDown, ArrowUp, Copy, Trash2 } from '@lucide/vue';
+import ConfirmDialog from './ConfirmDialog.vue';
+import { invoke } from '../../tauri';
+import * as api from '../../api/index.js';
 import {
   createProviderId,
   deepClone,
@@ -171,31 +170,31 @@ import {
   normalizeSettingsForUi,
   parseClipboardProvider,
   recommendImageModelType,
-} from "../../lib/models";
+} from '../../lib/models';
 
 const props = defineProps({
   show: { type: Boolean, default: false },
   settings: { type: Object, required: true },
-  kind: { type: String, default: "image" },
+  kind: { type: String, default: 'image' },
 });
 
-const emit = defineEmits(["close", "save"]);
+const emit = defineEmits(['close', 'save']);
 
 const draft = reactive(defaultSettings());
-const selectedId = ref("");
+const selectedId = ref('');
 const providerModels = reactive({});
 const loadingModels = ref(false);
-const modelFetchMessage = ref("");
-const modelFetchTone = ref("idle");
+const modelFetchMessage = ref('');
+const modelFetchTone = ref('idle');
 const showDeleteConfirmation = ref(false);
-const pendingDeleteProviderId = ref("");
-const dragId = ref("");
-const dragOverId = ref("");
+const pendingDeleteProviderId = ref('');
+const dragId = ref('');
+const dragOverId = ref('');
 const dragHeight = ref(0);
 const pasteShake = ref(false);
 let pasteShakeTimer = 0;
 
-const kindLabel = computed(() => (props.kind === "chat" ? "对话 API" : "绘图 API"));
+const kindLabel = computed(() => (props.kind === 'chat' ? '对话 API' : '绘图 API'));
 /** 绘图模型类型下拉：菜单显示 label，绑定 value（如 image-gpt） */
 const imageModelTypeOptions = IMAGE_MODEL_TYPE_OPTIONS;
 /**
@@ -203,17 +202,17 @@ const imageModelTypeOptions = IMAGE_MODEL_TYPE_OPTIONS;
  * UI 文案（label）固定为「对话模型」；概念 value 为 text。
  * 持久化字段 modelType 仍写 "chat"，与后端/过滤逻辑兼容。
  */
-const chatModelTypeLabel = "对话模型";
+const chatModelTypeLabel = '对话模型';
 
 const visibleProviders = computed(() =>
-  draft.providers.filter((provider) => matchesKind(provider.modelType)),
+  draft.providers.filter((provider) => matchesKind(provider.modelType))
 );
 
 const selectedProvider = computed(
   () =>
-    visibleProviders.value.find((provider) => provider.id === selectedId.value)
-    || visibleProviders.value[0]
-    || null,
+    visibleProviders.value.find((provider) => provider.id === selectedId.value) ||
+    visibleProviders.value[0] ||
+    null
 );
 
 const modelOptions = computed(() => {
@@ -225,7 +224,7 @@ const modelOptions = computed(() => {
 
 const deleteConfirmationMessage = computed(() => {
   const provider = draft.providers.find((item) => item.id === pendingDeleteProviderId.value);
-  return `确认删除 API 源「${provider?.name || "未命名 API 源"}」？`;
+  return `确认删除 API 源「${provider?.name || '未命名 API 源'}」？`;
 });
 
 watch(
@@ -238,35 +237,35 @@ watch(
     Object.assign(draft, normalizeSettingsForUi(deepClone(props.settings)));
     syncActiveFromOrder();
     selectedId.value =
-      (props.kind === "chat" ? draft.activeChatProviderId : draft.activeImageProviderId)
-      || visibleProviders.value[0]?.id
-      || "";
-    modelFetchMessage.value = "";
-    dragId.value = "";
-    dragOverId.value = "";
+      (props.kind === 'chat' ? draft.activeChatProviderId : draft.activeImageProviderId) ||
+      visibleProviders.value[0]?.id ||
+      '';
+    modelFetchMessage.value = '';
+    dragId.value = '';
+    dragOverId.value = '';
   },
-  { immediate: true },
+  { immediate: true }
 );
 
 function matchesKind(modelType) {
-  return props.kind === "chat" ? modelType === "chat" : isImageModelType(modelType);
+  return props.kind === 'chat' ? modelType === 'chat' : isImageModelType(modelType);
 }
 
 function selectProvider(id) {
   selectedId.value = id;
-  modelFetchMessage.value = "";
+  modelFetchMessage.value = '';
 }
 
 function addProvider() {
   const provider = defaultProvider(
     draft.providers.length + 1,
-    props.kind === "chat" ? "chat" : "image-gpt",
+    props.kind === 'chat' ? 'chat' : 'image-gpt'
   );
-  if (props.kind === "chat") {
+  if (props.kind === 'chat') {
     provider.imageModel = provider.imageModel || DEFAULT_CHAT_MODEL;
   }
   provider.imagesConcurrency = 1;
-  provider.notes = "";
+  provider.notes = '';
   draft.providers.push(provider);
   selectProvider(provider.id);
   syncActiveFromOrder();
@@ -289,7 +288,7 @@ function addProvider() {
  * 核心解析实现位置：src/lib/models.js → parseClipboardProvider
  */
 async function pasteProvider() {
-  let text = "";
+  let text;
   try {
     // 桌面端走 Tauri 原生剪贴板，避免浏览器权限限制
     text = await api.readClipboardText();
@@ -311,17 +310,14 @@ async function pasteProvider() {
   provider.baseUrl = parsed.baseUrl;
   provider.apiKey = parsed.apiKey;
 
-  if (props.kind === "chat") {
-    provider.modelType = "chat";
+  if (props.kind === 'chat') {
+    provider.modelType = 'chat';
     // 对话源：剪贴板若带了模型名也写入，否则留给 fetchModels 自动选
-    provider.imageModel = parsed.imageModel || "";
+    provider.imageModel = parsed.imageModel || '';
   } else {
     // 绘图源：写入模型名，并据此（+ baseUrl）推测模型类型
-    provider.imageModel = parsed.imageModel || "";
-    provider.modelType = recommendImageModelType(
-      provider.imageModel,
-      provider.baseUrl,
-    );
+    provider.imageModel = parsed.imageModel || '';
+    provider.modelType = recommendImageModelType(provider.imageModel, provider.baseUrl);
   }
 
   selectProvider(provider.id);
@@ -332,19 +328,19 @@ async function pasteProvider() {
 function updateSelectedModel(value) {
   const provider = selectedProvider.value;
   if (!provider) return;
-  provider.imageModel = String(value || "");
+  provider.imageModel = String(value || '');
   // 切换模型时自动推荐类型；用户仍可通过「模型类型」下拉手动覆盖
-  if (props.kind === "image") {
+  if (props.kind === 'image') {
     provider.modelType = recommendImageModelType(provider.imageModel, provider.baseUrl);
   } else {
-    provider.modelType = "chat";
+    provider.modelType = 'chat';
   }
 }
 
 /** 绘图 API：用户手动选择模型类型（不再被其它逻辑强制改回，除非再次改模型名） */
 function updateSelectedModelType(value) {
   const provider = selectedProvider.value;
-  if (!provider || props.kind !== "image") return;
+  if (!provider || props.kind !== 'image') return;
   provider.modelType = normalizeModelType(value, provider.imageModel, provider.baseUrl);
 }
 
@@ -353,7 +349,7 @@ function copyProvider() {
   if (!source) return;
   const provider = normalizeProviderForSave(deepClone(source));
   provider.id = createProviderId();
-  provider.name = `${source.name || "API 源"} 副本`;
+  provider.name = `${source.name || 'API 源'} 副本`;
   draft.providers.push(provider);
   selectProvider(provider.id);
   syncActiveFromOrder();
@@ -369,19 +365,19 @@ function deleteProvider(id = selectedId.value) {
 
 function confirmDeleteProvider() {
   const index = draft.providers.findIndex(
-    (provider) => provider.id === pendingDeleteProviderId.value,
+    (provider) => provider.id === pendingDeleteProviderId.value
   );
   cancelDeleteProvider();
   if (index < 0 || draft.providers.length <= 1) return;
   draft.providers.splice(index, 1);
   syncActiveFromOrder();
   const next = visibleProviders.value[0];
-  selectedId.value = next?.id || "";
+  selectedId.value = next?.id || '';
 }
 
 function cancelDeleteProvider() {
   showDeleteConfirmation.value = false;
-  pendingDeleteProviderId.value = "";
+  pendingDeleteProviderId.value = '';
 }
 
 function moveProvider(id = selectedId.value, offset) {
@@ -399,11 +395,11 @@ function moveProvider(id = selectedId.value, offset) {
 
 function onDragStart(id, event) {
   dragId.value = id;
-  dragOverId.value = "";
+  dragOverId.value = '';
   dragHeight.value = event?.currentTarget?.offsetHeight || 0;
   if (event?.dataTransfer) {
-    event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData("text/plain", id);
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', id);
   }
 }
 
@@ -434,8 +430,8 @@ function onDrop(id) {
 }
 
 function onDragEnd() {
-  dragId.value = "";
-  dragOverId.value = "";
+  dragId.value = '';
+  dragOverId.value = '';
 }
 
 function applyVisibleOrder(orderedIds) {
@@ -449,29 +445,27 @@ function applyVisibleOrder(orderedIds) {
 
 function syncActiveFromOrder() {
   const imageProvider = draft.providers.find((provider) => isImageModelType(provider.modelType));
-  const chatProvider = draft.providers.find((provider) => provider.modelType === "chat");
-  draft.activeImageProviderId = imageProvider?.id || "";
-  draft.activeChatProviderId = chatProvider?.id || "";
-  draft.activeProviderId = draft.activeImageProviderId || draft.providers[0]?.id || "";
+  const chatProvider = draft.providers.find((provider) => provider.modelType === 'chat');
+  draft.activeImageProviderId = imageProvider?.id || '';
+  draft.activeChatProviderId = chatProvider?.id || '';
+  draft.activeProviderId = draft.activeImageProviderId || draft.providers[0]?.id || '';
 }
 
 async function fetchModels({ autoSelectFirst = false } = {}) {
   const provider = selectedProvider.value;
   if (!provider) return;
   loadingModels.value = true;
-  modelFetchMessage.value = "";
+  modelFetchMessage.value = '';
   try {
-    const models = await api.listProviderModels(
-      normalizeProviderForSave(deepClone(provider)),
-    );
+    const models = await api.listProviderModels(normalizeProviderForSave(deepClone(provider)));
     providerModels[provider.id] = models;
-    modelFetchTone.value = "ok";
-    modelFetchMessage.value = models.length ? `已获取 ${models.length} 个模型` : "模型列表为空";
+    modelFetchTone.value = 'ok';
+    modelFetchMessage.value = models.length ? `已获取 ${models.length} 个模型` : '模型列表为空';
     if (autoSelectFirst && models.length) {
       updateSelectedModel(models[0]);
     }
   } catch (error) {
-    modelFetchTone.value = "error";
+    modelFetchTone.value = 'error';
     modelFetchMessage.value = String(error);
   } finally {
     loadingModels.value = false;
@@ -492,32 +486,32 @@ function shakePaste() {
 function save() {
   draft.providers = draft.providers.map((provider) => normalizeProviderForSave(provider));
   syncActiveFromOrder();
-  emit("save", deepClone(draft));
+  emit('save', deepClone(draft));
 }
 
 function normalizeProviderForSave(provider) {
   const modelType =
-    provider.modelType === "chat"
-      ? "chat"
+    provider.modelType === 'chat'
+      ? 'chat'
       : normalizeModelType(provider.modelType, provider.imageModel, provider.baseUrl);
-  const fallbackModel = modelType === "chat" ? DEFAULT_CHAT_MODEL : DEFAULT_IMAGE_MODEL;
+  const fallbackModel = modelType === 'chat' ? DEFAULT_CHAT_MODEL : DEFAULT_IMAGE_MODEL;
   return {
     ...provider,
     modelType,
-    proxyUrl: provider.proxyUrl?.trim() || "",
+    proxyUrl: provider.proxyUrl?.trim() || '',
     imageModel: provider.imageModel?.trim() || fallbackModel,
     imagesConcurrency: 1,
-    notes: "",
+    notes: '',
   };
 }
 
 function providerTypeClass(value) {
-  return `provider-card--${normalizeModelType(value).replace("image-", "")}`;
+  return `provider-card--${normalizeModelType(value).replace('image-', '')}`;
 }
 
 function maskedApiKey(value) {
-  const key = String(value || "");
-  if (!key) return "未填写";
+  const key = String(value || '');
+  if (!key) return '未填写';
   return `${key.slice(0, 6)}******${key.slice(-6)}`;
 }
 </script>

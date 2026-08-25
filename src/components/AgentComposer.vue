@@ -8,16 +8,9 @@
     @drop.prevent="dropFiles"
   >
     <div class="agent-composer-body">
-      <div
-        class="agent-composer-input-wrap"
-        :class="{ 'has-reference': attachments.length }"
-      >
+      <div class="agent-composer-input-wrap" :class="{ 'has-reference': attachments.length }">
         <div v-if="attachments.length" class="agent-reference-overlay">
-          <div
-            v-for="attachment in attachments"
-            :key="attachment.id"
-            class="agent-reference-thumb"
-          >
+          <div v-for="attachment in attachments" :key="attachment.id" class="agent-reference-thumb">
             <img :src="attachment.dataUrl" :alt="attachment.fileName" />
             <button
               type="button"
@@ -87,7 +80,9 @@
         </div>
       </div>
       <div class="agent-send-stack">
-        <n-button v-if="busy" size="small" type="error" secondary @click="$emit('stop')">停止</n-button>
+        <n-button v-if="busy" size="small" type="error" secondary @click="$emit('stop')"
+          >停止</n-button
+        >
         <n-button
           v-else
           class="agent-send-button"
@@ -95,7 +90,8 @@
           type="primary"
           :disabled="!draft.trim() || (drawThisTurn ? !imageProviderId : !providerId)"
           @click="send"
-        >发送</n-button>
+          >发送</n-button
+        >
         <n-checkbox v-model:checked="drawThisTurn" :disabled="busy">直接绘画</n-checkbox>
       </div>
     </footer>
@@ -103,21 +99,21 @@
 </template>
 
 <script setup>
-import { ImagePlus, LayoutTemplate, X } from "@lucide/vue";
-import { computed, h, ref, watch } from "vue";
-import { extractDroppedFilePaths } from "../lib/referenceFiles";
-import { imageSizePresets } from "../lib/options";
+import { ImagePlus, LayoutTemplate, X } from '@lucide/vue';
+import { computed, h, ref, watch } from 'vue';
+import { extractDroppedFilePaths } from '../lib/referenceFiles';
+import { imageSizePresets } from '../lib/options';
 
-const RATIO_LIST = ["1:1", "9:16", "2:3", "3:4", "4:3", "3:2", "16:9"];
+const RATIO_LIST = ['1:1', '9:16', '2:3', '3:4', '4:3', '3:2', '16:9'];
 const RESOLUTION_LIST = [
-  { value: "standard", label: "1k" },
-  { value: "2k", label: "2k" },
-  { value: "3k", label: "3k" },
-  { value: "4k", label: "4k" },
+  { value: 'standard', label: '1k' },
+  { value: '2k', label: '2k' },
+  { value: '3k', label: '3k' },
+  { value: '4k', label: '4k' },
 ];
 
 function ratioSvg(ratio) {
-  const [w, h] = ratio.split(":").map(Number);
+  const [w, h] = ratio.split(':').map(Number);
   const maxDim = w === h ? 14 : 18;
   let rw, rh;
   if (w >= h) {
@@ -139,29 +135,35 @@ const ratioOptions = RATIO_LIST.map((value) => ({
 }));
 
 function renderRatioLabel(option) {
-  return h("span", { class: "agent-ratio-option" }, [
-    h("span", { class: "agent-ratio-icon", innerHTML: option.icon }),
-    h("span", { class: "agent-ratio-text" }, option.label),
+  return h('span', { class: 'agent-ratio-option' }, [
+    h('span', { class: 'agent-ratio-icon', innerHTML: option.icon }),
+    h('span', { class: 'agent-ratio-text' }, option.label),
   ]);
 }
 
 const props = defineProps({
-  providerId: { type: String, default: "" },
-  imageProviderId: { type: String, default: "" },
+  providerId: { type: String, default: '' },
+  imageProviderId: { type: String, default: '' },
   busy: Boolean,
   attachments: { type: Array, default: () => [] },
-  ratio: { type: String, default: "1:1" },
-  resolution: { type: String, default: "standard" },
-  prefillPrompt: { type: String, default: "" },
+  ratio: { type: String, default: '1:1' },
+  resolution: { type: String, default: 'standard' },
+  prefillPrompt: { type: String, default: '' },
 });
 
 const emit = defineEmits([
-  "send", "stop", "add-reference", "paste-reference",
-  "drop-reference", "remove-attachment", "select-template",
-  "update:ratio", "update:resolution",
+  'send',
+  'stop',
+  'add-reference',
+  'paste-reference',
+  'drop-reference',
+  'remove-attachment',
+  'select-template',
+  'update:ratio',
+  'update:resolution',
 ]);
 
-const draft = ref("");
+const draft = ref('');
 const dragActive = ref(false);
 const drawThisTurn = ref(false);
 
@@ -171,39 +173,39 @@ watch(
     if (value) {
       draft.value = value;
     }
-  },
+  }
 );
 
 const currentResolutionOptions = computed(() =>
   RESOLUTION_LIST.map((opt) => {
     const preset = imageSizePresets[opt.value];
-    const dims = preset?.[props.ratio] || preset?.["1:1"];
+    const dims = preset?.[props.ratio] || preset?.['1:1'];
     const label = dims ? `${dims[0]} x ${dims[1]} ${opt.label}` : opt.label;
     return { value: opt.value, label };
-  }),
+  })
 );
 
 function send() {
   const content = draft.value.trim();
   const providerId = drawThisTurn.value ? props.imageProviderId : props.providerId;
   if (!content || props.busy || !providerId) return;
-  emit("send", { content, drawThisTurn: drawThisTurn.value });
-  draft.value = "";
+  emit('send', { content, drawThisTurn: drawThisTurn.value });
+  draft.value = '';
   drawThisTurn.value = false;
 }
 
 function handleKeydown(event) {
-  if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+  if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
   event.preventDefault();
   send();
 }
 
 function handlePaste(event) {
-  emit("paste-reference", event);
+  emit('paste-reference', event);
 }
 
 function dropFiles(event) {
   dragActive.value = false;
-  emit("drop-reference", extractDroppedFilePaths(event.dataTransfer));
+  emit('drop-reference', extractDroppedFilePaths(event.dataTransfer));
 }
 </script>

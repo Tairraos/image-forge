@@ -16,23 +16,23 @@
 </template>
 
 <script setup>
-import TemplateManagerPanel from "./TemplateManagerPanel.vue";
+import TemplateManagerPanel from './TemplateManagerPanel.vue';
 
-const show = defineModel("show", { type: Boolean, default: false });
-const query = defineModel("query", { type: String, default: "" });
+const show = defineModel('show', { type: Boolean, default: false });
+const query = defineModel('query', { type: String, default: '' });
 
 defineProps({
   templates: { type: Array, default: () => [] },
 });
 
 const emit = defineEmits([
-  "create",
-  "import",
-  "export",
-  "view",
-  "edit",
-  "delete",
-  "move",
-  "show-effect",
+  'create',
+  'import',
+  'export',
+  'view',
+  'edit',
+  'delete',
+  'move',
+  'show-effect',
 ]);
 </script>

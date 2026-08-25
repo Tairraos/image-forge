@@ -1,11 +1,11 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 export const root = dirname(dirname(fileURLToPath(import.meta.url)));
 
 export function readJson(path) {
-  return JSON.parse(readFileSync(resolve(root, path), "utf8"));
+  return JSON.parse(readFileSync(resolve(root, path), 'utf8'));
 }
 
 export function writeJson(path, data) {
@@ -13,7 +13,7 @@ export function writeJson(path, data) {
 }
 
 export function currentVersion() {
-  return readJson("package.json").version;
+  return readJson('package.json').version;
 }
 
 export function patchVersion(nextVersion) {
@@ -23,37 +23,37 @@ export function patchVersion(nextVersion) {
     throw new Error(`版本号必须高于当前版本 ${current}: ${nextVersion}`);
   }
 
-  const packageJson = readJson("package.json");
+  const packageJson = readJson('package.json');
   packageJson.version = nextVersion;
-  writeJson("package.json", packageJson);
+  writeJson('package.json', packageJson);
 
-  replaceInFile("src-tauri/Cargo.toml", /^version = ".+"/m, `version = "${nextVersion}"`);
+  replaceInFile('src-tauri/Cargo.toml', /^version = ".+"/m, `version = "${nextVersion}"`);
   replaceInFile(
-    "src-tauri/Cargo.lock",
+    'src-tauri/Cargo.lock',
     new RegExp(`(\\[\\[package\\]\\]\\nname = "${packageJson.name}"\\nversion = ")[^"]+(")`),
-    `$1${nextVersion}$2`,
+    `$1${nextVersion}$2`
   );
 
-  const tauriConfig = readJson("src-tauri/tauri.conf.json");
+  const tauriConfig = readJson('src-tauri/tauri.conf.json');
   const baseTitle = stripVersion(tauriConfig.app?.windows?.[0]?.title || tauriConfig.productName);
   tauriConfig.version = nextVersion;
   for (const windowConfig of tauriConfig.app?.windows ?? []) {
     windowConfig.title = `${baseTitle} ${nextVersion}`;
   }
-  writeJson("src-tauri/tauri.conf.json", tauriConfig);
+  writeJson('src-tauri/tauri.conf.json', tauriConfig);
 
-  if (existsSync(resolve(root, "index.html"))) {
-    replaceInFile("index.html", /<title>.*<\/title>/, `<title>${baseTitle} ${nextVersion}</title>`);
+  if (existsSync(resolve(root, 'index.html'))) {
+    replaceInFile('index.html', /<title>.*<\/title>/, `<title>${baseTitle} ${nextVersion}</title>`);
   }
-  if (existsSync(resolve(root, "README.md"))) {
-    replaceInFile("README.md", /badge\/version-[^-]+-/g, `badge/version-${nextVersion}-`);
+  if (existsSync(resolve(root, 'README.md'))) {
+    replaceInFile('README.md', /badge\/version-[^-]+-/g, `badge/version-${nextVersion}-`);
   }
-  for (const rustSource of ["src-tauri/src/defaults.rs", "src-tauri/src/lib.rs"]) {
+  for (const rustSource of ['src-tauri/src/defaults.rs', 'src-tauri/src/lib.rs']) {
     if (!existsSync(resolve(root, rustSource))) continue;
     replaceInFile(
       rustSource,
       new RegExp(`const APP_USER_AGENT: &str = "${packageJson.name}/[^"]+";`),
-      `const APP_USER_AGENT: &str = "${packageJson.name}/${nextVersion}";`,
+      `const APP_USER_AGENT: &str = "${packageJson.name}/${nextVersion}";`
     );
   }
 }
@@ -65,8 +65,8 @@ export function assertVersion(version) {
 }
 
 export function compareVersions(left, right) {
-  const a = left.split(".").map(Number);
-  const b = right.split(".").map(Number);
+  const a = left.split('.').map(Number);
+  const b = right.split('.').map(Number);
   for (let index = 0; index < 3; index += 1) {
     if (a[index] !== b[index]) return a[index] - b[index];
   }
@@ -74,19 +74,19 @@ export function compareVersions(left, right) {
 }
 
 function stripVersion(title) {
-  return title.replace(/\s+\d+\.\d+\.\d+$/, "");
+  return title.replace(/\s+\d+\.\d+\.\d+$/, '');
 }
 
 function replaceInFile(path, pattern, replacement) {
   const fullPath = resolve(root, path);
-  const before = readFileSync(fullPath, "utf8");
+  const before = readFileSync(fullPath, 'utf8');
   const after = before.replace(pattern, replacement);
   if (after !== before) writeFileSync(fullPath, after);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const nextVersion = process.argv.slice(2).find((arg) => arg !== "--");
-  if (!nextVersion) throw new Error("用法: pnpm run patch -- x.y.z");
+  const nextVersion = process.argv.slice(2).find((arg) => arg !== '--');
+  if (!nextVersion) throw new Error('用法: pnpm run patch -- x.y.z');
   patchVersion(nextVersion);
   console.log(`版本已更新到 ${nextVersion}`);
 }

@@ -4,24 +4,27 @@
 // 用法：
 //   node scripts/sync-desktop-to-web.mjs --serve  # 启动双向同步服务
 
-import { readFile } from "node:fs/promises";
-import { createServer } from "node:https";
-import { homedir } from "node:os";
-import { join, extname } from "node:path";
-import { createReadStream, readFileSync, statSync, existsSync, readdirSync } from "node:fs";
-import { stat } from "node:fs/promises";
-import Database from "better-sqlite3";
+import { createServer } from 'node:https';
+import { homedir } from 'node:os';
+import { join, extname } from 'node:path';
+import { createReadStream, readFileSync, existsSync, readdirSync } from 'node:fs';
+import { stat } from 'node:fs/promises';
+import Database from 'better-sqlite3';
 
-const DATA_DIR = join(homedir(), ".image-forge");
-const SQLITE_FILE = join(DATA_DIR, "library.sqlite");
+const DATA_DIR = join(homedir(), '.image-forge');
+const SQLITE_FILE = join(DATA_DIR, 'library.sqlite');
 const PORT = 443;
-const HOST = "image.xiaole.qzz.io";
-const CERT_DIR = join(DATA_DIR, "certs");
+const HOST = 'image.xiaole.qzz.io';
+const CERT_DIR = join(DATA_DIR, 'certs');
 
 const MIME_MAP = {
-  ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-  ".webp": "image/webp", ".gif": "image/gif", ".svg": "image/svg+xml",
-  ".json": "application/json",
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.svg': 'image/svg+xml',
+  '.json': 'application/json',
 };
 
 // ── JSON → SQLite 迁移 ──
@@ -31,85 +34,101 @@ function migrateJsonToSQLite(db) {
 
   // settings.json
   try {
-    const settingsPath = join(DATA_DIR, "settings.json");
+    const settingsPath = join(DATA_DIR, 'settings.json');
     if (existsSync(settingsPath)) {
-      const text = readFileSync(settingsPath, "utf-8");
+      const text = readFileSync(settingsPath, 'utf-8');
       const existing = db.prepare("SELECT value FROM app_settings WHERE key = 'settings'").get();
       if (!existing) {
         db.prepare("INSERT INTO app_settings (key, value) VALUES ('settings', ?)").run(text);
-        console.log("  ✅ 已迁移 settings.json → SQLite");
+        console.log('  ✅ 已迁移 settings.json → SQLite');
       }
     }
-  } catch {}
+  } catch { /* ignore */ }
 
   // prompt-templates.json
   try {
-    const tplPath = join(DATA_DIR, "prompt-templates.json");
+    const tplPath = join(DATA_DIR, 'prompt-templates.json');
     if (existsSync(tplPath)) {
-      const existing = db.prepare("SELECT COUNT(*) as cnt FROM app_templates").get();
+      const existing = db.prepare('SELECT COUNT(*) as cnt FROM app_templates').get();
       if (existing.cnt === 0) {
-        const text = readFileSync(tplPath, "utf-8");
+        const text = readFileSync(tplPath, 'utf-8');
         const templates = JSON.parse(text);
         const insert = db.prepare(
-          "INSERT INTO app_templates (id, position, created_at, updated_at, record_json) VALUES (?, ?, ?, ?, ?)"
+          'INSERT INTO app_templates (id, position, created_at, updated_at, record_json) VALUES (?, ?, ?, ?, ?)'
         );
         for (let i = 0; i < templates.length; i++) {
           const t = templates[i];
-          insert.run(t.id || `tpl-${i}`, i, t.createdAt || now, t.updatedAt || now, JSON.stringify(t));
+          insert.run(
+            t.id || `tpl-${i}`,
+            i,
+            t.createdAt || now,
+            t.updatedAt || now,
+            JSON.stringify(t)
+          );
         }
         console.log(`  ✅ 已迁移 prompt-templates.json → SQLite（${templates.length} 个模板）`);
       }
     }
-  } catch {}
+  } catch { /* ignore */ }
 
   // agent/sessions/*.json
   try {
-    const sessionsDir = join(DATA_DIR, "agent", "sessions");
+    const sessionsDir = join(DATA_DIR, 'agent', 'sessions');
     if (existsSync(sessionsDir)) {
-      const existing = db.prepare("SELECT COUNT(*) as cnt FROM agent_sessions").get();
+      const existing = db.prepare('SELECT COUNT(*) as cnt FROM agent_sessions').get();
       if (existing.cnt === 0) {
-        const files = readdirSync(sessionsDir).filter((f) => f.endsWith(".json"));
+        const files = readdirSync(sessionsDir).filter((f) => f.endsWith('.json'));
         const upsert = db.prepare(
-          "INSERT INTO agent_sessions (id, created_at, updated_at, title, model_provider_id, status, record_json) VALUES (?, ?, ?, ?, ?, ?, ?)"
+          'INSERT INTO agent_sessions (id, created_at, updated_at, title, model_provider_id, status, record_json) VALUES (?, ?, ?, ?, ?, ?, ?)'
         );
         for (const file of files) {
-          const text = readFileSync(join(sessionsDir, file), "utf-8");
+          const text = readFileSync(join(sessionsDir, file), 'utf-8');
           const s = JSON.parse(text);
           upsert.run(
-            s.id, s.created_at || s.createdAt || now, s.updated_at || s.updatedAt || now,
-            s.title || "", s.model_provider_id || s.modelProviderId || "",
-            s.status || "idle", text,
+            s.id,
+            s.created_at || s.createdAt || now,
+            s.updated_at || s.updatedAt || now,
+            s.title || '',
+            s.model_provider_id || s.modelProviderId || '',
+            s.status || 'idle',
+            text
           );
         }
         console.log(`  ✅ 已迁移 agent/sessions/ → SQLite（${files.length} 个会话）`);
       }
     }
-  } catch {}
+  } catch { /* ignore */ }
 
   // queue.json
   try {
-    const queuePath = join(DATA_DIR, "queue.json");
+    const queuePath = join(DATA_DIR, 'queue.json');
     if (existsSync(queuePath)) {
-      const existing = db.prepare("SELECT COUNT(*) as cnt FROM app_queue").get();
+      const existing = db.prepare('SELECT COUNT(*) as cnt FROM app_queue').get();
       if (existing.cnt === 0) {
-        const text = readFileSync(queuePath, "utf-8");
+        const text = readFileSync(queuePath, 'utf-8');
         const queue = JSON.parse(text);
         const waiting = queue.waiting || [];
         const running = queue.running || [];
         const insert = db.prepare(
-          "INSERT INTO app_queue (id, position, status, provider_id, record_json) VALUES (?, ?, ?, ?, ?)"
+          'INSERT INTO app_queue (id, position, status, provider_id, record_json) VALUES (?, ?, ?, ?, ?)'
         );
         for (let i = 0; i < waiting.length; i++) {
-          insert.run(waiting[i], i, "waiting", "", JSON.stringify({ taskId: waiting[i] }));
+          insert.run(waiting[i], i, 'waiting', '', JSON.stringify({ taskId: waiting[i] }));
         }
         for (let i = 0; i < running.length; i++) {
           const r = running[i];
-          insert.run(r.task_id, waiting.length + i, "running", r.provider_id || "", JSON.stringify(r));
+          insert.run(
+            r.task_id,
+            waiting.length + i,
+            'running',
+            r.provider_id || '',
+            JSON.stringify(r)
+          );
         }
         console.log(`  ✅ 已迁移 queue.json → SQLite`);
       }
     }
-  } catch {}
+  } catch { /* ignore */ }
 }
 
 function ensureTables(db) {
@@ -139,22 +158,24 @@ function readSQLite() {
   try {
     const settingsRow = db.prepare("SELECT value FROM app_settings WHERE key = 'settings'").get();
     if (settingsRow) data.settings = JSON.parse(settingsRow.value);
-  } catch {}
+  } catch { /* ignore */ }
 
   try {
-    const tpls = db.prepare("SELECT record_json FROM app_templates ORDER BY position ASC").all();
+    const tpls = db.prepare('SELECT record_json FROM app_templates ORDER BY position ASC').all();
     data.templates = tpls.map((r) => JSON.parse(r.record_json));
-  } catch {}
+  } catch { /* ignore */ }
 
   try {
-    const sessions = db.prepare("SELECT record_json FROM agent_sessions ORDER BY updated_at DESC").all();
+    const sessions = db
+      .prepare('SELECT record_json FROM agent_sessions ORDER BY updated_at DESC')
+      .all();
     data.agentSessions = sessions.map((r) => JSON.parse(r.record_json));
-  } catch {}
+  } catch { /* ignore */ }
 
   try {
-    const tasks = db.prepare("SELECT record_json FROM tasks ORDER BY created_at DESC").all();
+    const tasks = db.prepare('SELECT record_json FROM tasks ORDER BY created_at DESC').all();
     data.tasks = tasks.map((r) => JSON.parse(r.record_json));
-  } catch {}
+  } catch { /* ignore */ }
 
   db.close();
   return data;
@@ -177,26 +198,36 @@ function writeSQLite(data) {
 
     // 模板
     if (data.templates?.length) {
-      db.prepare("DELETE FROM app_templates").run();
+      db.prepare('DELETE FROM app_templates').run();
       const insert = db.prepare(
-        "INSERT INTO app_templates (id, position, created_at, updated_at, record_json) VALUES (?, ?, ?, ?, ?)"
+        'INSERT INTO app_templates (id, position, created_at, updated_at, record_json) VALUES (?, ?, ?, ?, ?)'
       );
       for (let i = 0; i < data.templates.length; i++) {
         const t = data.templates[i];
-        insert.run(t.id || `tpl-${i}`, i, t.createdAt || now, t.updatedAt || now, JSON.stringify(t));
+        insert.run(
+          t.id || `tpl-${i}`,
+          i,
+          t.createdAt || now,
+          t.updatedAt || now,
+          JSON.stringify(t)
+        );
       }
     }
 
     // 会话
     if (data.agentSessions?.length) {
       const upsert = db.prepare(
-        "INSERT OR REPLACE INTO agent_sessions (id, created_at, updated_at, title, model_provider_id, status, record_json) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        'INSERT OR REPLACE INTO agent_sessions (id, created_at, updated_at, title, model_provider_id, status, record_json) VALUES (?, ?, ?, ?, ?, ?, ?)'
       );
       for (const s of data.agentSessions) {
         upsert.run(
-          s.id, s.createdAt || now, s.updatedAt || now,
-          s.title || "", s.modelProviderId || s.model_provider_id || "",
-          s.status || "idle", JSON.stringify(s)
+          s.id,
+          s.createdAt || now,
+          s.updatedAt || now,
+          s.title || '',
+          s.modelProviderId || s.model_provider_id || '',
+          s.status || 'idle',
+          JSON.stringify(s)
         );
       }
     }
@@ -211,23 +242,30 @@ function writeSQLite(data) {
           library_date=excluded.library_date, prompt=excluded.prompt, model=excluded.model,
           status=excluded.status, record_json=excluded.record_json
       `);
-      const deleteOutputs = db.prepare("DELETE FROM task_outputs WHERE task_id = ?");
-      const insertOutput = db.prepare("INSERT INTO task_outputs (task_id, position, path) VALUES (?, ?, ?)");
+      const deleteOutputs = db.prepare('DELETE FROM task_outputs WHERE task_id = ?');
+      const insertOutput = db.prepare(
+        'INSERT INTO task_outputs (task_id, position, path) VALUES (?, ?, ?)'
+      );
       for (const t of data.tasks) {
         const up = t.updated_at || t.updatedAt || now;
         upsert.run(
-          t.id, t.created_at || t.createdAt || now, up,
-          t.completed_at || t.completedAt || "",
-          t.library_date || (t.completed_at || t.created_at || "").slice(0, 10),
-          t.prompt || "", t.model || "", t.provider_name || t.providerName || "",
-          t.origin || (t.agent_session_id || t.task_group_id ? "agent" : "drawing"),
-          t.task_group_id || t.taskGroupId || "", t.status || "completed",
+          t.id,
+          t.created_at || t.createdAt || now,
+          up,
+          t.completed_at || t.completedAt || '',
+          t.library_date || (t.completed_at || t.created_at || '').slice(0, 10),
+          t.prompt || '',
+          t.model || '',
+          t.provider_name || t.providerName || '',
+          t.origin || (t.agent_session_id || t.task_group_id ? 'agent' : 'drawing'),
+          t.task_group_id || t.taskGroupId || '',
+          t.status || 'completed',
           JSON.stringify(t)
         );
         deleteOutputs.run(t.id);
         if (t.outputs) {
           for (let i = 0; i < t.outputs.length; i++) {
-            insertOutput.run(t.id, i, t.outputs[i].path || "");
+            insertOutput.run(t.id, i, t.outputs[i].path || '');
           }
         }
       }
@@ -245,7 +283,7 @@ function mergeByKey(existing, incoming, keyFn, timeFn) {
   for (const item of incoming) {
     const key = keyFn(item);
     const prev = map.get(key);
-    if (!prev || (timeFn(item) > timeFn(prev))) {
+    if (!prev || timeFn(item) > timeFn(prev)) {
       map.set(key, item);
     }
   }
@@ -253,7 +291,8 @@ function mergeByKey(existing, incoming, keyFn, timeFn) {
 }
 
 function mergeData(desktop, browser) {
-  const timeFn = (item) => item.updated_at || item.updatedAt || item.created_at || item.createdAt || "";
+  const timeFn = (item) =>
+    item.updated_at || item.updatedAt || item.created_at || item.createdAt || '';
   const idFn = (item) => item.id;
 
   return {
@@ -263,38 +302,54 @@ function mergeData(desktop, browser) {
       [],
       idFn,
       timeFn
-    ).length ? mergeByKey(desktop.templates || [], browser.templates || [], idFn, timeFn) : [],
+    ).length
+      ? mergeByKey(desktop.templates || [], browser.templates || [], idFn, timeFn)
+      : [],
     agentSessions: mergeByKey(
-      desktop.agentSessions || [], browser.agentSessions || [], idFn, timeFn
+      desktop.agentSessions || [],
+      browser.agentSessions || [],
+      idFn,
+      timeFn
     ),
-    tasks: mergeByKey(
-      desktop.tasks || [], browser.tasks || [], idFn, timeFn
-    ),
+    tasks: mergeByKey(desktop.tasks || [], browser.tasks || [], idFn, timeFn),
   };
 }
 
 // ── 文件服务 ──
 
 function serveFile(req, res) {
-  const urlPath = decodeURIComponent(req.url.split("?")[0]);
-  const relative = urlPath.startsWith("/image-forge-data/")
-    ? urlPath.slice("/image-forge-data".length)
+  const urlPath = decodeURIComponent(req.url.split('?')[0]);
+  const relative = urlPath.startsWith('/image-forge-data/')
+    ? urlPath.slice('/image-forge-data'.length)
     : null;
   if (!relative) return false;
 
   const filePath = join(DATA_DIR, relative);
   if (!filePath.startsWith(DATA_DIR)) {
-    res.writeHead(403); res.end("Forbidden"); return true;
+    res.writeHead(403);
+    res.end('Forbidden');
+    return true;
   }
 
-  stat(filePath).then((info) => {
-    if (!info.isFile()) { res.writeHead(404); res.end(); return; }
-    const ct = MIME_MAP[extname(filePath).toLowerCase()] || "application/octet-stream";
-    res.writeHead(200, { "Content-Type": ct, "Content-Length": info.size, "Cache-Control": "public, max-age=3600" });
-    createReadStream(filePath).pipe(res);
-  }).catch(() => {
-    res.writeHead(404); res.end();
-  });
+  stat(filePath)
+    .then((info) => {
+      if (!info.isFile()) {
+        res.writeHead(404);
+        res.end();
+        return;
+      }
+      const ct = MIME_MAP[extname(filePath).toLowerCase()] || 'application/octet-stream';
+      res.writeHead(200, {
+        'Content-Type': ct,
+        'Content-Length': info.size,
+        'Cache-Control': 'public, max-age=3600',
+      });
+      createReadStream(filePath).pipe(res);
+    })
+    .catch(() => {
+      res.writeHead(404);
+      res.end();
+    });
   return true;
 }
 
@@ -441,14 +496,18 @@ function syncPage() {
 // ── 服务器 ──
 
 async function handleMerge(req, res) {
-  if (req.method !== "POST") {
-    res.writeHead(405); res.end("Method Not Allowed"); return;
+  if (req.method !== 'POST') {
+    res.writeHead(405);
+    res.end('Method Not Allowed');
+    return;
   }
-  let body = "";
+  let body = '';
   for await (const chunk of req) body += chunk;
 
   let bodyData = {};
-  try { bodyData = JSON.parse(body); } catch {}
+  try {
+    bodyData = JSON.parse(body);
+  } catch { /* ignore */ }
 
   const browserData = {
     settings: bodyData.settings || null,
@@ -456,30 +515,37 @@ async function handleMerge(req, res) {
     agentSessions: bodyData.agentSessions || [],
     tasks: bodyData.tasks || [],
   };
-  const direction = bodyData.direction || "app-to-web";
+  const direction = bodyData.direction || 'app-to-web';
 
   const desktop = readSQLite();
   const merged = mergeData(desktop, browserData);
 
-  if (direction === "web-to-app") {
+  if (direction === 'web-to-app') {
     // Web → App：合并后写回 SQLite
-    try { writeSQLite(merged); } catch (e) { console.error("写入 SQLite 失败:", e); }
+    try {
+      writeSQLite(merged);
+    } catch (e) {
+      console.error('写入 SQLite 失败:', e);
+    }
   }
 
-  res.writeHead(200, { "Content-Type": "application/json" });
+  res.writeHead(200, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(merged));
 }
 
-const server = createServer({
-  key: readFileSync(join(CERT_DIR, `${HOST}-key.pem`)),
-  cert: readFileSync(join(CERT_DIR, `${HOST}.pem`)),
-}, async (req, res) => {
-  if (req.url === "/sync-merge") return handleMerge(req, res);
-  if (serveFile(req, res)) return;
+const server = createServer(
+  {
+    key: readFileSync(join(CERT_DIR, `${HOST}-key.pem`)),
+    cert: readFileSync(join(CERT_DIR, `${HOST}.pem`)),
+  },
+  async (req, res) => {
+    if (req.url === '/sync-merge') return handleMerge(req, res);
+    if (serveFile(req, res)) return;
 
-  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-  res.end(syncPage());
-});
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(syncPage());
+  }
+);
 
 server.listen(PORT, () => {
   console.log(`\n  双向同步服务：https://${HOST}/\n`);

@@ -3,6 +3,7 @@
     <div class="template-edit-body">
       <label class="template-title-field">
         <span>标题</span>
+        <!-- eslint-disable vue/no-mutating-props -->
         <n-input
           v-model:value="template.title"
           :readonly="readonly"
@@ -10,6 +11,7 @@
           show-count
           placeholder="留空时使用内容第一行，最多 24 个字"
         />
+        <!-- eslint-enable vue/no-mutating-props -->
       </label>
       <div v-if="readonly" class="template-highlight-box" v-html="highlightedContent"></div>
       <div
@@ -21,6 +23,7 @@
         @dragleave="$emit('reference-drag-leave')"
         @drop.prevent="$emit('drop-reference', $event)"
       >
+        <!-- eslint-disable vue/no-mutating-props -->
         <n-input
           v-model:value="template.content"
           type="textarea"
@@ -30,6 +33,7 @@
           placeholder="输入模板内容，可使用 {这里写需要 AI 填充的描述}"
           @paste="$emit('paste-reference', $event)"
         />
+        <!-- eslint-enable vue/no-mutating-props -->
       </div>
       <div class="template-editor-media-row">
         <div class="reference-strip template-editor-reference-strip">
@@ -74,7 +78,11 @@
               <X :size="14" />
             </button>
           </div>
-          <ClipboardImageMenu v-else-if="!readonly" v-slot="{ open }" @paste="$emit('paste-effect-image')">
+          <ClipboardImageMenu
+            v-else-if="!readonly"
+            v-slot="{ open }"
+            @paste="$emit('paste-effect-image')"
+          >
             <button
               class="reference-add"
               type="button"
@@ -91,59 +99,64 @@
     </div>
     <template #footer>
       <div class="dialog-actions">
-        <n-button size="small" @click="show = false">{{ readonly ? "关闭" : "取消" }}</n-button>
-        <n-button v-if="!readonly" size="small" type="primary" @click="$emit('save')">保存</n-button>
+        <n-button size="small" @click="show = false">{{ readonly ? '关闭' : '取消' }}</n-button>
+        <n-button v-if="!readonly" size="small" type="primary" @click="$emit('save')"
+          >保存</n-button
+        >
       </div>
     </template>
   </n-modal>
 </template>
 
 <script setup>
-import { Plus, X } from "@lucide/vue";
-import { computed } from "vue";
-import ClipboardImageMenu from "../ClipboardImageMenu.vue";
+import { Plus, X } from '@lucide/vue';
+import { computed } from 'vue';
+import ClipboardImageMenu from '../ClipboardImageMenu.vue';
 
-const show = defineModel("show", { type: Boolean, default: false });
+const show = defineModel('show', { type: Boolean, default: false });
 
 const props = defineProps({
   template: { type: Object, required: true },
-  mode: { type: String, default: "edit" },
+  mode: { type: String, default: 'edit' },
   references: { type: Array, default: () => [] },
   effectImage: { type: Object, default: null },
   referenceDragActive: { type: Boolean, default: false },
 });
 
 defineEmits([
-  "save",
-  "add-reference",
-  "remove-reference",
-  "add-effect-image",
-  "remove-effect-image",
-  "paste-reference",
-  "paste-effect-image",
-  "reference-drag-over",
-  "reference-drag-leave",
-  "drop-reference",
+  'save',
+  'add-reference',
+  'remove-reference',
+  'add-effect-image',
+  'remove-effect-image',
+  'paste-reference',
+  'paste-effect-image',
+  'reference-drag-over',
+  'reference-drag-leave',
+  'drop-reference',
 ]);
 
-const readonly = computed(() => props.mode === "view");
+const readonly = computed(() => props.mode === 'view');
 const dialogTitle = computed(() => {
-  if (props.mode === "new") return "新增模板";
-  if (props.mode === "view") return "查看模板";
-  return "编辑模板";
+  if (props.mode === 'new') return '新增模板';
+  if (props.mode === 'view') return '查看模板';
+  return '编辑模板';
 });
-const highlightedContent = computed(() => highlightTemplateText(props.template.content || ""));
+const highlightedContent = computed(() => highlightTemplateText(props.template.content || ''));
 
 function highlightTemplateText(value) {
-  return escapeHtml(value).replace(/\{[^{}]+\}/g, (match) => `<span class="template-token">${match}</span>`);
+  return escapeHtml(value).replace(
+    /\{[^{}]+\}/g,
+    (match) => `<span class="template-token">${match}</span>`
+  );
 }
 
 function escapeHtml(value) {
   return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
 }
 </script>

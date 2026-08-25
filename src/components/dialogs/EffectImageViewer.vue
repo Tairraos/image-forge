@@ -1,6 +1,12 @@
 <template>
   <n-modal v-model:show="show" class="effect-image-viewer" :mask-closable="true">
-    <div class="effect-image-viewer-stage" role="dialog" aria-modal="true" :aria-label="currentTitle" @click="show = false">
+    <div
+      class="effect-image-viewer-stage"
+      role="dialog"
+      aria-modal="true"
+      :aria-label="currentTitle"
+      @click="show = false"
+    >
       <header class="effect-image-viewer-head" @click.stop>
         <div>
           <strong>{{ currentTitle }}</strong>
@@ -44,27 +50,33 @@
 </template>
 
 <script setup>
-import { ChevronLeft, ChevronRight, X } from "@lucide/vue";
-import { computed, onMounted, onUnmounted, reactive, watch } from "vue";
-import { convertFileSrc } from "../../tauri";
+import { ChevronLeft, ChevronRight, X } from '@lucide/vue';
+import { computed, onMounted, onUnmounted, reactive, watch } from 'vue';
+import { convertFileSrc } from '../../tauri';
 
-const show = defineModel("show", { type: Boolean, default: false });
+const show = defineModel('show', { type: Boolean, default: false });
 const props = defineProps({
-  imagePath: { type: String, default: "" },
-  title: { type: String, default: "" },
+  imagePath: { type: String, default: '' },
+  title: { type: String, default: '' },
   items: { type: Array, default: () => [] },
   initialIndex: { type: Number, default: 0 },
 });
 
 const naturalSize = reactive({ width: 0, height: 0 });
 const viewport = reactive({ width: window.innerWidth, height: window.innerHeight });
-const currentIndex = defineModel("index", { type: Number, default: 0 });
-const viewerItems = computed(() => props.items.length
-  ? props.items
-  : props.imagePath ? [{ path: props.imagePath, title: props.title }] : []);
-const currentItem = computed(() => viewerItems.value[currentIndex.value] || viewerItems.value[0] || null);
-const currentPath = computed(() => currentItem.value?.path || "");
-const currentTitle = computed(() => currentItem.value?.title || props.title || "图片预览");
+const currentIndex = defineModel('index', { type: Number, default: 0 });
+const viewerItems = computed(() =>
+  props.items.length
+    ? props.items
+    : props.imagePath
+      ? [{ path: props.imagePath, title: props.title }]
+      : []
+);
+const currentItem = computed(
+  () => viewerItems.value[currentIndex.value] || viewerItems.value[0] || null
+);
+const currentPath = computed(() => currentItem.value?.path || '');
+const currentTitle = computed(() => currentItem.value?.title || props.title || '图片预览');
 
 const imageStyle = computed(() => {
   const width = naturalSize.width;
@@ -78,22 +90,29 @@ const imageStyle = computed(() => {
   };
 });
 
-watch(() => [props.imagePath, props.items, props.initialIndex, show.value], () => {
-  if (show.value) {
-    currentIndex.value = Math.min(Math.max(0, props.initialIndex), Math.max(0, viewerItems.value.length - 1));
-  }
-  naturalSize.width = 0;
-  naturalSize.height = 0;
-}, { deep: false });
+watch(
+  () => [props.imagePath, props.items, props.initialIndex, show.value],
+  () => {
+    if (show.value) {
+      currentIndex.value = Math.min(
+        Math.max(0, props.initialIndex),
+        Math.max(0, viewerItems.value.length - 1)
+      );
+    }
+    naturalSize.width = 0;
+    naturalSize.height = 0;
+  },
+  { deep: false }
+);
 
 onMounted(() => {
-  window.addEventListener("keydown", closeOnKey);
-  window.addEventListener("resize", updateViewport);
+  window.addEventListener('keydown', closeOnKey);
+  window.addEventListener('resize', updateViewport);
 });
 
 onUnmounted(() => {
-  window.removeEventListener("keydown", closeOnKey);
-  window.removeEventListener("resize", updateViewport);
+  window.removeEventListener('keydown', closeOnKey);
+  window.removeEventListener('resize', updateViewport);
 });
 
 function updateImageSize(event) {
@@ -103,9 +122,9 @@ function updateImageSize(event) {
 
 function closeOnKey(event) {
   if (!show.value) return;
-  if (event.key === "Escape") show.value = false;
-  if (event.key === "ArrowLeft") move(-1);
-  if (event.key === "ArrowRight") move(1);
+  if (event.key === 'Escape') show.value = false;
+  if (event.key === 'ArrowLeft') move(-1);
+  if (event.key === 'ArrowRight') move(1);
 }
 
 function updateViewport() {

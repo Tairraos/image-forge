@@ -19,7 +19,12 @@
       </n-checkbox-group>
       <div class="data-transfer-actions">
         <n-button @click="emit('update:show', false)">取消</n-button>
-        <n-button type="primary" :loading="exporting" :disabled="!selected.length" @click="doExport">
+        <n-button
+          type="primary"
+          :loading="exporting"
+          :disabled="!selected.length"
+          @click="doExport"
+        >
           导出 ZIP
         </n-button>
       </div>
@@ -38,7 +43,13 @@
         <p>拖入 ZIP 文件，或点击选择</p>
         <n-button size="small" @click="pickFile">选择文件</n-button>
       </div>
-      <input ref="fileInput" type="file" accept=".zip" style="display:none" @change="handleFileChange" />
+      <input
+        ref="fileInput"
+        type="file"
+        accept=".zip"
+        style="display: none"
+        @change="handleFileChange"
+      />
       <div class="data-transfer-actions">
         <n-button @click="emit('update:show', false)">关闭</n-button>
       </div>
@@ -48,34 +59,37 @@
 </template>
 
 <script setup>
-import { inject, ref, watch, computed } from "vue";
-import * as api from "../../api/index.js";
+import { inject, ref, watch, computed } from 'vue';
+import * as api from '../../api/index.js';
 
 const props = defineProps({
   show: Boolean,
-  mode: { type: String, default: "export" },
+  mode: { type: String, default: 'export' },
 });
-const emit = defineEmits(["update:show"]);
+const emit = defineEmits(['update:show']);
 
 const visible = computed({
   get: () => props.show,
-  set: (val) => emit("update:show", val),
+  set: (val) => emit('update:show', val),
 });
 
-const selected = ref(["settings", "templates", "sessions", "tasks"]);
+const selected = ref(['settings', 'templates', 'sessions', 'tasks']);
 const exporting = ref(false);
-const exportResult = ref("");
-const importResult = ref("");
+const exportResult = ref('');
+const importResult = ref('');
 const dragActive = ref(false);
 const fileInput = ref(null);
 
-watch(() => props.show, (visible) => {
-  if (visible) {
-    exportResult.value = "";
-    importResult.value = "";
-    selected.value = ["settings", "templates", "sessions", "tasks"];
+watch(
+  () => props.show,
+  (visible) => {
+    if (visible) {
+      exportResult.value = '';
+      importResult.value = '';
+      selected.value = ['settings', 'templates', 'sessions', 'tasks'];
+    }
   }
-});
+);
 
 function pickFile() {
   fileInput.value?.click();
@@ -84,7 +98,7 @@ function pickFile() {
 async function handleFileChange(event) {
   const file = event.target.files?.[0];
   if (file) await doImport(file);
-  event.target.value = "";
+  event.target.value = '';
 }
 
 async function handleDrop(event) {
@@ -95,7 +109,7 @@ async function handleDrop(event) {
 
 async function doExport() {
   exporting.value = true;
-  exportResult.value = "";
+  exportResult.value = '';
   try {
     const result = await api.exportDataBundle(selected.value);
     exportResult.value = `已导出到：${result}`;
@@ -107,7 +121,7 @@ async function doExport() {
 }
 
 async function doImport(file) {
-  importResult.value = "导入中...";
+  importResult.value = '导入中...';
   try {
     const result = await api.importDataBundle(file);
     importResult.value = `导入完成：设置 ${result.settings} 个、模板 ${result.templates} 个、会话 ${result.sessions} 个、图片 ${result.tasks} 条`;

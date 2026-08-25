@@ -17,9 +17,9 @@
 </template>
 
 <script setup>
-const show = defineModel("show", { type: Boolean, default: false });
+const show = defineModel('show', { type: Boolean, default: false });
 
 defineProps({
-  logs: { type: String, default: "" },
+  logs: { type: String, default: '' },
 });
 </script>

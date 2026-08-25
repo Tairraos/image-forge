@@ -17,27 +17,27 @@
 </template>
 
 <script setup>
-import { computed } from "vue";
+import { computed } from 'vue';
 
 const props = defineProps({
-  src: { type: String, default: "" },
-  raw: { type: String, default: "" },
+  src: { type: String, default: '' },
+  raw: { type: String, default: '' },
   size: { type: [Number, String], default: 16 },
 });
 
 const uid = `appicon-${Math.random().toString(36).slice(2, 9)}`;
 
 const svg = computed(() => {
-  const content = String(props.raw || "").trim();
-  if (!content) return "";
+  const content = String(props.raw || '').trim();
+  if (!content) return '';
   return content
     .replace(/fill="#000000"/gi, 'fill="currentColor"')
     .replace(/stroke="#000000"/gi, 'stroke="currentColor"')
     .replace(/\sid="([^"]+)"/g, (_m, id) => ` id="${uid}-${id}"`)
     .replace(/url\(#([^)]+)\)/g, (_m, id) => `url(#${uid}-${id})`)
-    .replace(/\swidth="[^"]*"/i, "")
-    .replace(/\sheight="[^"]*"/i, "")
-    .replace("<svg", '<svg width="100%" height="100%"');
+    .replace(/\swidth="[^"]*"/i, '')
+    .replace(/\sheight="[^"]*"/i, '')
+    .replace('<svg', '<svg width="100%" height="100%"');
 });
 </script>
 

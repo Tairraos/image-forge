@@ -26,16 +26,16 @@
 </template>
 
 <script setup>
-import { nextTick, ref, watch } from "vue";
+import { nextTick, ref, watch } from 'vue';
 
-const show = defineModel("show", { type: Boolean, default: false });
+const show = defineModel('show', { type: Boolean, default: false });
 
 defineProps({
-  title: { type: String, default: "请确认" },
+  title: { type: String, default: '请确认' },
   message: { type: String, required: true },
 });
 
-const emit = defineEmits(["confirm", "cancel"]);
+const emit = defineEmits(['confirm', 'cancel']);
 const confirmButton = ref(null);
 
 watch(show, (visible) => {
@@ -50,11 +50,11 @@ function focusConfirmButton() {
 
 function confirm() {
   show.value = false;
-  emit("confirm");
+  emit('confirm');
 }
 
 function cancel() {
   show.value = false;
-  emit("cancel");
+  emit('cancel');
 }
 </script>

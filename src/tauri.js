@@ -1,13 +1,18 @@
-import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { listen } from "@tauri-apps/api/event";
-import { availableMonitors, getCurrentWindow, LogicalSize, PhysicalPosition } from "@tauri-apps/api/window";
+import { getCurrentWebview } from '@tauri-apps/api/webview';
+import { listen } from '@tauri-apps/api/event';
+import {
+  availableMonitors,
+  getCurrentWindow,
+  LogicalSize,
+  PhysicalPosition,
+} from '@tauri-apps/api/window';
 
 const tauri = window.__TAURI_INTERNALS__;
-const WINDOW_STATE_KEY = "image-forge-window-state";
+const WINDOW_STATE_KEY = 'image-forge-window-state';
 
 export function invoke(command, args = {}) {
   if (!tauri) {
-    return Promise.reject(new Error("请在 Tauri 桌面窗口中运行"));
+    return Promise.reject(new Error('请在 Tauri 桌面窗口中运行'));
   }
   return tauri.invoke(command, args);
 }
@@ -17,20 +22,20 @@ export function convertFileSrc(path) {
     return tauri.convertFileSrc(path);
   }
   // Web 版：本地 .image-forge 路径转为开发服务器 HTTP URL
-  if (!path) return "";
-  const idx = path.indexOf("/.image-forge/");
+  if (!path) return '';
+  const idx = path.indexOf('/.image-forge/');
   if (idx >= 0) {
-    return "/image-forge-data" + path.slice(idx + "/.image-forge".length);
+    return '/image-forge-data' + path.slice(idx + '/.image-forge'.length);
   }
   return path;
 }
 
 export function openDialog(options) {
-  return invoke("plugin:dialog|open", { options });
+  return invoke('plugin:dialog|open', { options });
 }
 
 export function saveDialog(options) {
-  return invoke("plugin:dialog|save", { options });
+  return invoke('plugin:dialog|save', { options });
 }
 
 export function listenDragDrop(handler) {
@@ -45,7 +50,7 @@ export async function restoreWindowState() {
   if (!tauri) return;
   let state;
   try {
-    state = JSON.parse(localStorage.getItem(WINDOW_STATE_KEY) || "null");
+    state = JSON.parse(localStorage.getItem(WINDOW_STATE_KEY) || 'null');
   } catch {
     localStorage.removeItem(WINDOW_STATE_KEY);
     return;
@@ -54,20 +59,34 @@ export async function restoreWindowState() {
   const appWindow = getCurrentWindow();
   const scaleFactor = await appWindow.scaleFactor();
   const monitors = await availableMonitors();
-  const monitor = monitors.find(({ workArea }) =>
-    state.x >= workArea.position.x
-    && state.y >= workArea.position.y
-    && state.x < workArea.position.x + workArea.size.width
-    && state.y < workArea.position.y + workArea.size.height
-  ) || monitors[0];
+  const monitor =
+    monitors.find(
+      ({ workArea }) =>
+        state.x >= workArea.position.x &&
+        state.y >= workArea.position.y &&
+        state.x < workArea.position.x + workArea.size.width &&
+        state.y < workArea.position.y + workArea.size.height
+    ) || monitors[0];
   const area = monitor?.workArea;
   const { width, height } = logicalWindowSize(state, scaleFactor, area?.size);
   await appWindow.setSize(new LogicalSize(width, height));
   if (area) {
     const physicalWidth = width * scaleFactor;
     const physicalHeight = height * scaleFactor;
-    const x = Math.max(area.position.x, Math.min(numberOr(state.x, area.position.x), area.position.x + area.size.width - physicalWidth));
-    const y = Math.max(area.position.y, Math.min(numberOr(state.y, area.position.y), area.position.y + area.size.height - physicalHeight));
+    const x = Math.max(
+      area.position.x,
+      Math.min(
+        numberOr(state.x, area.position.x),
+        area.position.x + area.size.width - physicalWidth
+      )
+    );
+    const y = Math.max(
+      area.position.y,
+      Math.min(
+        numberOr(state.y, area.position.y),
+        area.position.y + area.size.height - physicalHeight
+      )
+    );
     await appWindow.setPosition(new PhysicalPosition(x, y));
   }
 }
@@ -78,7 +97,7 @@ function numberOr(value, fallback) {
 }
 
 export function logicalWindowSize(state, scaleFactor, physicalWorkArea) {
-  const unitScale = state?.unit === "logical" ? 1 : scaleFactor;
+  const unitScale = state?.unit === 'logical' ? 1 : scaleFactor;
   const savedWidth = numberOr(state?.width, 1360) / unitScale;
   const savedHeight = numberOr(state?.height, 930) / unitScale;
   const maxWidth = physicalWorkArea ? physicalWorkArea.width / scaleFactor : Infinity;
@@ -100,13 +119,16 @@ export async function listenWindowState() {
       appWindow.scaleFactor(),
     ]);
     const logicalSize = size.toLogical(scaleFactor);
-    localStorage.setItem(WINDOW_STATE_KEY, JSON.stringify({
-      x: position.x,
-      y: position.y,
-      width: logicalSize.width,
-      height: logicalSize.height,
-      unit: "logical",
-    }));
+    localStorage.setItem(
+      WINDOW_STATE_KEY,
+      JSON.stringify({
+        x: position.x,
+        y: position.y,
+        width: logicalSize.width,
+        height: logicalSize.height,
+        unit: 'logical',
+      })
+    );
   };
   const schedule = () => {
     window.clearTimeout(timer);

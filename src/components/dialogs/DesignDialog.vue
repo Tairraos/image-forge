@@ -85,19 +85,19 @@
 </template>
 
 <script setup>
-import { computed, ref } from "vue";
-import aboutIcon from "../../assets/关于.svg?raw";
-import backupIcon from "../../assets/备份.svg?raw";
-import chatApiIcon from "../../assets/对话API.svg?raw";
-import imageApiIcon from "../../assets/绘图API.svg?raw";
-import templatesIcon from "../../assets/模板库.svg?raw";
-import AppIcon from "../snippets/AppIcon.vue";
-import AboutPanel from "./AboutPanel.vue";
-import BackupPanel from "./BackupPanel.vue";
-import ApiSourcePanel from "./ApiSourcePanel.vue";
-import TemplateManagerPanel from "./TemplateManagerPanel.vue";
+import { computed, ref } from 'vue';
+import aboutIcon from '../../assets/关于.svg?raw';
+import backupIcon from '../../assets/备份.svg?raw';
+import chatApiIcon from '../../assets/对话API.svg?raw';
+import imageApiIcon from '../../assets/绘图API.svg?raw';
+import templatesIcon from '../../assets/模板库.svg?raw';
+import AppIcon from '../snippets/AppIcon.vue';
+import AboutPanel from './AboutPanel.vue';
+import BackupPanel from './BackupPanel.vue';
+import ApiSourcePanel from './ApiSourcePanel.vue';
+import TemplateManagerPanel from './TemplateManagerPanel.vue';
 
-const show = defineModel("show", { type: Boolean, default: false });
+const show = defineModel('show', { type: Boolean, default: false });
 
 const props = defineProps({
   settings: { type: Object, required: true },
@@ -106,37 +106,37 @@ const props = defineProps({
 });
 
 const emit = defineEmits([
-  "save-api",
-  "view-template",
-  "edit-template",
-  "delete-template",
-  "create-template",
-  "import-template",
-  "export-template",
-  "export-data",
-  "import-data",
-  "move-template",
-  "show-template-effect",
-  "show-logs",
-  "cleanup",
+  'save-api',
+  'view-template',
+  'edit-template',
+  'delete-template',
+  'create-template',
+  'import-template',
+  'export-template',
+  'export-data',
+  'import-data',
+  'move-template',
+  'show-template-effect',
+  'show-logs',
+  'cleanup',
 ]);
 
 const menuItems = [
-  { id: "templates", label: "模板库", icon: templatesIcon },
-  { id: "chat-api", label: "对话API", icon: chatApiIcon },
-  { id: "image-api", label: "绘图API", icon: imageApiIcon },
-  { id: "backup", label: "备份/恢复", icon: backupIcon },
-  { id: "about", label: "关于", icon: aboutIcon },
+  { id: 'templates', label: '模板库', icon: templatesIcon },
+  { id: 'chat-api', label: '对话API', icon: chatApiIcon },
+  { id: 'image-api', label: '绘图API', icon: imageApiIcon },
+  { id: 'backup', label: '备份/恢复', icon: backupIcon },
+  { id: 'about', label: '关于', icon: aboutIcon },
 ];
 
-const tab = ref("templates");
-const templateQuery = ref("");
+const tab = ref('templates');
+const templateQuery = ref('');
 
 const filteredTemplates = computed(() => {
   const query = templateQuery.value.trim().toLowerCase();
   if (!query) return props.templates;
   return props.templates.filter((item) =>
-    [item.id, item.title, item.content].filter(Boolean).join(" ").toLowerCase().includes(query),
+    [item.id, item.title, item.content].filter(Boolean).join(' ').toLowerCase().includes(query)
   );
 });
 </script>

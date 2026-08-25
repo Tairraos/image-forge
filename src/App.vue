@@ -27,7 +27,6 @@
   <n-config-provider v-else :theme-overrides="themeOverrides" component-size="small">
     <n-global-style />
     <AppShell>
-
       <AgentWorkspace
         :sessions="agentSessions"
         :current-session="currentAgentSession"
@@ -116,140 +115,142 @@
           @import-data="openImportData"
         />
 
+        <TemplateEditorDialog
+          v-model:show="showTemplateEditor"
+          :template="templateDraft"
+          :mode="templateEditorMode"
+          :references="templateDraftReferences"
+          :effect-image="templateDraftEffectImage"
+          :reference-drag-active="templateDraftDragActive"
+          @save="savePromptTemplate"
+          @add-reference="addTemplateDraftReferenceImages"
+          @remove-reference="removeReference(templateDraftReferences, $event)"
+          @add-effect-image="addTemplateDraftEffectImage"
+          @paste-effect-image="pasteTemplateDraftEffectImage"
+          @remove-effect-image="templateDraftEffectImage = null"
+          @paste-reference="handleTemplateDraftPaste"
+          @reference-drag-over="templateDraftDragActive = true"
+          @reference-drag-leave="templateDraftDragActive = false"
+          @drop-reference="handleTemplateDraftDropEvent"
+          @update:show="templateDraftDragActive = false"
+        />
 
-      <TemplateEditorDialog
-        v-model:show="showTemplateEditor"
-        :template="templateDraft"
-        :mode="templateEditorMode"
-        :references="templateDraftReferences"
-        :effect-image="templateDraftEffectImage"
-        :reference-drag-active="templateDraftDragActive"
-        @save="savePromptTemplate"
-        @add-reference="addTemplateDraftReferenceImages"
-        @remove-reference="removeReference(templateDraftReferences, $event)"
-        @add-effect-image="addTemplateDraftEffectImage"
-        @paste-effect-image="pasteTemplateDraftEffectImage"
-        @remove-effect-image="templateDraftEffectImage = null"
-        @paste-reference="handleTemplateDraftPaste"
-        @reference-drag-over="templateDraftDragActive = true"
-        @reference-drag-leave="templateDraftDragActive = false"
-        @drop-reference="handleTemplateDraftDropEvent"
-        @update:show="templateDraftDragActive = false"
-      />
+        <DataTransferDialog v-model:show="showDataTransfer" :mode="dataTransferMode" />
 
-      <DataTransferDialog
-        v-model:show="showDataTransfer"
-        :mode="dataTransferMode"
-      />
+        <EffectImageViewer
+          v-model:show="effectViewer.show"
+          :image-path="effectViewer.path"
+          :title="effectViewer.title"
+          :items="effectViewer.items"
+          :initial-index="effectViewer.index"
+        />
 
-      <EffectImageViewer
-        v-model:show="effectViewer.show"
-        :image-path="effectViewer.path"
-        :title="effectViewer.title"
-        :items="effectViewer.items"
-        :initial-index="effectViewer.index"
-      />
+        <CleanupDialog
+          v-model:show="showCleanupDialog"
+          :candidates="cleanupCandidates"
+          :loading="cleanupLoading"
+          :confirming="cleanupConfirming"
+          :error="cleanupError"
+          @confirm="confirmCleanup"
+        />
 
+        <RuntimeLogDialog v-model:show="showRuntimeLogDialog" :logs="runtimeLogText" />
 
-      <CleanupDialog
-        v-model:show="showCleanupDialog"
-        :candidates="cleanupCandidates"
-        :loading="cleanupLoading"
-        :confirming="cleanupConfirming"
-        :error="cleanupError"
-        @confirm="confirmCleanup"
-      />
+        <ConfirmDialog
+          v-model:show="confirmation.visible"
+          :title="confirmation.title"
+          :message="confirmation.message"
+          @confirm="resolveConfirmation(true)"
+          @cancel="resolveConfirmation(false)"
+        />
 
-      <RuntimeLogDialog
-        v-model:show="showRuntimeLogDialog"
-        :logs="runtimeLogText"
-      />
-
-      <ConfirmDialog
-        v-model:show="confirmation.visible"
-        :title="confirmation.title"
-        :message="confirmation.message"
-        @confirm="resolveConfirmation(true)"
-        @cancel="resolveConfirmation(false)"
-      />
-
-      <NoticeDialog
-        v-model:show="notice.visible"
-        :title="notice.title"
-        :message="notice.message"
-        :button-text="notice.buttonText"
-        @close="resolveNotice"
-      />
+        <NoticeDialog
+          v-model:show="notice.visible"
+          :title="notice.title"
+          :message="notice.message"
+          :button-text="notice.buttonText"
+          @close="resolveNotice"
+        />
       </template>
     </AppShell>
   </n-config-provider>
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
-import AgentWorkspace from "./components/AgentWorkspace.vue";
-import AppFooterBar from "./components/AppFooterBar.vue";
-import AppShell from "./components/AppShell.vue";
-import CleanupDialog from "./components/dialogs/CleanupDialog.vue";
-import ApiSourceDialog from "./components/dialogs/ApiSourceDialog.vue";
-import ConfirmDialog from "./components/dialogs/ConfirmDialog.vue";
-import DesignDialog from "./components/dialogs/DesignDialog.vue";
-import EffectImageViewer from "./components/dialogs/EffectImageViewer.vue";
-import NoticeDialog from "./components/dialogs/NoticeDialog.vue";
-import RuntimeLogDialog from "./components/dialogs/RuntimeLogDialog.vue";
-import TemplateEditorDialog from "./components/dialogs/TemplateEditorDialog.vue";
-import DataTransferDialog from "./components/dialogs/DataTransferDialog.vue";
-import { fileName } from "./lib/formatters";
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
+import AgentWorkspace from './components/AgentWorkspace.vue';
+import AppFooterBar from './components/AppFooterBar.vue';
+import AppShell from './components/AppShell.vue';
+import CleanupDialog from './components/dialogs/CleanupDialog.vue';
+import ApiSourceDialog from './components/dialogs/ApiSourceDialog.vue';
+import ConfirmDialog from './components/dialogs/ConfirmDialog.vue';
+import DesignDialog from './components/dialogs/DesignDialog.vue';
+import EffectImageViewer from './components/dialogs/EffectImageViewer.vue';
+import NoticeDialog from './components/dialogs/NoticeDialog.vue';
+import RuntimeLogDialog from './components/dialogs/RuntimeLogDialog.vue';
+import TemplateEditorDialog from './components/dialogs/TemplateEditorDialog.vue';
+import DataTransferDialog from './components/dialogs/DataTransferDialog.vue';
+import { fileName } from './lib/formatters';
+import { deepClone, defaultSettings, emptyTemplate, normalizeSettingsForUi } from './lib/models';
 import {
-  deepClone,
-  defaultSettings,
-  emptyTemplate,
-  normalizeSettingsForUi,
-} from "./lib/models";
-import { clipboardHasImage, extractClipboardFilePaths, extractDroppedFilePaths } from "./lib/referenceFiles";
-import { installAutoHideScrollbars } from "./lib/scrollbarVisibility";
+  clipboardHasImage,
+  extractClipboardFilePaths,
+  extractDroppedFilePaths,
+} from './lib/referenceFiles';
+import { installAutoHideScrollbars } from './lib/scrollbarVisibility';
+import { DEFAULT_PROMPT_MODE, DEFAULT_RATIO } from './lib/options';
+import { themeOverrides } from './lib/theme';
 import {
-  DEFAULT_PROMPT_MODE,
-  DEFAULT_RATIO,
-} from "./lib/options";
-import { themeOverrides } from "./lib/theme";
-import { invoke, listenDragDrop, listenEvent, listenWindowState, openDialog, restoreWindowState, saveDialog } from "./tauri";
-import * as api from "./api/index.js";
-import logoUrl from "./assets/title.png";
+  invoke,
+  listenDragDrop,
+  listenEvent,
+  listenWindowState,
+  openDialog,
+  restoreWindowState,
+  saveDialog,
+} from './tauri';
+import * as api from './api/index.js';
+import logoUrl from './assets/title.png';
 
-const statusText = ref("启动中");
-const statusTone = ref("busy");
+const statusText = ref('启动中');
+const statusTone = ref('busy');
 
 // 密码锁（仅 Web 版生效）
 const isWeb = !window.__TAURI_INTERNALS__;
-const AUTH_KEY = "if_auth";
-const ACCESS_PASSWORD = import.meta.env.VITE_ACCESS_PASSWORD || "image-forge";
+const AUTH_KEY = 'if_auth';
+const ACCESS_PASSWORD = import.meta.env.VITE_ACCESS_PASSWORD || 'image-forge';
 const unlocked = ref(!isWeb || localStorage.getItem(AUTH_KEY) === ACCESS_PASSWORD);
-const lockPassword = ref("");
-const lockError = ref("");
+const lockPassword = ref('');
+const lockError = ref('');
 
 function unlock() {
   if (lockPassword.value.trim() === ACCESS_PASSWORD) {
     localStorage.setItem(AUTH_KEY, ACCESS_PASSWORD);
     unlocked.value = true;
-    lockError.value = "";
+    lockError.value = '';
   } else {
-    lockError.value = "密码错误";
-    lockPassword.value = "";
+    lockError.value = '密码错误';
+    lockPassword.value = '';
   }
 }
 const agentSessions = ref([]);
-const currentAgentSessionId = ref("");
+const currentAgentSessionId = ref('');
 const agentBusy = ref(false);
-const agentStreamText = ref("");
-const agentToolStatus = ref("");
+const agentStreamText = ref('');
+const agentToolStatus = ref('');
 const agentAnswers = ref({});
 const agentAttachments = ref([]);
-const agentPrefillPrompt = ref("");
+const agentPrefillPrompt = ref('');
 const settings = ref(defaultSettings());
 const history = ref([]);
 const agentLibraryVersion = ref(0);
-const queue = reactive({ waiting: [], running: [], recent: [], workerActive: false, updatedAt: "" });
+const queue = reactive({
+  waiting: [],
+  running: [],
+  recent: [],
+  workerActive: false,
+  updatedAt: '',
+});
 const templates = ref([]);
 const templateDraftReferences = ref([]);
 const templateDraftEffectImage = ref(null);
@@ -258,43 +259,43 @@ const templateDraftDragActive = ref(false);
 const showApiDialog = ref(false);
 const showTemplateEditor = ref(false);
 const showDataTransfer = ref(false);
-const dataTransferMode = ref("export");
+const dataTransferMode = ref('export');
 const showDesignDialog = ref(false);
 const showRuntimeLogDialog = ref(false);
 const showCleanupDialog = ref(false);
 const confirmation = reactive({
   visible: false,
-  title: "请确认",
-  message: "",
+  title: '请确认',
+  message: '',
   resolve: null,
 });
 const notice = reactive({
   visible: false,
-  title: "提示",
-  message: "",
-  buttonText: "确认",
+  title: '提示',
+  message: '',
+  buttonText: '确认',
   resolve: null,
 });
-const effectViewer = reactive({ show: false, path: "", title: "", items: [], index: 0 });
+const effectViewer = reactive({ show: false, path: '', title: '', items: [], index: 0 });
 const ACTIVE_QUEUE_POLL_INTERVAL = 5000;
 const AGENT_TASK_GROUP_POLL_INTERVAL = 5000;
 
 const templateDraft = reactive(emptyTemplate());
-const templateEditorMode = ref("edit");
-const aboutInfo = ref({ version: "", buildTime: "" });
-const runtimeLogText = ref("");
+const templateEditorMode = ref('edit');
+const aboutInfo = ref({ version: '', buildTime: '' });
+const runtimeLogText = ref('');
 const cleanupCandidates = ref([]);
 const cleanupLoading = ref(false);
 const cleanupConfirming = ref(false);
-const cleanupError = ref("");
+const cleanupError = ref('');
 
 const form = reactive({
-  providerId: "",
-  chatProviderId: "",
+  providerId: '',
+  chatProviderId: '',
   promptMode: DEFAULT_PROMPT_MODE,
-  resolution: "4k",
+  resolution: '4k',
   ratio: DEFAULT_RATIO,
-  quality: "medium",
+  quality: 'medium',
 });
 
 let pollTimer = 0;
@@ -311,41 +312,43 @@ let agentTaskGroupPollTimer = 0;
 let agentTaskGroupRefreshInFlight = false;
 
 const imageProviders = computed(() =>
-  settings.value.providers.filter((provider) => provider.modelType !== "chat"),
+  settings.value.providers.filter((provider) => provider.modelType !== 'chat')
 );
 
 const chatProviders = computed(() =>
-  settings.value.providers.filter((provider) => provider.modelType === "chat"),
+  settings.value.providers.filter((provider) => provider.modelType === 'chat')
 );
 
 const imageProviderOptions = computed(() =>
   imageProviders.value.map((provider) => ({
     label: modelOptionLabel(provider),
     value: provider.id,
-  })),
+  }))
 );
 
 const chatProviderOptions = computed(() =>
   chatProviders.value.map((provider) => ({
     label: modelOptionLabel(provider),
     value: provider.id,
-  })),
+  }))
 );
 
-const activeProvider = computed(() =>
-  imageProviders.value.find((provider) => provider.id === form.providerId)
-  || imageProviders.value.find((provider) => provider.id === settings.value.activeImageProviderId)
-  || imageProviders.value[0],
+const activeProvider = computed(
+  () =>
+    imageProviders.value.find((provider) => provider.id === form.providerId) ||
+    imageProviders.value.find((provider) => provider.id === settings.value.activeImageProviderId) ||
+    imageProviders.value[0]
 );
 
-const activeChatProvider = computed(() =>
-  chatProviders.value.find((provider) => provider.id === form.chatProviderId)
-  || chatProviders.value.find((provider) => provider.id === settings.value.activeChatProviderId)
-  || chatProviders.value[0],
+const activeChatProvider = computed(
+  () =>
+    chatProviders.value.find((provider) => provider.id === form.chatProviderId) ||
+    chatProviders.value.find((provider) => provider.id === settings.value.activeChatProviderId) ||
+    chatProviders.value[0]
 );
 
-const currentAgentSession = computed(() =>
-  agentSessions.value.find((session) => session.id === currentAgentSessionId.value) || null,
+const currentAgentSession = computed(
+  () => agentSessions.value.find((session) => session.id === currentAgentSessionId.value) || null
 );
 
 const currentAgentMessages = computed(() => currentAgentSession.value?.messages || []);
@@ -356,26 +359,31 @@ const historyTimeline = computed(() => {
     if (task?.id) byId.set(task.id, task);
   }
   return Array.from(byId.values()).sort((left, right) =>
-    taskTime(left).localeCompare(taskTime(right)),
+    taskTime(left).localeCompare(taskTime(right))
   );
 });
 
-const currentAgentDisplayMessages = computed(() => currentAgentMessages.value.map((message) => {
-  const group = message.taskGroup;
-  if (!group?.id) return message;
-  const taskIds = new Set(group.taskIds || []);
-  const tasks = historyTimeline.value.filter((task) =>
-    taskIds.has(task.id) || task.taskGroupId === group.id);
-  const images = tasks.flatMap((task) => (task.outputs || []).map((output) => ({
-    ...output,
-    title: task.prompt || output.fileName || "生成图片",
-    meta: [output.size || task.params?.size, task.model].filter(Boolean).join(" · "),
-  })));
-  return {
-    ...message,
-    taskGroup: { ...group, images },
-  };
-}));
+const currentAgentDisplayMessages = computed(() =>
+  currentAgentMessages.value.map((message) => {
+    const group = message.taskGroup;
+    if (!group?.id) return message;
+    const taskIds = new Set(group.taskIds || []);
+    const tasks = historyTimeline.value.filter(
+      (task) => taskIds.has(task.id) || task.taskGroupId === group.id
+    );
+    const images = tasks.flatMap((task) =>
+      (task.outputs || []).map((output) => ({
+        ...output,
+        title: task.prompt || output.fileName || '生成图片',
+        meta: [output.size || task.params?.size, task.model].filter(Boolean).join(' · '),
+      }))
+    );
+    return {
+      ...message,
+      taskGroup: { ...group, images },
+    };
+  })
+);
 
 onMounted(async () => {
   removeScrollbarVisibility = installAutoHideScrollbars();
@@ -391,29 +399,32 @@ onMounted(async () => {
     // 浏览器预览没有 Tauri 拖放事件，保留 HTML5 drop 作为兼容路径。
   }
   try {
-    unlistenQueueUpdated = await listenEvent("queue-updated", handleQueueUpdatedEvent);
+    unlistenQueueUpdated = await listenEvent('queue-updated', handleQueueUpdatedEvent);
   } catch {
     // 预览环境可能没有事件通道。
   }
   try {
-    unlistenAgentProgress = await listenEvent("agent-progress", handleAgentProgressEvent);
+    unlistenAgentProgress = await listenEvent('agent-progress', handleAgentProgressEvent);
   } catch {
     unlistenAgentProgress = api.onAgentEvent((event, payload) => {
-      if (event === "agent-progress") handleAgentProgressEvent({ payload });
+      if (event === 'agent-progress') handleAgentProgressEvent({ payload });
     });
   }
   try {
-    unlistenAgentTaskGroup = await listenEvent("agent-task-group", handleAgentTaskGroupEvent);
+    unlistenAgentTaskGroup = await listenEvent('agent-task-group', handleAgentTaskGroupEvent);
   } catch {
     const unlistenTaskGroup = api.onAgentEvent((event, payload) => {
-      if (event === "agent-task-group") handleAgentTaskGroupEvent({ payload });
+      if (event === 'agent-task-group') handleAgentTaskGroupEvent({ payload });
     });
     // 合并清理
     const prev = unlistenAgentProgress;
-    unlistenAgentProgress = () => { prev(); unlistenTaskGroup(); };
+    unlistenAgentProgress = () => {
+      prev();
+      unlistenTaskGroup();
+    };
   }
   try {
-    unlistenMenuOpenSettings = await listenEvent("menu-open-settings", () => {
+    unlistenMenuOpenSettings = await listenEvent('menu-open-settings', () => {
       void openDesign();
     });
   } catch {
@@ -441,9 +452,9 @@ async function refreshAll() {
   try {
     const state = await api.loadAppState();
     applyState(state);
-    setStatus("就绪", "ok");
+    setStatus('就绪', 'ok');
   } catch (error) {
-    setStatus(String(error), "error");
+    setStatus(String(error), 'error');
   }
 }
 
@@ -463,14 +474,14 @@ async function refreshAgentSessions() {
       syncAgentTaskGroupPolling();
     }
   } catch (error) {
-    setStatus(String(error), "error");
+    setStatus(String(error), 'error');
   }
 }
 
 function sortAgentSessions(sessions) {
   return [...sessions].sort((a, b) => {
-    const aTime = a.updatedAt || a.createdAt || "";
-    const bTime = b.updatedAt || b.createdAt || "";
+    const aTime = a.updatedAt || a.createdAt || '';
+    const bTime = b.updatedAt || b.createdAt || '';
     return aTime.localeCompare(bTime);
   });
 }
@@ -484,11 +495,11 @@ function setAgentSession(session) {
 
 async function createAgentConversation() {
   try {
-    const session = await api.createAgentSession(form.chatProviderId || "");
+    const session = await api.createAgentSession(form.chatProviderId || '');
     setAgentSession(session);
     currentAgentSessionId.value = session.id;
   } catch (error) {
-    setStatus(String(error), "error");
+    setStatus(String(error), 'error');
   }
 }
 
@@ -498,25 +509,28 @@ async function selectAgentConversation(sessionId) {
     setAgentSession(session);
     currentAgentSessionId.value = session.id;
     form.chatProviderId = session.modelProviderId || form.chatProviderId;
-    agentStreamText.value = "";
-    agentToolStatus.value = "";
+    agentStreamText.value = '';
+    agentToolStatus.value = '';
     await refreshAgentTaskGroups();
     syncAgentTaskGroupPolling();
   } catch (error) {
-    setStatus(String(error), "error");
+    setStatus(String(error), 'error');
   }
 }
 
 async function deleteAgentConversation(sessionId) {
-  const confirmed = await requestConfirmation("删除 Agent 对话", "确认把这个 Agent 对话移入系统回收站？关联的绘图任务不会删除。");
+  const confirmed = await requestConfirmation(
+    '删除 Agent 对话',
+    '确认把这个 Agent 对话移入系统回收站？关联的绘图任务不会删除。'
+  );
   if (!confirmed) return;
   try {
     await api.deleteAgentSession(sessionId);
-    if (currentAgentSessionId.value === sessionId) currentAgentSessionId.value = "";
+    if (currentAgentSessionId.value === sessionId) currentAgentSessionId.value = '';
     await refreshAgentSessions();
-    setStatus("Agent 对话已移入回收站", "ok");
+    setStatus('Agent 对话已移入回收站', 'ok');
   } catch (error) {
-    setStatus(String(error), "error");
+    setStatus(String(error), 'error');
   }
 }
 
@@ -524,15 +538,15 @@ async function renameAgentConversation({ sessionId, title }) {
   try {
     const session = await api.renameAgentSession(sessionId, title);
     setAgentSession(session);
-    setStatus("对话标题已更新", "ok");
+    setStatus('对话标题已更新', 'ok');
   } catch (error) {
-    setStatus(String(error), "error");
+    setStatus(String(error), 'error');
   }
 }
 
 async function sendAgentConversationMessage(payload) {
-  const content = typeof payload === "string" ? payload : payload?.content || "";
-  const drawThisTurn = typeof payload !== "string" && Boolean(payload?.drawThisTurn);
+  const content = typeof payload === 'string' ? payload : payload?.content || '';
+  const drawThisTurn = typeof payload !== 'string' && Boolean(payload?.drawThisTurn);
   if (!currentAgentSessionId.value) await createAgentConversation();
   if (!currentAgentSessionId.value) return;
   if (drawThisTurn) {
@@ -540,61 +554,56 @@ async function sendAgentConversationMessage(payload) {
     return;
   }
   agentBusy.value = true;
-  agentStreamText.value = "";
+  agentStreamText.value = '';
   try {
     const session = await api.sendAgentMessage(
       currentAgentSessionId.value,
       form.chatProviderId,
       content,
-      agentAttachments.value.map(({ dataUrl, ...attachment }) => attachment),
+      agentAttachments.value.map(({ dataUrl, ...attachment }) => attachment)
     );
     setAgentSession(session);
     agentAttachments.value = [];
     await refreshAgentTaskGroups();
     syncAgentTaskGroupPolling();
   } catch (error) {
-    setStatus(String(error), "error");
+    setStatus(String(error), 'error');
     if (currentAgentSessionId.value) {
       await selectAgentConversation(currentAgentSessionId.value);
     }
   } finally {
     agentBusy.value = false;
-    agentStreamText.value = "";
-    agentToolStatus.value = "";
+    agentStreamText.value = '';
+    agentToolStatus.value = '';
   }
 }
 
 async function createAgentDrawingTask(content) {
   if (!activeProvider.value?.apiKey) {
-    setStatus("请先在 API 源里填写生图模型 API Key", "error");
+    setStatus('请先在 API 源里填写生图模型 API Key', 'error');
     showApiDialog.value = true;
     return;
   }
   const attachments = agentAttachments.value.map(({ dataUrl, ...attachment }) => attachment);
   agentBusy.value = true;
   try {
-    await api.createAgentDirectImageTask(
-      currentAgentSessionId.value,
-      content,
-      attachments,
-      {
-        title: content.split(/\r?\n/, 1)[0].slice(0, 32) || "直接绘画",
-        prompt: content,
-        providerId: activeProvider.value.id,
-        resolution: form.resolution,
-        ratio: form.ratio,
-        quality: form.quality,
-        promptFidelity: form.promptMode,
-        referencePolicy: attachments.length ? "use" : "none",
-        referenceIds: attachments.map((attachment) => attachment.id),
-      },
-    );
+    await api.createAgentDirectImageTask(currentAgentSessionId.value, content, attachments, {
+      title: content.split(/\r?\n/, 1)[0].slice(0, 32) || '直接绘画',
+      prompt: content,
+      providerId: activeProvider.value.id,
+      resolution: form.resolution,
+      ratio: form.ratio,
+      quality: form.quality,
+      promptFidelity: form.promptMode,
+      referencePolicy: attachments.length ? 'use' : 'none',
+      referenceIds: attachments.map((attachment) => attachment.id),
+    });
     agentAttachments.value = [];
     await refreshQueueOnly();
     await selectAgentConversation(currentAgentSessionId.value);
-    setStatus("绘画任务已加入队列", "ok");
+    setStatus('绘画任务已加入队列', 'ok');
   } catch (error) {
-    setStatus(String(error), "error");
+    setStatus(String(error), 'error');
     await selectAgentConversation(currentAgentSessionId.value);
   } finally {
     agentBusy.value = false;
@@ -607,15 +616,18 @@ async function stopAgentConversation() {
       await api.cancelAgentTurn(currentAgentSessionId.value);
       await selectAgentConversation(currentAgentSessionId.value);
     } catch (error) {
-      setStatus(String(error), "error");
+      setStatus(String(error), 'error');
     }
   }
   agentBusy.value = false;
-  agentStreamText.value = "";
+  agentStreamText.value = '';
 }
 
 async function addAgentReferenceImages() {
-  const selected = await openDialog({ multiple: true, filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "gif"] }] });
+  const selected = await openDialog({
+    multiple: true,
+    filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] }],
+  });
   const paths = Array.isArray(selected) ? selected : selected ? [selected] : [];
   await addAgentReferencePaths(paths);
 }
@@ -632,7 +644,7 @@ async function addAgentReferencePaths(paths) {
         dataUrl: preview.dataUrl,
       });
     } catch (error) {
-      setStatus(String(error), "error");
+      setStatus(String(error), 'error');
     }
   }
 }
@@ -692,18 +704,21 @@ async function handleLibraryReferenceToAgent({ task, output }) {
     }
   }
   // 预填提示词到输入框
-  agentPrefillPrompt.value = task.prompt || "";
+  agentPrefillPrompt.value = task.prompt || '';
   // 清除预填（避免下次重复触发）
   setTimeout(() => {
-    agentPrefillPrompt.value = "";
+    agentPrefillPrompt.value = '';
   }, 100);
-  setStatus(`已引用到当前对话（${refPaths.length ? refPaths.length + " 张参考图" : "无参考图"}）`, "ok");
+  setStatus(
+    `已引用到当前对话（${refPaths.length ? refPaths.length + ' 张参考图' : '无参考图'}）`,
+    'ok'
+  );
 }
 
 async function handleLibraryAddToTemplate({ task, output }) {
   Object.assign(templateDraft, emptyTemplate());
-  templateDraft.title = "";
-  templateDraft.prompt = task.prompt || "";
+  templateDraft.title = '';
+  templateDraft.prompt = task.prompt || '';
   templateDraft.referencePaths = [];
   templateDraftReferences.value = [];
   templateDraftEffectImage.value = null;
@@ -719,9 +734,9 @@ async function handleLibraryAddToTemplate({ task, output }) {
       }
     }
   }
-  templateEditorMode.value = "new";
+  templateEditorMode.value = 'new';
   showTemplateEditor.value = true;
-  setStatus("已添加到模板编辑器", "ok");
+  setStatus('已添加到模板编辑器', 'ok');
 }
 
 function selectTemplate() {
@@ -731,12 +746,12 @@ function selectTemplate() {
 function handleAgentProgressEvent(event) {
   const payload = event?.payload || {};
   if (payload.sessionId !== currentAgentSessionId.value) return;
-  if (payload.phase === "delta") agentStreamText.value += payload.chunk || "";
-  if (["tool_delta", "tool_start", "tool_result"].includes(payload.phase)) {
-    const tool = payload.toolName ? ` · ${payload.toolName}` : "";
-    agentToolStatus.value = `${payload.message || "正在执行工具"}${tool}`;
+  if (payload.phase === 'delta') agentStreamText.value += payload.chunk || '';
+  if (['tool_delta', 'tool_start', 'tool_result'].includes(payload.phase)) {
+    const tool = payload.toolName ? ` · ${payload.toolName}` : '';
+    agentToolStatus.value = `${payload.message || '正在执行工具'}${tool}`;
   }
-  if (payload.phase === "error") setStatus(payload.message || "Agent 调用失败", "error");
+  if (payload.phase === 'error') setStatus(payload.message || 'Agent 调用失败', 'error');
 }
 
 function openAgentTaskGroup(group) {
@@ -746,8 +761,8 @@ function openAgentTaskGroup(group) {
 
 function openImageViewer({ items = [], index = 0 } = {}) {
   if (!items.length) return;
-  effectViewer.path = "";
-  effectViewer.title = "生成图片";
+  effectViewer.path = '';
+  effectViewer.title = '生成图片';
   effectViewer.items = items;
   effectViewer.index = index;
   effectViewer.show = true;
@@ -755,16 +770,19 @@ function openImageViewer({ items = [], index = 0 } = {}) {
 
 async function cancelAgentTaskGroup(group) {
   if (!group?.id) return;
-  const confirmed = await requestConfirmation("取消任务组", "确认取消这个 Agent 任务组？已完成的任务不会删除，失败项仍可重试。");
+  const confirmed = await requestConfirmation(
+    '取消任务组',
+    '确认取消这个 Agent 任务组？已完成的任务不会删除，失败项仍可重试。'
+  );
   if (!confirmed) return;
   try {
     await api.cancelAgentTaskGroup(group.id);
     await refreshQueueOnly();
     if (currentAgentSessionId.value) await selectAgentConversation(currentAgentSessionId.value);
     await refreshAgentTaskGroups();
-    setStatus("Agent 任务组已取消", "ok");
+    setStatus('Agent 任务组已取消', 'ok');
   } catch (error) {
-    setStatus(String(error), "error");
+    setStatus(String(error), 'error');
   }
 }
 
@@ -775,9 +793,9 @@ async function retryAgentTaskGroup(group) {
     await refreshQueueOnly();
     if (currentAgentSessionId.value) await selectAgentConversation(currentAgentSessionId.value);
     await refreshAgentTaskGroups();
-    setStatus("Agent 失败任务已重新排队", "ok");
+    setStatus('Agent 失败任务已重新排队', 'ok');
   } catch (error) {
-    setStatus(String(error), "error");
+    setStatus(String(error), 'error');
   }
 }
 
@@ -787,7 +805,7 @@ function retryAgentMessage(message) {
   const previousUser = messages
     .slice(0, index < 0 ? messages.length : index)
     .reverse()
-    .find((item) => item.role === "user");
+    .find((item) => item.role === 'user');
   if (previousUser?.content) {
     void sendAgentConversationMessage({ content: previousUser.content, drawThisTurn: false });
   }
@@ -799,8 +817,10 @@ function updateAgentAnswer({ key, value }) {
 
 function answerAgentQuestions(message) {
   const content = (message.questions || [])
-    .map((question) => `${question.label}：${String(agentAnswers.value[question.key] || "").trim()}`)
-    .join("\n");
+    .map(
+      (question) => `${question.label}：${String(agentAnswers.value[question.key] || '').trim()}`
+    )
+    .join('\n');
   if (content.trim()) void sendAgentConversationMessage(content);
   agentAnswers.value = {};
 }
@@ -811,11 +831,13 @@ async function handleAgentTaskGroupEvent(event) {
   await refreshQueueOnly();
   await refreshAgentTaskGroups();
   syncAgentTaskGroupPolling();
-  setStatus(`Agent 已创建 ${group.tasks?.length || 0} 个绘图任务`, "ok");
+  setStatus(`Agent 已创建 ${group.tasks?.length || 0} 个绘图任务`, 'ok');
 }
 
 function singleLine(value) {
-  return String(value || "").replace(/\s+/g, " ").trim();
+  return String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 async function refreshAgentTaskGroups({ silent = true } = {}) {
@@ -825,29 +847,31 @@ async function refreshAgentTaskGroups({ silent = true } = {}) {
   if (!sessionId || !groups.length) return;
   agentTaskGroupRefreshInFlight = true;
   try {
-    const updates = await Promise.all(groups.map(async (group) => {
-      try {
-        const tasks = await api.getTaskStatus(group.id, "");
-        const records = Array.isArray(tasks) ? tasks : [];
-        return {
-          id: group.id,
-          status: summarizeTaskGroupStatus(records, group.status),
-          taskIds: records.map((task) => task.id).filter(Boolean),
-          titles: records.map((task) => singleLine(task.prompt)).filter(Boolean),
-        };
-      } catch (error) {
-        return {
-          id: group.id,
-          status: "missing",
-          taskIds: [],
-          titles: [String(error)],
-        };
-      }
-    }));
+    const updates = await Promise.all(
+      groups.map(async (group) => {
+        try {
+          const tasks = await api.getTaskStatus(group.id, '');
+          const records = Array.isArray(tasks) ? tasks : [];
+          return {
+            id: group.id,
+            status: summarizeTaskGroupStatus(records, group.status),
+            taskIds: records.map((task) => task.id).filter(Boolean),
+            titles: records.map((task) => singleLine(task.prompt)).filter(Boolean),
+          };
+        } catch (error) {
+          return {
+            id: group.id,
+            status: 'missing',
+            taskIds: [],
+            titles: [String(error)],
+          };
+        }
+      })
+    );
     if (sessionId !== currentAgentSessionId.value) return;
     applyAgentTaskGroupUpdates(sessionId, updates);
   } catch (error) {
-    if (!silent) setStatus(String(error), "error");
+    if (!silent) setStatus(String(error), 'error');
   } finally {
     agentTaskGroupRefreshInFlight = false;
     syncAgentTaskGroupPolling();
@@ -884,17 +908,17 @@ function applyAgentTaskGroupUpdates(sessionId, updates) {
   });
 }
 
-function summarizeTaskGroupStatus(tasks, fallback = "queued") {
+function summarizeTaskGroupStatus(tasks, fallback = 'queued') {
   const statuses = tasks.map((task) => task.status).filter(Boolean);
-  if (!statuses.length) return fallback || "queued";
-  if (statuses.some((status) => status === "cancelling")) return "cancelling";
-  if (statuses.some((status) => status === "running")) return "running";
-  if (statuses.some((status) => status === "queued")) return "queued";
-  if (statuses.every((status) => status === "completed")) return "completed";
-  if (statuses.some((status) => status === "failed")) return "failed";
-  if (statuses.some((status) => status === "cancelled")) return "cancelled";
-  if (statuses.some((status) => status === "missing")) return "missing";
-  return statuses[0] || fallback || "queued";
+  if (!statuses.length) return fallback || 'queued';
+  if (statuses.some((status) => status === 'cancelling')) return 'cancelling';
+  if (statuses.some((status) => status === 'running')) return 'running';
+  if (statuses.some((status) => status === 'queued')) return 'queued';
+  if (statuses.every((status) => status === 'completed')) return 'completed';
+  if (statuses.some((status) => status === 'failed')) return 'failed';
+  if (statuses.some((status) => status === 'cancelled')) return 'cancelled';
+  if (statuses.some((status) => status === 'missing')) return 'missing';
+  return statuses[0] || fallback || 'queued';
 }
 
 function syncAgentTaskGroupPolling() {
@@ -907,7 +931,7 @@ function syncAgentTaskGroupPolling() {
 }
 
 function isTerminalTaskGroupStatus(status) {
-  return ["completed", "failed", "cancelled", "missing"].includes(status);
+  return ['completed', 'failed', 'cancelled', 'missing'].includes(status);
 }
 
 // 只在队列活跃期间保留兜底轮询，平时由后端事件驱动刷新。
@@ -922,10 +946,9 @@ async function refreshQueueOnly({ silent = true } = {}) {
     applyQueue(snapshot);
     return snapshot;
   } catch (error) {
-    if (!silent) setStatus(String(error), "error");
+    if (!silent) setStatus(String(error), 'error');
     return null;
-  }
-  finally {
+  } finally {
     queueRefreshInFlight = false;
     if (queueRefreshQueued) {
       queueRefreshQueued = false;
@@ -957,9 +980,7 @@ function syncQueuePolling() {
 
 function isQueueActive(snapshot = queue) {
   return Boolean(
-    (snapshot.waiting?.length || 0)
-    || (snapshot.running?.length || 0)
-    || snapshot.workerActive,
+    snapshot.waiting?.length || 0 || snapshot.running?.length || 0 || snapshot.workerActive
   );
 }
 
@@ -978,7 +999,7 @@ function applyQueue(snapshot) {
   queue.running = snapshot.running || [];
   queue.recent = snapshot.recent || [];
   queue.workerActive = Boolean(snapshot.workerActive);
-  queue.updatedAt = snapshot.updatedAt || "";
+  queue.updatedAt = snapshot.updatedAt || '';
   if (snapshot.recent) {
     history.value = snapshot.recent;
   }
@@ -989,12 +1010,12 @@ async function chooseReferenceImages(target, successMessage) {
   try {
     const selected = await openDialog({
       multiple: true,
-      filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "gif"] }],
+      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] }],
     });
     const paths = Array.isArray(selected) ? selected : selected ? [selected] : [];
     await addReferencePaths(target, paths, successMessage);
   } catch (error) {
-    setStatus(String(error), "error");
+    setStatus(String(error), 'error');
   }
 }
 
@@ -1014,10 +1035,10 @@ async function addReferencePathsWithOptions(target, paths, successMessage, optio
         lastError = error;
       }
     }
-    if (added) setStatus(`${successMessage}：${added} 张`, "ok");
-    if (!added && lastError && !options.silentInvalid) setStatus(String(lastError), "error");
+    if (added) setStatus(`${successMessage}：${added} 张`, 'ok');
+    if (!added && lastError && !options.silentInvalid) setStatus(String(lastError), 'error');
   } catch (error) {
-    setStatus(String(error), "error");
+    setStatus(String(error), 'error');
   }
   return added;
 }
@@ -1025,16 +1046,16 @@ async function addReferencePathsWithOptions(target, paths, successMessage, optio
 function handleReferenceDragDrop(event) {
   const payload = event?.payload || {};
   const target = referenceDropTarget(payload.position) || defaultReferenceDropTarget();
-  if (payload.type === "enter" || payload.type === "over") {
+  if (payload.type === 'enter' || payload.type === 'over') {
     setReferenceDragTarget(target);
     return;
   }
-  if (payload.type === "leave") {
+  if (payload.type === 'leave') {
     clearReferenceDragTargets();
     return;
   }
   clearReferenceDragTargets();
-  if (payload.type === "drop" && payload.paths?.length) {
+  if (payload.type === 'drop' && payload.paths?.length) {
     void addDraggedReferencePaths(target, payload.paths);
   }
 }
@@ -1042,18 +1063,20 @@ function handleReferenceDragDrop(event) {
 function handleReferenceDropEvent(event) {
   clearReferenceDragTargets();
   const paths = extractDroppedFilePaths(event?.dataTransfer);
-  if (paths.length) void addDraggedReferencePaths("agent", paths);
+  if (paths.length) void addDraggedReferencePaths('agent', paths);
 }
 
 function handleTemplateDraftDropEvent(event) {
   clearReferenceDragTargets();
   const paths = extractDroppedFilePaths(event?.dataTransfer);
-  if (paths.length) void addDraggedReferencePaths("template-draft", paths);
+  if (paths.length) void addDraggedReferencePaths('template-draft', paths);
 }
 
 function addDraggedReferencePaths(target, paths) {
-  if (target === "template-draft") {
-    return addReferencePathsWithOptions(templateDraftReferences, paths, "已添加模板参考图", { silentInvalid: true });
+  if (target === 'template-draft') {
+    return addReferencePathsWithOptions(templateDraftReferences, paths, '已添加模板参考图', {
+      silentInvalid: true,
+    });
   }
   return addAgentReferencePaths(paths);
 }
@@ -1063,22 +1086,23 @@ function referenceDropTarget(position) {
   const y = Number(position?.y);
   if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
   const scale = window.devicePixelRatio || 1;
-  for (const [left, top] of [[x, y], [x / scale, y / scale]]) {
-    const zone = document
-      .elementFromPoint(left, top)
-      ?.closest("[data-reference-drop-target]");
+  for (const [left, top] of [
+    [x, y],
+    [x / scale, y / scale],
+  ]) {
+    const zone = document.elementFromPoint(left, top)?.closest('[data-reference-drop-target]');
     if (zone?.dataset.referenceDropTarget) return zone.dataset.referenceDropTarget;
   }
-  return "";
+  return '';
 }
 
 function defaultReferenceDropTarget() {
-  if (showTemplateEditor.value && templateEditorMode.value !== "view") return "template-draft";
-  return "agent";
+  if (showTemplateEditor.value && templateEditorMode.value !== 'view') return 'template-draft';
+  return 'agent';
 }
 
 function setReferenceDragTarget(target) {
-  templateDraftDragActive.value = target === "template-draft";
+  templateDraftDragActive.value = target === 'template-draft';
 }
 
 function clearReferenceDragTargets() {
@@ -1098,9 +1122,9 @@ async function pasteReferenceImage(event, target, successMessage) {
   const items = Array.from(clipboardData?.items || []);
   const files = Array.from(clipboardData?.files || []);
   const types = Array.from(clipboardData?.types || []);
-  const hasImage = [...items, ...files].some((item) => item.type?.startsWith("image/"));
-  const hasFilePayload = files.length > 0 || types.includes("Files");
-  const hasText = ["text/plain", "text/uri-list"].some((type) => {
+  const hasImage = [...items, ...files].some((item) => item.type?.startsWith('image/'));
+  const hasFilePayload = files.length > 0 || types.includes('Files');
+  const hasText = ['text/plain', 'text/uri-list'].some((type) => {
     try {
       return Boolean(clipboardData?.getData?.(type)?.trim());
     } catch {
@@ -1116,17 +1140,17 @@ async function pasteClipboardReference(target, successMessage) {
   try {
     const preview = await api.referenceFromClipboard();
     if (!preview) {
-      setStatus("剪贴板中没有可用图片", "error");
+      setStatus('剪贴板中没有可用图片', 'error');
       return false;
     }
     if (!appendReferencePreview(target, preview)) {
-      setStatus("剪贴板图片已经添加", "busy");
+      setStatus('剪贴板图片已经添加', 'busy');
       return false;
     }
-    setStatus(successMessage, "ok");
+    setStatus(successMessage, 'ok');
     return true;
   } catch (error) {
-    setStatus(String(error), "error");
+    setStatus(String(error), 'error');
     return false;
   }
 }
@@ -1161,17 +1185,17 @@ async function restoreReferencePreviews(paths) {
 // 删除历史记录，同时由后端负责把对应输出图移入回收站。
 async function deleteTask(task) {
   const confirmed = await requestConfirmation(
-    "删除历史任务",
-    "确认删除这条生成记录？对应图片会移入系统回收站。",
+    '删除历史任务',
+    '确认删除这条生成记录？对应图片会移入系统回收站。'
   );
   if (!confirmed) return;
   try {
     await api.deleteTask(task.id);
-    setStatus("生成记录已删除", "ok");
+    setStatus('生成记录已删除', 'ok');
     await refreshAll();
     agentLibraryVersion.value += 1;
   } catch (error) {
-    setStatus(String(error), "error");
+    setStatus(String(error), 'error');
   }
 }
 
@@ -1181,9 +1205,9 @@ async function saveApiSettings(nextSettings) {
     const saved = await api.saveSettings(nextSettings);
     settings.value = normalizeSettingsForUi(saved);
     ensureSelectedModels(true);
-    setStatus("API 源已保存", "ok");
+    setStatus('API 源已保存', 'ok');
   } catch (error) {
-    setStatus(String(error), "error");
+    setStatus(String(error), 'error');
   }
 }
 
@@ -1194,12 +1218,12 @@ async function selectApiProvider(kind, providerId) {
     const [item] = providers.splice(index, 1);
     // 默认 API = 同类列表第一项，切换时把它挪到最前。
     const insertAt = providers.findIndex((provider) =>
-      kind === "chat" ? provider.modelType === "chat" : provider.modelType !== "chat",
+      kind === 'chat' ? provider.modelType === 'chat' : provider.modelType !== 'chat'
     );
     providers.splice(insertAt < 0 ? 0 : insertAt, 0, item);
     settings.value.providers = providers;
   }
-  if (kind === "image") {
+  if (kind === 'image') {
     form.providerId = providerId;
     settings.value.activeImageProviderId = providerId;
     settings.value.activeProviderId = providerId;
@@ -1210,9 +1234,9 @@ async function selectApiProvider(kind, providerId) {
   try {
     const saved = await api.saveSettings(deepClone(settings.value));
     settings.value = normalizeSettingsForUi(saved);
-    setStatus("当前 API 已切换", "ok");
+    setStatus('当前 API 已切换', 'ok');
   } catch (error) {
-    setStatus(String(error), "error");
+    setStatus(String(error), 'error');
   }
 }
 
@@ -1220,10 +1244,10 @@ async function selectApiProvider(kind, providerId) {
 async function downloadOutput(output) {
   try {
     const savedPath = await api.downloadOutput(output.path);
-    setStatus(`已保存到下载目录：${fileName(savedPath)}`, "ok");
+    setStatus(`已保存到下载目录：${fileName(savedPath)}`, 'ok');
     await reveal(savedPath);
   } catch (error) {
-    setStatus(String(error), "error");
+    setStatus(String(error), 'error');
   }
 }
 
@@ -1232,7 +1256,7 @@ function newTemplate() {
   Object.assign(templateDraft, emptyTemplate());
   templateDraftReferences.value = [];
   templateDraftEffectImage.value = null;
-  templateEditorMode.value = "new";
+  templateEditorMode.value = 'new';
   showTemplateEditor.value = true;
 }
 
@@ -1242,7 +1266,7 @@ async function viewTemplate(template) {
   const { restored } = await restoreReferencePreviews(template.referencePaths);
   templateDraftReferences.value = restored;
   templateDraftEffectImage.value = await restoreEffectImage(template.effectImagePath);
-  templateEditorMode.value = "view";
+  templateEditorMode.value = 'view';
   showTemplateEditor.value = true;
 }
 
@@ -1252,7 +1276,7 @@ async function editTemplate(template) {
   const { restored } = await restoreReferencePreviews(template.referencePaths);
   templateDraftReferences.value = restored;
   templateDraftEffectImage.value = await restoreEffectImage(template.effectImagePath);
-  templateEditorMode.value = "edit";
+  templateEditorMode.value = 'edit';
   showTemplateEditor.value = true;
 }
 
@@ -1260,32 +1284,32 @@ async function editTemplate(template) {
 async function savePromptTemplate() {
   try {
     templateDraft.referencePaths = templateDraftReferences.value.map((item) => item.path);
-    templateDraft.effectImagePath = templateDraftEffectImage.value?.path || "";
+    templateDraft.effectImagePath = templateDraftEffectImage.value?.path || '';
     templates.value = await api.saveTemplate(deepClone(templateDraft));
     showTemplateEditor.value = false;
-    setStatus("模板已保存", "ok");
+    setStatus('模板已保存', 'ok');
   } catch (error) {
-    setStatus(String(error), "error");
+    setStatus(String(error), 'error');
   }
 }
 
 async function addTemplateDraftReferenceImages() {
-  await chooseReferenceImages(templateDraftReferences, "已添加模板参考图");
+  await chooseReferenceImages(templateDraftReferences, '已添加模板参考图');
 }
 
 async function addTemplateDraftEffectImage() {
   try {
     const selected = await openDialog({
       multiple: false,
-      filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "gif"] }],
+      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] }],
     });
     const path = Array.isArray(selected) ? selected[0] : selected;
     if (!path) return;
     const preview = await api.referenceFromPath(path);
     templateDraftEffectImage.value = { ...preview, previewUrl: preview.dataUrl };
-    setStatus("已添加模板效果图", "ok");
+    setStatus('已添加模板效果图', 'ok');
   } catch (error) {
-    setStatus(String(error), "error");
+    setStatus(String(error), 'error');
   }
 }
 
@@ -1293,36 +1317,36 @@ async function pasteTemplateDraftEffectImage() {
   try {
     const preview = await api.referenceFromClipboard();
     if (!preview) {
-      setStatus("剪贴板中没有可用图片", "error");
+      setStatus('剪贴板中没有可用图片', 'error');
       return;
     }
     templateDraftEffectImage.value = { ...preview, previewUrl: preview.dataUrl };
-    setStatus("已从剪贴板添加模板效果图", "ok");
+    setStatus('已从剪贴板添加模板效果图', 'ok');
   } catch (error) {
-    setStatus(String(error), "error");
+    setStatus(String(error), 'error');
   }
 }
 
 async function handleTemplateDraftPaste(event) {
-  await pasteReferenceImage(event, templateDraftReferences, "已从剪贴板添加模板参考图");
+  await pasteReferenceImage(event, templateDraftReferences, '已从剪贴板添加模板参考图');
 }
 
 // 让用户选择保存位置，并导出包含 Markdown 和参考图资源的模板 ZIP。
 async function exportPromptTemplates() {
   if (!templates.value.length) {
-    setStatus("没有可导出的模板", "error");
+    setStatus('没有可导出的模板', 'error');
     return;
   }
   try {
     const destination = await saveDialog({
-      defaultPath: "ImageForge-templates.zip",
-      filters: [{ name: "ZIP 压缩包", extensions: ["zip"] }],
+      defaultPath: 'ImageForge-templates.zip',
+      filters: [{ name: 'ZIP 压缩包', extensions: ['zip'] }],
     });
     if (!destination) return;
     const savedPath = await api.exportTemplates(destination);
-    setStatus(`模板已导出：${fileName(savedPath)}`, "ok");
+    setStatus(`模板已导出：${fileName(savedPath)}`, 'ok');
   } catch (error) {
-    setStatus(String(error), "error");
+    setStatus(String(error), 'error');
   }
 }
 
@@ -1331,33 +1355,33 @@ async function importPromptTemplates() {
   try {
     const selected = await openDialog({
       multiple: false,
-      filters: [{ name: "Image Forge 模板包", extensions: ["zip"] }],
+      filters: [{ name: 'Image Forge 模板包', extensions: ['zip'] }],
     });
     const archivePath = Array.isArray(selected) ? selected[0] : selected;
     if (!archivePath) return;
     const result = await api.importTemplates(archivePath);
     templates.value = result.templates || [];
     const message = `导入 ${result.importedCount || 0} 个，重复 ${result.skippedCount || 0} 个。`;
-    await showNotice("模板导入结果", message);
-    setStatus(message, "ok");
+    await showNotice('模板导入结果', message);
+    setStatus(message, 'ok');
   } catch (error) {
     const message = String(error);
-    await showNotice("模板导入失败", message);
-    setStatus(message, "error");
+    await showNotice('模板导入失败', message);
+    setStatus(message, 'error');
   }
 }
 
 // 删除模板维护列表中的指定模板。
 async function deletePromptTemplate(id) {
   const confirmed = await requestConfirmation(
-    "删除模板",
-    "确认删除这个模板？未被其它记录引用的参考图会移入系统回收站。",
+    '删除模板',
+    '确认删除这个模板？未被其它记录引用的参考图会移入系统回收站。'
   );
   if (!confirmed) return;
   try {
     templates.value = await api.deleteTemplate(id);
   } catch (error) {
-    setStatus(String(error), "error");
+    setStatus(String(error), 'error');
   }
 }
 
@@ -1366,7 +1390,7 @@ async function movePromptTemplate({ templateId, targetTemplateId }) {
   try {
     templates.value = await api.moveTemplate(templateId, targetTemplateId);
   } catch (error) {
-    setStatus(String(error), "error");
+    setStatus(String(error), 'error');
   }
 }
 
@@ -1385,7 +1409,7 @@ function showTemplateEffect(template) {
   effectViewer.items = [];
   effectViewer.index = 0;
   effectViewer.path = template.effectImagePath;
-  effectViewer.title = `${template.title || "模板"} · 效果图`;
+  effectViewer.title = `${template.title || '模板'} · 效果图`;
   effectViewer.show = true;
 }
 
@@ -1395,8 +1419,8 @@ async function openDesign() {
     aboutInfo.value = await api.aboutInfo();
   } catch {
     aboutInfo.value = {
-      version: "",
-      buildTime: "",
+      version: '',
+      buildTime: '',
     };
   }
 }
@@ -1412,7 +1436,7 @@ async function openRuntimeLogs() {
 
 async function openCleanup() {
   cleanupCandidates.value = [];
-  cleanupError.value = "";
+  cleanupError.value = '';
   cleanupLoading.value = true;
   showCleanupDialog.value = true;
   try {
@@ -1426,24 +1450,24 @@ async function openCleanup() {
 
 function openExportData() {
   showDesignDialog.value = false;
-  dataTransferMode.value = "export";
+  dataTransferMode.value = 'export';
   showDataTransfer.value = true;
 }
 
 function openImportData() {
   showDesignDialog.value = false;
-  dataTransferMode.value = "import";
+  dataTransferMode.value = 'import';
   showDataTransfer.value = true;
 }
 
 async function confirmCleanup() {
   cleanupConfirming.value = true;
-  cleanupError.value = "";
+  cleanupError.value = '';
   try {
     const removed = await api.cleanupDataFiles();
     cleanupCandidates.value = [];
     showCleanupDialog.value = false;
-    setStatus(`已清理 ${removed.length} 个孤岛文件`, "ok");
+    setStatus(`已清理 ${removed.length} 个孤岛文件`, 'ok');
   } catch (error) {
     cleanupError.value = String(error);
   } finally {
@@ -1456,11 +1480,11 @@ async function reveal(path) {
   try {
     await api.revealPath(path);
   } catch (error) {
-    setStatus(String(error), "error");
+    setStatus(String(error), 'error');
   }
 }
 
-function setStatus(message, tone = "idle") {
+function setStatus(message, tone = 'idle') {
   statusText.value = message;
   statusTone.value = tone;
 }
@@ -1481,7 +1505,7 @@ function resolveConfirmation(confirmed) {
   resolve?.(confirmed);
 }
 
-function showNotice(title, message, buttonText = "确认") {
+function showNotice(title, message, buttonText = '确认') {
   return new Promise((resolve) => {
     notice.title = title;
     notice.message = message;
@@ -1499,36 +1523,40 @@ function resolveNotice() {
 }
 
 function modelOptionLabel(provider) {
-  return `${provider.name} · ${provider.imageModel || "未设置模型"}`;
+  return `${provider.name} · ${provider.imageModel || '未设置模型'}`;
 }
 
 function taskTime(task) {
-  return task.createdAt || task.updatedAt || task.completedAt || "";
+  return task.createdAt || task.updatedAt || task.completedAt || '';
 }
 
 // 根据设置、历史成功任务和当前列表，保证模型选择始终可用。
 function ensureSelectedModels(preferSaved = false) {
   if (preferSaved || !imageProviders.value.some((provider) => provider.id === form.providerId)) {
     form.providerId = preferSaved
-      ? (settings.value.activeImageProviderId || settings.value.activeProviderId || imageProviders.value[0]?.id || "")
-      : (lastSuccessfulImageProviderId() || imageProviders.value[0]?.id || "");
+      ? settings.value.activeImageProviderId ||
+        settings.value.activeProviderId ||
+        imageProviders.value[0]?.id ||
+        ''
+      : lastSuccessfulImageProviderId() || imageProviders.value[0]?.id || '';
   }
   if (preferSaved || !chatProviders.value.some((provider) => provider.id === form.chatProviderId)) {
-    form.chatProviderId = settings.value.activeChatProviderId || chatProviders.value[0]?.id || "";
+    form.chatProviderId = settings.value.activeChatProviderId || chatProviders.value[0]?.id || '';
   }
 }
 
 // 从最近成功任务中找回生图模型，作为工作台默认选择。
 function lastSuccessfulImageProviderId() {
   for (const task of [...history.value].reverse()) {
-    if (task.status !== "completed") continue;
-    const provider = imageProviders.value.find((item) => item.id === task.providerId)
-      || imageProviders.value.find((item) =>
-        item.name === task.providerName && item.imageModel === task.model,
-      )
-      || imageProviders.value.find((item) => item.imageModel === task.model);
+    if (task.status !== 'completed') continue;
+    const provider =
+      imageProviders.value.find((item) => item.id === task.providerId) ||
+      imageProviders.value.find(
+        (item) => item.name === task.providerName && item.imageModel === task.model
+      ) ||
+      imageProviders.value.find((item) => item.imageModel === task.model);
     if (provider) return provider.id;
   }
-  return "";
+  return '';
 }
 </script>

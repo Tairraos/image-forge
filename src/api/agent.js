@@ -1,8 +1,8 @@
 // Web 版 Agent 对话引擎，对应桌面版 agent.rs + chat.rs。
 // 支持 OpenAI 兼容的流式 Chat Completions + 工具调用循环。
 
-import * as queue from "./queue.js";
-import * as db from "./db.js";
+import * as queue from './queue.js';
+import * as db from './db.js';
 
 const MAX_TOOL_ROUNDS = 8;
 const AGENT_SCHEMA_VERSION = 1;
@@ -20,56 +20,62 @@ ${context.trim()}`;
 
 const TOOLS = [
   {
-    type: "function",
+    type: 'function',
     function: {
-      name: "create_image_tasks",
-      description: "把已经完整明确的单图或多图计划原子提交到绘画队列。",
+      name: 'create_image_tasks',
+      description: '把已经完整明确的单图或多图计划原子提交到绘画队列。',
       parameters: {
-        type: "object",
+        type: 'object',
         properties: {
           plans: {
-            type: "array",
+            type: 'array',
             minItems: 1,
             maxItems: 12,
             items: {
-              type: "object",
+              type: 'object',
               properties: {
-                title: { type: "string" },
-                prompt: { type: "string" },
-                providerId: { type: "string" },
-                resolution: { enum: ["standard", "2k", "3k", "4k"] },
-                ratio: { type: "string" },
-                quality: { enum: ["auto", "low", "medium", "high"] },
-                promptFidelity: { enum: ["original", "strict", "off"] },
-                referencePolicy: { enum: ["use", "optional", "none"] },
-                referenceIds: { type: "array", items: { type: "string" } },
+                title: { type: 'string' },
+                prompt: { type: 'string' },
+                providerId: { type: 'string' },
+                resolution: { enum: ['standard', '2k', '3k', '4k'] },
+                ratio: { type: 'string' },
+                quality: { enum: ['auto', 'low', 'medium', 'high'] },
+                promptFidelity: { enum: ['original', 'strict', 'off'] },
+                referencePolicy: { enum: ['use', 'optional', 'none'] },
+                referenceIds: { type: 'array', items: { type: 'string' } },
               },
               required: [
-                "title", "prompt", "resolution", "ratio", "quality",
-                "promptFidelity", "referencePolicy", "referenceIds",
+                'title',
+                'prompt',
+                'resolution',
+                'ratio',
+                'quality',
+                'promptFidelity',
+                'referencePolicy',
+                'referenceIds',
               ],
               additionalProperties: false,
             },
           },
         },
-        required: ["plans"],
+        required: ['plans'],
         additionalProperties: false,
       },
     },
   },
   {
-    type: "function",
+    type: 'function',
     function: {
-      name: "get_task_status",
-      description: "只读查询一个任务组或单个绘图任务的当前状态。",
+      name: 'get_task_status',
+      description: '只读查询一个任务组或单个绘图任务的当前状态。',
       parameters: {
-        type: "object",
+        type: 'object',
         properties: {
-          taskGroupId: { type: "string" },
-          taskId: { type: "string" },
+          taskGroupId: { type: 'string' },
+          taskId: { type: 'string' },
         },
         additionalProperties: false,
-        anyOf: [{ required: ["taskGroupId"] }, { required: ["taskId"] }],
+        anyOf: [{ required: ['taskGroupId'] }, { required: ['taskId'] }],
       },
     },
   },
@@ -85,37 +91,41 @@ const TOOLS = [
  * @returns {Promise<{text: string, toolCalls: Array}>}
  */
 async function chatCompletion(provider, messages, onDelta) {
-  const baseUrl = (provider.baseUrl || "").replace(/\/+$/, "");
-  const apiKey = (provider.apiKey || "").trim();
-  const model = provider.imageModel || "gpt-4o";
+  const baseUrl = (provider.baseUrl || '').replace(/\/+$/, '');
+  const apiKey = (provider.apiKey || '').trim();
+  const model = provider.imageModel || 'gpt-4o';
 
   const payload = {
     model,
     messages,
     tools: TOOLS,
-    tool_choice: "auto",
+    tool_choice: 'auto',
     temperature: 0.2,
     stream: true,
   };
 
   const res = await fetch(`${baseUrl}/chat/completions`, {
-    method: "POST",
+    method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-      Accept: "text/event-stream",
-      "Accept-Language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7",
+      'Content-Type': 'application/json',
+      Accept: 'text/event-stream',
+      'Accept-Language': 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7',
     },
     body: JSON.stringify(payload),
   });
 
   if (!res.ok) {
     const body = await res.text();
-    if (res.status === 400 && body.includes("does not support tools")) {
+    if (res.status === 400 && body.includes('does not support tools')) {
       throw new Error(`AGENT_TOOLS_UNSUPPORTED: HTTP ${res.status} ${body}`);
     }
     let msg = body;
-    try { msg = JSON.parse(body).error?.message || body; } catch {}
+    try {
+      msg = JSON.parse(body).error?.message || body;
+    } catch {
+      /* ignore parse error */
+    }
     throw new Error(`Agent 请求失败: HTTP ${res.status} ${msg}`);
   }
 
@@ -126,9 +136,9 @@ async function chatCompletion(provider, messages, onDelta) {
  * 非流式回退：用于不支持 tools 的模型。
  */
 async function chatCompletionNonStream(provider, messages) {
-  const baseUrl = (provider.baseUrl || "").replace(/\/+$/, "");
-  const apiKey = (provider.apiKey || "").trim();
-  const model = provider.imageModel || "gpt-4o";
+  const baseUrl = (provider.baseUrl || '').replace(/\/+$/, '');
+  const apiKey = (provider.apiKey || '').trim();
+  const model = provider.imageModel || 'gpt-4o';
 
   const payload = {
     model,
@@ -138,11 +148,11 @@ async function chatCompletionNonStream(provider, messages) {
   };
 
   const res = await fetch(`${baseUrl}/chat/completions`, {
-    method: "POST",
+    method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-      Accept: "application/json",
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
     },
     body: JSON.stringify(payload),
   });
@@ -150,14 +160,18 @@ async function chatCompletionNonStream(provider, messages) {
   if (!res.ok) {
     const body = await res.text();
     let msg = body;
-    try { msg = JSON.parse(body).error?.message || body; } catch {}
+    try {
+      msg = JSON.parse(body).error?.message || body;
+    } catch {
+      /* ignore parse error */
+    }
     throw new Error(`Agent 请求失败: HTTP ${res.status} ${msg}`);
   }
 
   const json = await res.json();
   const choice = json.choices?.[0] || {};
   return {
-    text: choice.message?.content || "",
+    text: choice.message?.content || '',
     toolCalls: [],
   };
 }
@@ -167,8 +181,8 @@ async function chatCompletionNonStream(provider, messages) {
 async function parseSSEStream(res, onDelta) {
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
-  let buffer = "";
-  let fullText = "";
+  let buffer = '';
+  let fullText = '';
   const toolCallAccum = new Map(); // index -> { id, name, arguments }
 
   while (true) {
@@ -176,14 +190,14 @@ async function parseSSEStream(res, onDelta) {
     if (done) break;
 
     buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() || "";
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
 
     for (const line of lines) {
       const trimmed = line.trim();
-      if (!trimmed || !trimmed.startsWith("data:")) continue;
+      if (!trimmed || !trimmed.startsWith('data:')) continue;
       const data = trimmed.slice(5).trim();
-      if (data === "[DONE]") continue;
+      if (data === '[DONE]') continue;
 
       try {
         const chunk = JSON.parse(data);
@@ -193,7 +207,7 @@ async function parseSSEStream(res, onDelta) {
         // 文本增量
         if (delta.content) {
           fullText += delta.content;
-          onDelta({ phase: "delta", chunk: delta.content });
+          onDelta({ phase: 'delta', chunk: delta.content });
         }
 
         // 工具调用增量
@@ -202,9 +216,9 @@ async function parseSSEStream(res, onDelta) {
           const idx = tc.index ?? 0;
           if (!toolCallAccum.has(idx)) {
             toolCallAccum.set(idx, {
-              id: tc.id || "",
-              name: "",
-              arguments: "",
+              id: tc.id || '',
+              name: '',
+              arguments: '',
             });
           }
           const acc = toolCallAccum.get(idx);
@@ -218,8 +232,7 @@ async function parseSSEStream(res, onDelta) {
     }
   }
 
-  const toolCalls = Array.from(toolCallAccum.values())
-    .filter((tc) => tc.name && tc.arguments);
+  const toolCalls = Array.from(toolCallAccum.values()).filter((tc) => tc.name && tc.arguments);
 
   return { text: fullText, toolCalls };
 }
@@ -238,7 +251,7 @@ async function parseSSEStream(res, onDelta) {
 export async function runAgentTurn(provider, session, content, attachments, onEvent) {
   // 构建上下文
   const context = buildContext(session, attachments);
-  const systemMsg = { role: "system", content: systemPrompt(context) };
+  const systemMsg = { role: 'system', content: systemPrompt(context) };
 
   // 构建消息列表
   const messages = [systemMsg];
@@ -270,7 +283,7 @@ export async function runAgentTurn(provider, session, content, attachments, onEv
           onEvent({ ...event, sessionId: session.id });
         });
       } catch (error) {
-        if (error.message?.startsWith("AGENT_TOOLS_UNSUPPORTED:")) {
+        if (error.message?.startsWith('AGENT_TOOLS_UNSUPPORTED:')) {
           fallbackMode = true;
           continue;
         }
@@ -291,7 +304,7 @@ export async function runAgentTurn(provider, session, content, attachments, onEv
     if (!response.toolCalls.length) {
       return finalizeSession(session, messages, {
         text: response.text,
-        status: "chat",
+        status: 'chat',
         questions: [],
         toolCalls: completedToolCalls,
       });
@@ -299,11 +312,11 @@ export async function runAgentTurn(provider, session, content, attachments, onEv
 
     // 执行工具调用
     const assistantMsg = {
-      role: "assistant",
+      role: 'assistant',
       content: response.text || null,
       tool_calls: response.toolCalls.map((tc) => ({
         id: tc.id,
-        type: "function",
+        type: 'function',
         function: { name: tc.name, arguments: tc.arguments },
       })),
     };
@@ -311,7 +324,7 @@ export async function runAgentTurn(provider, session, content, attachments, onEv
 
     for (const tc of response.toolCalls) {
       onEvent({
-        phase: "tool_start",
+        phase: 'tool_start',
         message: `正在执行 ${tc.name}`,
         toolName: tc.name,
         sessionId: session.id,
@@ -327,7 +340,7 @@ export async function runAgentTurn(provider, session, content, attachments, onEv
       const result = await executeToolCall(tc.name, args, session, attachments);
 
       const toolResult = {
-        role: "tool",
+        role: 'tool',
         tool_call_id: tc.id,
         name: tc.name,
         content: JSON.stringify({ result: result.value, error: result.error }),
@@ -341,30 +354,30 @@ export async function runAgentTurn(provider, session, content, attachments, onEv
         arguments: args,
         result: result.value,
         error: result.error || null,
-        status: result.error ? "failed" : "completed",
+        status: result.error ? 'failed' : 'completed',
         createdAt: new Date().toISOString(),
         completedAt: new Date().toISOString(),
       });
 
       onEvent({
-        phase: "tool_result",
-        message: result.error || "工具执行完成",
+        phase: 'tool_result',
+        message: result.error || '工具执行完成',
         toolName: tc.name,
         sessionId: session.id,
       });
     }
   }
 
-  throw new Error("Agent Tool Call 超过最大循环次数，已停止本轮");
+  throw new Error('Agent Tool Call 超过最大循环次数，已停止本轮');
 }
 
 // ── 工具执行 ──
 
 async function executeToolCall(name, args, session, attachments) {
-  if (name === "create_image_tasks") {
+  if (name === 'create_image_tasks') {
     return executeCreateImageTasks(args, session, attachments);
   }
-  if (name === "get_task_status") {
+  if (name === 'get_task_status') {
     return executeGetTaskStatus(args);
   }
   return { value: null, error: `未知工具: ${name}` };
@@ -373,10 +386,10 @@ async function executeToolCall(name, args, session, attachments) {
 async function executeCreateImageTasks(args, session, attachments) {
   const plans = args.plans || [];
   if (!plans.length || plans.length > 12) {
-    return { value: null, error: "图片计划数量必须在 1 到 12 之间" };
+    return { value: null, error: '图片计划数量必须在 1 到 12 之间' };
   }
 
-  const settings = JSON.parse(localStorage.getItem("if_settings") || "{}");
+  const settings = JSON.parse(localStorage.getItem('if_settings') || '{}');
   const providers = settings.providers || [];
 
   // 构建 attachment id -> path 映射
@@ -395,44 +408,45 @@ async function executeCreateImageTasks(args, session, attachments) {
   const titles = [];
 
   for (const plan of plans) {
-    const policy = ["use", "optional", "none"].includes(plan.referencePolicy)
+    const policy = ['use', 'optional', 'none'].includes(plan.referencePolicy)
       ? plan.referencePolicy
-      : "optional";
+      : 'optional';
 
-    if (policy === "use" && !plan.referenceIds?.length) {
-      return { value: null, error: "referencePolicy=use 时必须指定参考图" };
+    if (policy === 'use' && !plan.referenceIds?.length) {
+      return { value: null, error: 'referencePolicy=use 时必须指定参考图' };
     }
 
     let refPaths = [];
-    if (policy !== "none") {
-      refPaths = (plan.referenceIds || []).map((id) => attachmentMap.get(id) || "").filter(Boolean);
+    if (policy !== 'none') {
+      refPaths = (plan.referenceIds || []).map((id) => attachmentMap.get(id) || '').filter(Boolean);
     }
 
-    const provider = providers.find((p) => p.id === plan.providerId)
-      || providers.find((p) => p.modelType !== "chat")
-      || providers[0];
+    const provider =
+      providers.find((p) => p.id === plan.providerId) ||
+      providers.find((p) => p.modelType !== 'chat') ||
+      providers[0];
 
     if (!provider) {
-      return { value: null, error: "没有可用的生图 API 配置" };
+      return { value: null, error: '没有可用的生图 API 配置' };
     }
 
     const request = {
-      origin: "agent",
+      origin: 'agent',
       agent_session_id: session.id,
       task_group_id: taskGroupId,
-      prompt: plan.prompt || "",
-      model: provider.imageModel || "",
-      ratio: plan.ratio || "1:1",
-      resolution: plan.resolution || "standard",
+      prompt: plan.prompt || '',
+      model: provider.imageModel || '',
+      ratio: plan.ratio || '1:1',
+      resolution: plan.resolution || 'standard',
       count: 1,
-      output_format: "png",
-      quality: plan.quality || "auto",
+      output_format: 'png',
+      quality: plan.quality || 'auto',
       reference_paths: refPaths,
     };
 
     const task = queue.enqueueTask(request, provider);
     taskIds.push(task.id);
-    titles.push(plan.title || "图片");
+    titles.push(plan.title || '图片');
   }
 
   return {
@@ -440,32 +454,30 @@ async function executeCreateImageTasks(args, session, attachments) {
       taskGroupId,
       taskIds,
       titles,
-      status: "queued",
+      status: 'queued',
       message: `已创建 ${taskIds.length} 个绘图任务`,
     },
-    error: "",
+    error: '',
   };
 }
 
 async function executeGetTaskStatus(args) {
-  const taskGroupId = args.taskGroupId || "";
-  const taskId = args.taskId || "";
+  const taskGroupId = args.taskGroupId || '';
+  const taskId = args.taskId || '';
   const all = await db.getAllTasks();
-  const tasks = all.filter(
-    (t) => t.task_group_id === taskGroupId || t.id === taskId
-  );
+  const tasks = all.filter((t) => t.task_group_id === taskGroupId || t.id === taskId);
   return {
     value: {
       tasks: tasks.map((t) => ({
         id: t.id,
         status: t.status,
-        prompt: t.prompt || "",
-        model: t.model || "",
+        prompt: t.prompt || '',
+        model: t.model || '',
         outputs: t.outputs?.length || 0,
       })),
       count: tasks.length,
     },
-    error: "",
+    error: '',
   };
 }
 
@@ -476,7 +488,10 @@ function parseEnvelope(text) {
   if (!body) return null;
   try {
     const env = JSON.parse(body);
-    if (env.schemaVersion && (env.type === "assistant" || env.type === "tool_call" || env.type === "tool_result")) {
+    if (
+      env.schemaVersion &&
+      (env.type === 'assistant' || env.type === 'tool_call' || env.type === 'tool_result')
+    ) {
       return env;
     }
   } catch {
@@ -491,22 +506,22 @@ function looksLikeEnvelope(text) {
 
 function extractJSON(text) {
   // 提取第一个 JSON 对象
-  const start = text.indexOf("{");
+  const start = text.indexOf('{');
   if (start < 0) return null;
   let depth = 0;
   for (let i = start; i < text.length; i++) {
-    if (text[i] === "{") depth++;
-    if (text[i] === "}") depth--;
+    if (text[i] === '{') depth++;
+    if (text[i] === '}') depth--;
     if (depth === 0) return text.slice(start, i + 1);
   }
   return null;
 }
 
 function handleEnvelope(envelope, completedToolCalls) {
-  if (envelope.type === "assistant") {
+  if (envelope.type === 'assistant') {
     return {
-      text: envelope.content || "",
-      status: envelope.status || "chat",
+      text: envelope.content || '',
+      status: envelope.status || 'chat',
       questions: envelope.questions || [],
       toolCalls: completedToolCalls,
     };
@@ -519,77 +534,81 @@ function handleEnvelope(envelope, completedToolCalls) {
 function buildContext(session, attachments) {
   const parts = [];
   parts.push(`会话 ID: ${session.id}`);
-  parts.push(`会话标题: ${session.title || "新对话"}`);
+  parts.push(`会话标题: ${session.title || '新对话'}`);
   const refCount = (attachments || []).length;
   if (refCount) {
-    const refInfo = attachments.map((a) => `  - ${a.id}: ${a.fileName || "图片"} (${a.mimeType || "image/png"})`).join("\n");
+    const refInfo = attachments
+      .map((a) => `  - ${a.id}: ${a.fileName || '图片'} (${a.mimeType || 'image/png'})`)
+      .join('\n');
     parts.push(`当前参考图 (${refCount} 张):\n${refInfo}`);
   }
-  return parts.join("\n");
+  return parts.join('\n');
 }
 
 function buildUserMessage(content, attachments) {
-  const parts = [{ type: "text", text: content }];
+  const parts = [{ type: 'text', text: content }];
   for (const att of attachments || []) {
     if (att.dataUrl) {
       parts.push({
-        type: "image_url",
-        image_url: { url: att.dataUrl, detail: "auto" },
+        type: 'image_url',
+        image_url: { url: att.dataUrl, detail: 'auto' },
       });
     }
   }
   return {
-    role: "user",
+    role: 'user',
     content: parts.length === 1 ? content : parts,
   };
 }
 
 function agentMessageToChat(msg) {
-  if (msg.role === "user") {
+  if (msg.role === 'user') {
     // 用户消息可能包含附件
-    const parts = [{ type: "text", text: msg.content || "" }];
+    const parts = [{ type: 'text', text: msg.content || '' }];
     for (const att of msg.attachments || []) {
       if (att.dataUrl) {
         parts.push({
-          type: "image_url",
-          image_url: { url: att.dataUrl, detail: "auto" },
+          type: 'image_url',
+          image_url: { url: att.dataUrl, detail: 'auto' },
         });
       }
     }
     return {
-      role: "user",
-      content: parts.length === 1 ? (msg.content || "") : parts,
+      role: 'user',
+      content: parts.length === 1 ? msg.content || '' : parts,
     };
   }
 
-  if (msg.role === "assistant") {
-    const result = { role: "assistant", content: msg.content || null };
+  if (msg.role === 'assistant') {
+    const result = { role: 'assistant', content: msg.content || null };
     if (msg.toolCall) {
-      result.tool_calls = [{
-        id: msg.toolCall.id,
-        type: "function",
-        function: {
-          name: msg.toolCall.name,
-          arguments: JSON.stringify(msg.toolCall.arguments),
+      result.tool_calls = [
+        {
+          id: msg.toolCall.id,
+          type: 'function',
+          function: {
+            name: msg.toolCall.name,
+            arguments: JSON.stringify(msg.toolCall.arguments),
+          },
         },
-      }];
+      ];
     }
     return result;
   }
 
-  if (msg.role === "tool" && msg.toolCall) {
+  if (msg.role === 'tool' && msg.toolCall) {
     return {
-      role: "tool",
+      role: 'tool',
       tool_call_id: msg.toolCall.id,
       name: msg.toolCall.name,
       content: JSON.stringify({
         result: msg.toolCall.result || null,
-        error: msg.toolCall.error || "",
+        error: msg.toolCall.error || '',
       }),
     };
   }
 
-  return { role: msg.role || "user", content: msg.content || "" };
+  return { role: msg.role || 'user', content: msg.content || '' };
 }
 
 function finalizeSession(session, messages, result) {
@@ -597,15 +616,18 @@ function finalizeSession(session, messages, result) {
   const now = new Date().toISOString();
   const assistantMsg = {
     id: `web-msg-${Date.now()}`,
-    role: "assistant",
-    content: result.text || "",
+    role: 'assistant',
+    content: result.text || '',
     createdAt: now,
-    taskGroup: result.toolCalls.length > 0 ? {
-      id: result.toolCalls[0]?.result?.taskGroupId || `web-tg-${Date.now()}`,
-      status: "queued",
-      taskIds: result.toolCalls.flatMap((tc) => tc.result?.taskIds || []),
-      titles: result.toolCalls.flatMap((tc) => tc.result?.titles || []),
-    } : null,
+    taskGroup:
+      result.toolCalls.length > 0
+        ? {
+            id: result.toolCalls[0]?.result?.taskGroupId || `web-tg-${Date.now()}`,
+            status: 'queued',
+            taskIds: result.toolCalls.flatMap((tc) => tc.result?.taskIds || []),
+            titles: result.toolCalls.flatMap((tc) => tc.result?.titles || []),
+          }
+        : null,
     toolCall: result.toolCalls.length > 0 ? result.toolCalls[0] : null,
     questions: result.questions || [],
   };
@@ -614,14 +636,14 @@ function finalizeSession(session, messages, result) {
   session.updatedAt = now;
 
   // 保存到 localStorage
-  const sessions = JSON.parse(localStorage.getItem("if_agent_sessions") || "[]");
+  const sessions = JSON.parse(localStorage.getItem('if_agent_sessions') || '[]');
   const idx = sessions.findIndex((s) => s.id === session.id);
   if (idx >= 0) {
     sessions[idx] = session;
   } else {
     sessions.push(session);
   }
-  localStorage.setItem("if_agent_sessions", JSON.stringify(sessions));
+  localStorage.setItem('if_agent_sessions', JSON.stringify(sessions));
 
   return session;
 }

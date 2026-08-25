@@ -11,8 +11,14 @@
   --shadow-soft: 0 12px 30px rgba(73, 54, 130, 0.08);
   color-scheme: light;
   font-family:
-    Nunito, Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
-    "Segoe UI", sans-serif;
+    Nunito,
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
   background: #faf8ff;
   color: var(--text);
   font-synthesis: none;
@@ -115,8 +121,7 @@ body {
   min-height: 0;
   overflow: hidden;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(255, 255, 255, 0) 32%),
-    #faf8ff;
+    linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(255, 255, 255, 0) 32%), #faf8ff;
 }
 
 button,
@@ -151,8 +156,7 @@ button:disabled {
   width: 100vw;
   height: 100vh;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(255, 255, 255, 0) 32%),
-    #faf8ff;
+    linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(255, 255, 255, 0) 32%), #faf8ff;
 }
 
 .lock-screen-card {
@@ -368,16 +372,16 @@ button:disabled {
   font-weight: 800;
 }
 
-.status-pill[data-tone="busy"] {
+.status-pill[data-tone='busy'] {
   color: #8a5424;
 }
 
-.status-pill[data-tone="ok"] {
+.status-pill[data-tone='ok'] {
   color: #4b4f56;
   font-weight: 400;
 }
 
-.status-pill[data-tone="error"] {
+.status-pill[data-tone='error'] {
   color: #9b2c47;
 }
 
@@ -439,7 +443,7 @@ button:disabled {
   inset: 18px 4px;
   border-radius: 999px;
   background: rgba(155, 123, 238, 0.09);
-  content: "";
+  content: '';
   transition:
     background 160ms ease,
     inset 160ms ease;
@@ -640,11 +644,9 @@ button:disabled {
   min-width: 0;
 }
 
-
 .task-stack,
 .history-stack,
 .template-list,
-
 .task-stack {
   align-content: start;
   min-height: 0;
@@ -2153,7 +2155,7 @@ button:disabled {
   border: 1.5px dashed rgba(124, 92, 232, 0.55);
   border-radius: 8px;
   background: rgba(124, 92, 232, 0.1);
-  content: "";
+  content: '';
   pointer-events: none;
 }
 
@@ -2419,18 +2421,17 @@ button:disabled {
   font-size: 12px;
 }
 
-.model-fetch-message[data-tone="ok"] {
+.model-fetch-message[data-tone='ok'] {
   color: #3f7d54;
 }
 
-.model-fetch-message[data-tone="error"] {
+.model-fetch-message[data-tone='error'] {
   color: #b93333;
 }
 
 .drawer-search {
   margin-bottom: 12px;
 }
-
 
 .template-card {
   display: grid;
@@ -2440,7 +2441,6 @@ button:disabled {
   padding: 9px;
   background: #fffdfa;
 }
-
 
 .template-card p {
   display: -webkit-box;
@@ -3089,7 +3089,6 @@ button:disabled {
   box-shadow: var(--shadow-soft);
 }
 
-
 .agent-message-list {
   min-height: 0;
   overflow-x: hidden;
@@ -3121,7 +3120,7 @@ button:disabled {
   padding: 18px clamp(18px, 4vw, 40px) 24px;
 }
 
-.agent-library-content[aria-busy="true"] {
+.agent-library-content[aria-busy='true'] {
   opacity: 0.72;
 }
 
@@ -3201,7 +3200,7 @@ button:disabled {
   margin: 0 auto 18px;
 }
 
-.agent-message[data-role="user"] .agent-message-body {
+.agent-message[data-role='user'] .agent-message-body {
   margin-left: auto;
   max-width: 80%;
   background: var(--primary);
@@ -3232,7 +3231,7 @@ button:disabled {
   opacity: 1;
 }
 
-.agent-message[data-role="user"] .agent-message-role {
+.agent-message[data-role='user'] .agent-message-role {
   justify-content: flex-start;
   flex-direction: row-reverse;
 }
@@ -3342,8 +3341,13 @@ button:disabled {
 }
 
 @keyframes agent-dot-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
 }
 
 .agent-task-group-timer {
@@ -3371,7 +3375,9 @@ button:disabled {
   padding: 0;
   background: #fff;
   cursor: pointer;
-  transition: border-color 160ms ease, box-shadow 160ms ease;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease;
 }
 
 .agent-generated-thumb:hover,
@@ -3769,7 +3775,7 @@ button:disabled {
 }
 
 .library-image-info span + span::before {
-  content: "·";
+  content: '·';
   margin-right: 6px;
   color: var(--line);
 }
@@ -3804,7 +3810,9 @@ button:disabled {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fff;
-  transition: border-color 160ms ease, box-shadow 160ms ease;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease;
 }
 
 .library-image-card:hover,
@@ -3856,7 +3864,9 @@ button:disabled {
   background: rgba(0, 0, 0, 0.65);
   opacity: 0;
   transform: translateY(100%);
-  transition: opacity 180ms ease, transform 180ms ease;
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease;
 }
 
 .library-image-frame:hover .library-image-overlay,
@@ -3902,7 +3912,9 @@ button:disabled {
   background: rgba(255, 255, 255, 0.12);
   color: rgba(255, 255, 255, 0.9);
   cursor: pointer;
-  transition: background 140ms ease, border-color 140ms ease;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease;
 }
 
 .library-image-actions button:hover {
@@ -3930,7 +3942,7 @@ button:disabled {
   padding-top: 28px;
 }
 
-.image-library-content[aria-busy="true"] {
+.image-library-content[aria-busy='true'] {
   opacity: 0.72;
 }
 
@@ -4017,7 +4029,7 @@ button:disabled {
     padding: 16px;
   }
 
-  .agent-message[data-role="user"] .agent-message-body {
+  .agent-message[data-role='user'] .agent-message-body {
     max-width: 100%;
   }
 
@@ -4080,7 +4092,6 @@ button:disabled {
     max-width: calc(100vw - 96px);
   }
 }
-
 
 .api-dialog-footer-actions.paste-shake {
   animation: api-paste-shake 420ms ease;

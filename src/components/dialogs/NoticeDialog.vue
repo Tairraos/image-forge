@@ -27,17 +27,17 @@
 </template>
 
 <script setup>
-import { nextTick, ref, watch } from "vue";
+import { nextTick, ref, watch } from 'vue';
 
-const show = defineModel("show", { type: Boolean, default: false });
+const show = defineModel('show', { type: Boolean, default: false });
 
 defineProps({
-  title: { type: String, default: "提示" },
+  title: { type: String, default: '提示' },
   message: { type: String, required: true },
-  buttonText: { type: String, default: "确认" },
+  buttonText: { type: String, default: '确认' },
 });
 
-const emit = defineEmits(["close"]);
+const emit = defineEmits(['close']);
 const actionButton = ref(null);
 
 watch(show, (visible) => {
@@ -52,6 +52,6 @@ function focusActionButton() {
 
 function close() {
   show.value = false;
-  emit("close");
+  emit('close');
 }
 </script>

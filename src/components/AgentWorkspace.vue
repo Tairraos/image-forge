@@ -7,7 +7,14 @@
           <img :src="logoUrl" alt="Image Forge" />
         </div>
         <nav class="function-bar-nav" aria-label="功能栏">
-          <button type="button" class="function-bar-item" @click="panel = 'chat'; $emit('create')">
+          <button
+            type="button"
+            class="function-bar-item"
+            @click="
+              panel = 'chat';
+              $emit('create');
+            "
+          >
             <AppIcon :raw="newChatIcon" :size="16" />
             <span>新对话</span>
           </button>
@@ -58,7 +65,8 @@
                 v-else
                 class="agent-session-title"
                 @dblclick.stop="startRename(session, 'bar')"
-              >{{ session.title || "新对话" }}</span>
+                >{{ session.title || '新对话' }}</span
+              >
             </div>
             <button
               type="button"
@@ -95,7 +103,8 @@
             :class="{ 'is-empty': !currentSession }"
             data-tauri-drag-region="none"
             @click="currentSession && startRename(currentSession, 'top')"
-          >{{ currentSession ? currentSession.title || "新对话" : "开始新对话" }}</strong>
+            >{{ currentSession ? currentSession.title || '新对话' : '开始新对话' }}</strong
+          >
         </template>
         <strong v-else class="info-area-title">图片库</strong>
       </header>
@@ -148,60 +157,75 @@
 </template>
 
 <script setup>
-import { nextTick, ref } from "vue";
-import { Trash2 } from "@lucide/vue";
-import libraryIcon from "../assets/图片库.svg?raw";
-import newChatIcon from "../assets/新对话.svg?raw";
-import settingsIcon from "../assets/设置.svg?raw";
-import logoUrl from "../assets/title.png";
-import AppIcon from "./snippets/AppIcon.vue";
-import AgentLibraryPanel from "./AgentLibraryPanel.vue";
-import AgentComposer from "./AgentComposer.vue";
-import AgentMessageList from "./AgentMessageList.vue";
+import { nextTick, ref } from 'vue';
+import { Trash2 } from '@lucide/vue';
+import libraryIcon from '../assets/图片库.svg?raw';
+import newChatIcon from '../assets/新对话.svg?raw';
+import settingsIcon from '../assets/设置.svg?raw';
+import logoUrl from '../assets/title.png';
+import AppIcon from './snippets/AppIcon.vue';
+import AgentLibraryPanel from './AgentLibraryPanel.vue';
+import AgentComposer from './AgentComposer.vue';
+import AgentMessageList from './AgentMessageList.vue';
 
 defineProps({
   sessions: { type: Array, default: () => [] },
   currentSession: { type: Object, default: null },
   messages: { type: Array, default: () => [] },
-  providerId: { type: String, default: "" },
-  imageProviderId: { type: String, default: "" },
+  providerId: { type: String, default: '' },
+  imageProviderId: { type: String, default: '' },
   busy: Boolean,
-  streamText: { type: String, default: "" },
+  streamText: { type: String, default: '' },
   attachments: { type: Array, default: () => [] },
-  toolStatusText: { type: String, default: "" },
+  toolStatusText: { type: String, default: '' },
   answers: { type: Object, default: () => ({}) },
   agentLibraryVersion: { type: Number, default: 0 },
-  ratio: { type: String, default: "1:1" },
-  resolution: { type: String, default: "standard" },
-  prefillPrompt: { type: String, default: "" },
+  ratio: { type: String, default: '1:1' },
+  resolution: { type: String, default: 'standard' },
+  prefillPrompt: { type: String, default: '' },
 });
 const emit = defineEmits([
-  "create", "select", "send", "stop", "add-reference", "remove-attachment",
-  "open-task-group", "preview-images", "delete-task", "download-output", "reveal-output",
-  "cancel-task-group", "retry-task-group", "retry", "paste-reference", "drop-reference", "update-answer", "answer-questions",
-  "delete-session",
-  "open-settings",
-  "rename-session",
-  "select-template",
-  "update:ratio",
-  "update:resolution",
-  "reference-to-agent",
-  "add-to-template",
+  'create',
+  'select',
+  'send',
+  'stop',
+  'add-reference',
+  'remove-attachment',
+  'open-task-group',
+  'preview-images',
+  'delete-task',
+  'download-output',
+  'reveal-output',
+  'cancel-task-group',
+  'retry-task-group',
+  'retry',
+  'paste-reference',
+  'drop-reference',
+  'update-answer',
+  'answer-questions',
+  'delete-session',
+  'open-settings',
+  'rename-session',
+  'select-template',
+  'update:ratio',
+  'update:resolution',
+  'reference-to-agent',
+  'add-to-template',
 ]);
 
-const panel = ref("chat");
+const panel = ref('chat');
 const renaming = ref(null);
-const titleDraft = ref("");
+const titleDraft = ref('');
 let renameInputEl = null;
 
 function handleReferenceToAgent(payload) {
-  panel.value = "chat";
-  emit("reference-to-agent", payload);
+  panel.value = 'chat';
+  emit('reference-to-agent', payload);
 }
 
 function selectSession(id) {
-  panel.value = "chat";
-  emit("select", id);
+  panel.value = 'chat';
+  emit('select', id);
 }
 
 function setRenameInput(el) {
@@ -210,7 +234,7 @@ function setRenameInput(el) {
 
 function startRename(session, where) {
   renaming.value = { id: session.id, where };
-  titleDraft.value = session.title || "新对话";
+  titleDraft.value = session.title || '新对话';
   nextTick(() => renameInputEl?.select?.());
 }
 
@@ -220,7 +244,7 @@ function commitRename() {
   renaming.value = null;
   const title = titleDraft.value.trim();
   if (title) {
-    emit("rename-session", { sessionId: target.id, title });
+    emit('rename-session', { sessionId: target.id, title });
   }
 }
 

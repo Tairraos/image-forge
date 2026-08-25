@@ -16,20 +16,20 @@
 </template>
 
 <script setup>
-import { ClipboardPaste } from "@lucide/vue";
-import { h, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
+import { ClipboardPaste } from '@lucide/vue';
+import { h, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 
 const props = defineProps({
   disabled: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(["paste"]);
+const emit = defineEmits(['paste']);
 const show = ref(false);
 const triggerRef = ref(null);
 const options = [
   {
-    label: "粘贴剪贴板图片",
-    key: "paste",
+    label: '粘贴剪贴板图片',
+    key: 'paste',
     icon: () => h(ClipboardPaste, { size: 16 }),
   },
 ];
@@ -46,7 +46,7 @@ function openMenu(event) {
 
 function handleSelect(key) {
   show.value = false;
-  if (key === "paste") emit("paste");
+  if (key === 'paste') emit('paste');
 }
 
 function handleDocumentPointerDown(event) {
@@ -56,22 +56,22 @@ function handleDocumentPointerDown(event) {
     show.value = false;
     return;
   }
-  if (target.closest(".n-dropdown")) return;
+  if (target.closest('.n-dropdown')) return;
   if (triggerRef.value?.contains(target) && event.button !== 0) return;
   show.value = false;
 }
 
 function handleDocumentKeydown(event) {
-  if (event.key === "Escape") show.value = false;
+  if (event.key === 'Escape') show.value = false;
 }
 
 onMounted(() => {
-  document.addEventListener("pointerdown", handleDocumentPointerDown, true);
-  document.addEventListener("keydown", handleDocumentKeydown, true);
+  document.addEventListener('pointerdown', handleDocumentPointerDown, true);
+  document.addEventListener('keydown', handleDocumentKeydown, true);
 });
 
 onBeforeUnmount(() => {
-  document.removeEventListener("pointerdown", handleDocumentPointerDown, true);
-  document.removeEventListener("keydown", handleDocumentKeydown, true);
+  document.removeEventListener('pointerdown', handleDocumentPointerDown, true);
+  document.removeEventListener('keydown', handleDocumentKeydown, true);
 });
 </script>

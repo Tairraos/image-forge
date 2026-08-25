@@ -13,32 +13,43 @@
         <article v-for="task in group.tasks" :key="task.id" class="image-batch">
           <header class="image-batch-head">
             <div class="image-batch-actions">
-              <button type="button" title="删除任务及图片" aria-label="删除任务及图片" @click="$emit('delete-task', task)">
+              <button
+                type="button"
+                title="删除任务及图片"
+                aria-label="删除任务及图片"
+                @click="$emit('delete-task', task)"
+              >
                 <Trash2 :size="16" />
               </button>
             </div>
           </header>
 
           <div class="image-batch-grid">
-            <figure
-              v-for="output in task.outputs"
-              :key="output.path"
-              class="library-image-card"
-            >
+            <figure v-for="output in task.outputs" :key="output.path" class="library-image-card">
               <div class="library-image-info">
                 <time>{{ formatTime(taskTime(task)) }}</time>
-                <span>{{ task.model || task.providerName || "" }}</span>
-                <span>{{ output.size || task.params?.size || "" }}</span>
-                <span v-if="(task.reference_paths || []).length">{{ task.reference_paths.length }} 参考图</span>
+                <span>{{ task.model || task.providerName || '' }}</span>
+                <span>{{ output.size || task.params?.size || '' }}</span>
+                <span v-if="(task.reference_paths || []).length"
+                  >{{ task.reference_paths.length }} 参考图</span
+                >
               </div>
               <div class="library-image-frame">
-                <button type="button" class="library-image-preview" @click="openPreview(output.path)">
-                  <img loading="lazy" :src="fileUrl(output.path)" :alt="output.fileName || task.prompt" />
+                <button
+                  type="button"
+                  class="library-image-preview"
+                  @click="openPreview(output.path)"
+                >
+                  <img
+                    loading="lazy"
+                    :src="fileUrl(output.path)"
+                    :alt="output.fileName || task.prompt"
+                  />
                 </button>
                 <div class="library-image-overlay">
                   <div class="library-image-ref-thumbs">
                     <img
-                      v-for="(refPath, ri) in (task.reference_paths || [])"
+                      v-for="(refPath, ri) in task.reference_paths || []"
                       :key="refPath"
                       :src="fileUrl(refPath)"
                       :alt="`参考图 ${ri + 1}`"
@@ -117,7 +128,9 @@
       <div v-if="!dayGroups.length" class="image-library-empty">
         <Images :size="28" />
         <strong>没有找到图片</strong>
-        <span>{{ searching ? "换个关键词试试" : (months.length ? "这个月还没有图片" : "还没有图片") }}</span>
+        <span>{{
+          searching ? '换个关键词试试' : months.length ? '这个月还没有图片' : '还没有图片'
+        }}</span>
       </div>
     </main>
 
@@ -138,16 +151,33 @@
         trigger="click"
         :disabled="searching"
       >
-        <button class="agent-library-month" type="button" :disabled="searching" aria-label="选择月份">
+        <button
+          class="agent-library-month"
+          type="button"
+          :disabled="searching"
+          aria-label="选择月份"
+        >
           <Calendar :size="15" />
-          <span>{{ searching ? "全部月份" : monthLabel }}</span>
+          <span>{{ searching ? '全部月份' : monthLabel }}</span>
         </button>
       </n-popselect>
       <div class="agent-library-month-nav" role="group" aria-label="切换月份">
-        <button type="button" title="上一月" aria-label="上一月" :disabled="searching || !prevMonth" @click="goMonth(prevMonth)">
+        <button
+          type="button"
+          title="上一月"
+          aria-label="上一月"
+          :disabled="searching || !prevMonth"
+          @click="goMonth(prevMonth)"
+        >
           <ChevronLeft :size="17" />
         </button>
-        <button type="button" title="下一月" aria-label="下一月" :disabled="searching || !nextMonth" @click="goMonth(nextMonth)">
+        <button
+          type="button"
+          title="下一月"
+          aria-label="下一月"
+          :disabled="searching || !nextMonth"
+          @click="goMonth(nextMonth)"
+        >
           <ChevronRight :size="17" />
         </button>
       </div>
@@ -168,9 +198,9 @@ import {
   Link2,
   Search,
   Trash2,
-} from "@lucide/vue";
-import { computed, onUnmounted, ref, watch } from "vue";
-import { fileUrl } from "../lib/formatters";
+} from '@lucide/vue';
+import { computed, onUnmounted, ref, watch } from 'vue';
+import { fileUrl } from '../lib/formatters';
 import {
   dateKey,
   formatDayHeading,
@@ -180,42 +210,57 @@ import {
   monthKey,
   previewItem,
   taskTime,
-} from "../lib/libraryFormat";
-import { invoke } from "../tauri";
-import * as api from "../api/index.js";
+} from '../lib/libraryFormat';
+import { invoke } from '../tauri';
+import * as api from '../api/index.js';
 
 const props = defineProps({
   version: { type: Number, default: 0 },
 });
-const emit = defineEmits(["preview-images", "delete-task", "download-output", "reveal-output", "reference-to-agent", "add-to-template"]);
+const emit = defineEmits([
+  'preview-images',
+  'delete-task',
+  'download-output',
+  'reveal-output',
+  'reference-to-agent',
+  'add-to-template',
+]);
 
 const month = ref(monthKey(new Date()));
-const query = ref("");
+const query = ref('');
 const months = ref([]);
 const tasks = ref([]);
 const loading = ref(false);
 let queryTimer = 0;
 let requestId = 0;
 
-const searching = computed(() => query.value.trim() !== "");
+const searching = computed(() => query.value.trim() !== '');
 const monthLabel = computed(() => formatMonth(month.value));
 const monthOptions = computed(() =>
   months.value.map((item) => ({
     label: `${formatMonth(item.date)}（${item.imageCount} 张）`,
     value: item.date,
-  })),
+  }))
 );
 const prevMonth = computed(() => {
   const current = month.value;
-  return months.value.filter((item) => item.date < current).sort((a, b) => b.date.localeCompare(a.date))[0]?.date || "";
+  return (
+    months.value
+      .filter((item) => item.date < current)
+      .sort((a, b) => b.date.localeCompare(a.date))[0]?.date || ''
+  );
 });
 const nextMonth = computed(() => {
   const current = month.value;
-  return months.value.filter((item) => item.date > current).sort((a, b) => a.date.localeCompare(b.date))[0]?.date || "";
+  return (
+    months.value
+      .filter((item) => item.date > current)
+      .sort((a, b) => a.date.localeCompare(b.date))[0]?.date || ''
+  );
 });
 
 const visibleImages = computed(() =>
-  tasks.value.flatMap((task) => task.outputs.map((output) => previewItem(task, output))),
+  tasks.value.flatMap((task) => task.outputs.map((output) => previewItem(task, output)))
 );
 const dayGroups = computed(() => {
   const groups = new Map();
@@ -253,12 +298,12 @@ function goMonth(value) {
 
 function openPreview(path) {
   const index = visibleImages.value.findIndex((item) => item.path === path);
-  emit("preview-images", { items: visibleImages.value, index: Math.max(0, index) });
+  emit('preview-images', { items: visibleImages.value, index: Math.max(0, index) });
 }
 
 async function copyPrompt(task) {
   try {
-    await navigator.clipboard.writeText(task.prompt || "");
+    await navigator.clipboard.writeText(task.prompt || '');
   } catch {
     // 复制失败静默忽略
   }
