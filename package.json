@@ -1,13 +1,14 @@
 {
   "name": "image-forge",
   "private": true,
-  "version": "1.0.85",
+  "version": "1.0.86",
   "type": "module",
   "packageManager": "pnpm@10.25.0",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "preview": "vite preview --host 127.0.0.1 --port 1421",
     "tauri": "tauri",
     "lint": "eslint .",
@@ -30,6 +31,7 @@
     "@eslint/js": "^10.0.1",
     "@tauri-apps/cli": "^2",
     "@vitejs/plugin-vue": "^6.0.7",
+    "@vitest/coverage-v8": "^4.1.11",
     "@vue/test-utils": "^2.4.11",
     "better-sqlite3": "^13.0.3",
     "eslint": "^10.9.0",
