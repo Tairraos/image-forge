@@ -1646,7 +1646,7 @@ dependencies = [
 
 [[package]]
 name = "image-forge"
-version = "1.0.83"
+version = "1.0.84"
 dependencies = [
  "arboard",
  "base64 0.22.1",
