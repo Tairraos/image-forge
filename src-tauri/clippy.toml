@@ -1,0 +1,4 @@
+# Clippy 配置，可根据项目需要调整
+
+# 允许的认知复杂度上限（默认 25，Tauri 命令较多可适当放宽）
+cognitive-complexity-threshold = 30
