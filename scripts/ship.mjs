@@ -1,14 +1,14 @@
 #!/usr/bin/env node
-// 一键发布：patch → build → cargo check → prerelease
+// 一键发布：verify → patch → build → cargo check → prerelease
 // 用法：pnpm ship <next-version>
-// 示例：pnpm ship 1.0.85
+// 示例：pnpm ship 1.0.88
 
 import { execSync } from 'node:child_process';
 
 const version = process.argv[2];
 if (!version) {
   console.error('用法：pnpm ship <next-version>');
-  console.error('示例：pnpm ship 1.0.85');
+  console.error('示例：pnpm ship 1.0.88');
   process.exit(1);
 }
 
@@ -18,6 +18,7 @@ function run(cmd, label) {
 }
 
 try {
+  run('pnpm verify', '验证（lint + 格式 + 测试 + Rust check）');
   run(`pnpm run patch -- ${version}`, '升级 patch 版本');
   run('pnpm build', '构建前端');
   run('cargo check --manifest-path src-tauri/Cargo.toml', 'Rust 类型检查');
