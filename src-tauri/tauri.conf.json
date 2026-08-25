@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "ImageForge",
-  "version": "1.0.84",
+  "version": "1.0.85",
   "identifier": "com.xiaole.imageforge",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Image Forge 1.0.84",
+        "title": "Image Forge 1.0.85",
         "width": 1360,
         "height": 930,
         "minWidth": 1200,
@@ -26,23 +26,16 @@
       "csp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": [
-          "$HOME/**",
-          "$HOME/.image-forge/**"
-        ]
+        "scope": ["$HOME/**", "$HOME/.image-forge/**"]
       }
     }
   },
   "bundle": {
     "active": true,
-    "targets": [
-      "app"
-    ],
+    "targets": ["app"],
     "macOS": {
       "infoPlist": "Info.plist"
     },
-    "icon": [
-      "icons/icon.png"
-    ]
+    "icon": ["icons/icon.png"]
   }
 }
