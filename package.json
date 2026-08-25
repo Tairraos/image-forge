@@ -1,7 +1,7 @@
 {
   "name": "image-forge",
   "private": true,
-  "version": "1.0.86",
+  "version": "1.0.87",
   "type": "module",
   "packageManager": "pnpm@10.25.0",
   "scripts": {
@@ -16,6 +16,7 @@
     "fmt": "prettier --write .",
     "fmt:check": "prettier --check .",
     "check": "pnpm lint && pnpm test && cargo check --manifest-path src-tauri/Cargo.toml",
+    "verify": "node scripts/verify.mjs",
     "fix": "eslint . --fix && prettier --write .",
     "ship": "node scripts/ship.mjs",
     "patch": "node scripts/patch-version.mjs",

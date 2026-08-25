@@ -11,7 +11,7 @@
 ![Image Forge 运行界面](docs/image-forge-running.png)
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-1.0.86-9B7BEE?style=flat-square">
+  <img alt="version" src="https://img.shields.io/badge/version-1.0.87-9B7BEE?style=flat-square">
   <img alt="platform" src="https://img.shields.io/badge/platform-macOS-111827?style=flat-square">
   <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white">
   <img alt="Vue" src="https://img.shields.io/badge/Vue-3-42B883?style=flat-square&logo=vuedotjs&logoColor=white">
@@ -59,12 +59,8 @@ Image Forge 不是一个把提示词转发给接口的薄壳，而是一套本�
 
 ```text
 ~/.image-forge/
-  settings.json              # API 源、默认模型和工作区设置
-  queue.json                 # waiting / running 队列状态
-  library.sqlite             # 任务、提示词和图片索引
-  prompt-templates.json      # 提示词模板
-  agent/sessions/            # Agent 会话
-  requests/                  # 可重试的原始绘图请求
+  library.sqlite             # 所有结构化数据（7 张 SQLite 表）
+  requests/<task-id>.json    # 可重试的原始绘图请求
   outputs/YYYY/MM/           # 按年月组织的生成图片
   references/                # SHA-256 去重后的参考图
 ```
