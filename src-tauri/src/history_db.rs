@@ -783,9 +783,12 @@ pub(crate) fn upsert_agent_session(data_dir: &Path, session: &str) -> Result<(),
 
 pub(crate) fn delete_agent_session(data_dir: &Path, session_id: &str) -> Result<(), String> {
     let connection = open(data_dir)?;
-    connection
+    let affected = connection
         .execute("DELETE FROM agent_sessions WHERE id = ?1", params![session_id])
         .map_err(db_error)?;
+    if affected == 0 {
+        return Err(format!("找不到 Agent 会话: {session_id}"));
+    }
     Ok(())
 }
 

@@ -3,6 +3,7 @@ use std::path::Path;
 use uuid::Uuid;
 
 use crate::{
+    history_db,
     models::{AgentMessage, AgentSession, AGENT_SCHEMA_VERSION},
     store::{agent_session_path, list_agent_sessions, read_agent_session, write_agent_session},
     utils::{recycle_path, utc_now},
@@ -37,11 +38,14 @@ pub(crate) fn session(data_dir: &Path, session_id: &str) -> Result<AgentSession,
 
 pub(crate) fn delete_session(data_dir: &Path, session_id: &str) -> Result<(), String> {
     validate_session_id(session_id)?;
+    // 会话已迁移到 SQLite，删除以数据库行为准
+    history_db::delete_agent_session(data_dir, session_id)?;
+    // JSON 时代迁移遗留的会话文件已不再被读取，删除会话时一并回收
     let path = agent_session_path(data_dir, session_id);
-    if !path.exists() {
-        return Err("找不到 Agent 会话".into());
+    if path.exists() {
+        recycle_path(&path).map_err(|error| format!("将 Agent 会话移入回收站失败: {error}"))?;
     }
-    recycle_path(&path).map_err(|error| format!("将 Agent 会话移入回收站失败: {error}"))
+    Ok(())
 }
 
 pub(crate) fn append_message(
@@ -261,6 +265,24 @@ mod tests {
 
         let reread = read_agent_session(&data_dir, &session.id).unwrap();
         assert_eq!(reread.status, "interrupted");
+        recycle(&data_dir);
+    }
+
+    #[test]
+    fn delete_session_removes_sqlite_row_and_recycles_legacy_file() {
+        let data_dir = temp_data_dir("delete-session");
+        let session = create_session(&data_dir, "chat-provider").unwrap();
+        // 模拟 JSON 时代迁移遗留的会话文件
+        let legacy_path = agent_session_path(&data_dir, &session.id);
+        std::fs::create_dir_all(legacy_path.parent().unwrap()).unwrap();
+        std::fs::write(&legacy_path, "{}").unwrap();
+
+        delete_session(&data_dir, &session.id).unwrap();
+        assert!(read_agent_session(&data_dir, &session.id).is_err());
+        assert!(!legacy_path.exists());
+
+        let error = delete_session(&data_dir, &session.id).unwrap_err();
+        assert!(error.contains("找不到 Agent 会话"));
         recycle(&data_dir);
     }
 
