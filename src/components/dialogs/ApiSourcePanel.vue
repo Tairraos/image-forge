@@ -155,7 +155,6 @@
 import { computed, reactive, ref, watch } from 'vue';
 import { ArrowDown, ArrowUp, Copy, Trash2 } from '@lucide/vue';
 import ConfirmDialog from './ConfirmDialog.vue';
-import { invoke } from '../../tauri';
 import * as api from '../../api/index.js';
 import {
   createProviderId,

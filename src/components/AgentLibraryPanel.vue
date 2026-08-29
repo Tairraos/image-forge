@@ -211,7 +211,6 @@ import {
   previewItem,
   taskTime,
 } from '../lib/libraryFormat';
-import { invoke } from '../tauri';
 import * as api from '../api/index.js';
 
 const props = defineProps({
@@ -285,7 +284,7 @@ async function load() {
     if (current !== requestId) return;
     tasks.value = result.tasks || [];
     months.value = result.months || [];
-  } catch (error) {
+  } catch {
     if (current === requestId) tasks.value = [];
   } finally {
     if (current === requestId) loading.value = false;

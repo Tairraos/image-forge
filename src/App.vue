@@ -16,8 +16,8 @@
         type="primary"
         size="large"
         :disabled="!lockPassword.trim()"
-        @click="unlock"
         class="lock-screen-btn"
+        @click="unlock"
       >
         解锁
       </n-button>
@@ -177,7 +177,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
 import AgentWorkspace from './components/AgentWorkspace.vue';
 import AppFooterBar from './components/AppFooterBar.vue';
 import AppShell from './components/AppShell.vue';
@@ -201,7 +201,6 @@ import { installAutoHideScrollbars } from './lib/scrollbarVisibility';
 import { DEFAULT_PROMPT_MODE, DEFAULT_RATIO } from './lib/options';
 import { themeOverrides } from './lib/theme';
 import {
-  invoke,
   listenDragDrop,
   listenEvent,
   listenWindowState,
@@ -682,7 +681,7 @@ function removeAgentAttachment(id) {
   agentAttachments.value = agentAttachments.value.filter((item) => item.id !== id);
 }
 
-async function handleLibraryReferenceToAgent({ task, output }) {
+async function handleLibraryReferenceToAgent({ task }) {
   // 添加生成此图时使用的所有参考图
   const refPaths = task.reference_paths || [];
   if (refPaths.length) {
@@ -715,7 +714,7 @@ async function handleLibraryReferenceToAgent({ task, output }) {
   );
 }
 
-async function handleLibraryAddToTemplate({ task, output }) {
+async function handleLibraryAddToTemplate({ task }) {
   Object.assign(templateDraft, emptyTemplate());
   templateDraft.title = '';
   templateDraft.prompt = task.prompt || '';
@@ -1058,12 +1057,6 @@ function handleReferenceDragDrop(event) {
   if (payload.type === 'drop' && payload.paths?.length) {
     void addDraggedReferencePaths(target, payload.paths);
   }
-}
-
-function handleReferenceDropEvent(event) {
-  clearReferenceDragTargets();
-  const paths = extractDroppedFilePaths(event?.dataTransfer);
-  if (paths.length) void addDraggedReferencePaths('agent', paths);
 }
 
 function handleTemplateDraftDropEvent(event) {

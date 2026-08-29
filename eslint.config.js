@@ -69,10 +69,29 @@ export default [
     rules: {
       // 单文件组件允许单名单词（App.vue、main.js 等）
       'vue/multi-word-component-names': 'off',
-      // 未使用变量只警告，不阻断（vibe coding 迭代快，避免卡住）
-      'no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+      // 未使用变量只警告，不阻断（vibe coding 迭代快，避免卡住）；
+      // ignoreRestSiblings：`({ dataUrl, ...attachment })` 这种用 rest 省略字段的写法不算未使用
+      'no-unused-vars': [
+        'warn',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_', ignoreRestSiblings: true },
+      ],
       // 允许 console 输出（脚本和调试用）
       'no-console': 'off',
+    },
+  },
+
+  // v-html 为有意使用的文件：
+  // - AgentMessageList：markdown-it 渲染（html:false，原始 HTML 已转义）
+  // - TemplateEditorDialog：模板高亮（先 escapeHtml 再包 span）
+  // - AppIcon：内部静态 SVG 图标，无外部输入
+  {
+    files: [
+      'src/components/AgentMessageList.vue',
+      'src/components/dialogs/TemplateEditorDialog.vue',
+      'src/components/snippets/AppIcon.vue',
+    ],
+    rules: {
+      'vue/no-v-html': 'off',
     },
   },
 ];

@@ -4,7 +4,7 @@
 import * as db from './db.js';
 import * as queue from './queue.js';
 import * as agent from './agent.js';
-import { uploadImage, downloadImage, deleteImage } from './blob.js';
+import { uploadImage } from './blob.js';
 
 // ── 本地存储键 ──
 const KEYS = {

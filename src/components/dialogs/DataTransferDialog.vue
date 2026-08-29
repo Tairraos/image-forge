@@ -59,7 +59,7 @@
 </template>
 
 <script setup>
-import { inject, ref, watch, computed } from 'vue';
+import { ref, watch, computed } from 'vue';
 import * as api from '../../api/index.js';
 
 const props = defineProps({

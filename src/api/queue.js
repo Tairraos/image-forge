@@ -11,7 +11,6 @@ let waiting = [];
 let running = [];
 let recent = [];
 let workerActive = false;
-let workerPromise = null;
 let cancelSet = new Set(); // 被取消的任务 ID 集合
 
 // 事件回调（供 UI 层监听队列变化）
@@ -95,7 +94,7 @@ export function enqueueBatch(requests, provider) {
 function ensureWorker() {
   if (workerActive || waiting.length === 0) return;
   workerActive = true;
-  workerPromise = runWorker();
+  void runWorker();
 }
 
 async function runWorker() {
@@ -186,7 +185,6 @@ async function runWorker() {
   }
 
   workerActive = false;
-  workerPromise = null;
   notifyChange();
 }
 
