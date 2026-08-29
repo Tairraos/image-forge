@@ -1,0 +1,395 @@
+// agent.spec.js — Web 版 Agent 对话引擎测试（mock fetch，不发真实请求）
+// 覆盖流式解析、工具调用循环、Envelope 降级与非流式回退。
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { AGENT_SCHEMA_VERSION, TOOLS, runAgentTurn } from '../../src/api/agent.js';
+import { enqueueTask } from '../../src/api/queue.js';
+import { getAllTasks } from '../../src/api/db.js';
+
+vi.mock('../../src/api/queue.js', () => ({
+  enqueueTask: vi.fn(() => ({ id: 'task-1' })),
+}));
+
+vi.mock('../../src/api/db.js', () => ({
+  getAllTasks: vi.fn(async () => []),
+}));
+
+const fetchMock = vi.fn();
+const chatProvider = {
+  baseUrl: 'https://chat.example.com/v1',
+  apiKey: 'k',
+  imageModel: 'gpt-test',
+};
+
+function sseResponse(lines) {
+  const encoder = new TextEncoder();
+  return {
+    ok: true,
+    status: 200,
+    body: {
+      getReader() {
+        let index = 0;
+        return {
+          async read() {
+            if (index < lines.length) {
+              const value = lines[index];
+              index += 1;
+              return { done: false, value: encoder.encode(value) };
+            }
+            return { done: true };
+          },
+        };
+      },
+    },
+  };
+}
+
+function textChunk(text) {
+  return `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`;
+}
+
+// 分三段下发工具调用，模拟流式拼接 name / arguments
+function toolCallChunks(id, name, args) {
+  const half = Math.ceil(args.length / 2);
+  return [
+    `data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id, function: { name: name.slice(0, 8) } }] } }] })}\n\n`,
+    `data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, function: { name: name.slice(8), arguments: args.slice(0, half) } }] } }] })}\n\n`,
+    `data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: args.slice(half) } }] } }] })}\n\n`,
+    'data: [DONE]\n\n',
+  ];
+}
+
+function jsonNonStreamResponse(payload) {
+  return { ok: true, status: 200, json: async () => payload };
+}
+
+function newSession(id) {
+  return { id, title: '测试会话', messages: [], status: 'idle', task_group_ids: [] };
+}
+
+// 模拟 localStorage（agent 的会话落库与生图配置读取用）
+function createLocalStorageMock() {
+  let store = {};
+  return {
+    getItem: vi.fn((key) => (key in store ? store[key] : null)),
+    setItem: vi.fn((key, value) => {
+      store[key] = String(value);
+    }),
+    removeItem: vi.fn((key) => {
+      delete store[key];
+    }),
+    clear: vi.fn(() => {
+      store = {};
+    }),
+  };
+}
+
+const localStorageMock = createLocalStorageMock();
+Object.defineProperty(globalThis, 'localStorage', {
+  value: localStorageMock,
+  writable: true,
+});
+
+beforeEach(() => {
+  vi.stubGlobal('fetch', fetchMock);
+  localStorageMock.clear();
+  localStorage.setItem(
+    'if_settings',
+    JSON.stringify({
+      providers: [
+        { id: 'prov-img', name: '生图', modelType: 'image-gpt', imageModel: 'img-model' },
+      ],
+    })
+  );
+  localStorage.setItem('if_agent_sessions', '[]');
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.clearAllMocks();
+});
+
+describe('纯文本回复', () => {
+  it('流式解析文本并写入会话', async () => {
+    fetchMock.mockResolvedValueOnce(
+      sseResponse([textChunk('你好，'), textChunk('需要画什么？'), 'data: [DONE]\n\n'])
+    );
+
+    const events = [];
+    const session = await runAgentTurn(chatProvider, newSession('sess-1'), '你好', [], (e) =>
+      events.push(e)
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://chat.example.com/v1/chat/completions');
+    expect(init.headers.Authorization).toBe('Bearer k');
+    const payload = JSON.parse(init.body);
+    expect(payload.stream).toBe(true);
+    expect(payload.tools.map((t) => t.function.name)).toEqual([
+      'create_image_tasks',
+      'get_task_status',
+    ]);
+    expect(payload.messages.at(-1)).toEqual({ role: 'user', content: '你好' });
+
+    expect(session.messages).toHaveLength(1);
+    expect(session.messages[0]).toMatchObject({
+      role: 'assistant',
+      content: '你好，需要画什么？',
+      taskGroup: null,
+    });
+    expect(events[0]).toMatchObject({ phase: 'delta', chunk: '你好，', sessionId: 'sess-1' });
+  });
+
+  it('带参考图时用户消息包含 image_url part 且上下文列出参考图', async () => {
+    fetchMock.mockResolvedValueOnce(sseResponse([textChunk('收到'), 'data: [DONE]\n\n']));
+    const attachments = [
+      {
+        id: 'att-1',
+        fileName: 'a.png',
+        mimeType: 'image/png',
+        dataUrl: 'data:image/png;base64,AAAA',
+        path: '/tmp/a.png',
+      },
+    ];
+
+    await runAgentTurn(chatProvider, newSession('sess-2'), '看图', attachments, () => {});
+
+    const payload = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(payload.messages[0].content).toContain('当前参考图 (1 张)');
+    const userMsg = payload.messages.at(-1);
+    expect(userMsg.content).toHaveLength(2);
+    expect(userMsg.content[1].image_url.url).toBe('data:image/png;base64,AAAA');
+  });
+});
+
+describe('工具调用循环', () => {
+  it('create_image_tasks 入队任务并在会话中记录任务组', async () => {
+    const plans = [
+      {
+        title: '柴犬',
+        prompt: '一只柴犬',
+        resolution: 'standard',
+        ratio: '1:1',
+        quality: 'high',
+        promptFidelity: 'original',
+        referencePolicy: 'none',
+        referenceIds: [],
+      },
+    ];
+    fetchMock
+      .mockResolvedValueOnce(
+        sseResponse(toolCallChunks('call-1', 'create_image_tasks', JSON.stringify({ plans })))
+      )
+      .mockResolvedValueOnce(sseResponse([textChunk('已创建任务'), 'data: [DONE]\n\n']));
+
+    const events = [];
+    const session = await runAgentTurn(chatProvider, newSession('sess-3'), '画柴犬', [], (e) =>
+      events.push(e)
+    );
+
+    expect(enqueueTask).toHaveBeenCalledTimes(1);
+    const [request, provider] = enqueueTask.mock.calls[0];
+    expect(request).toMatchObject({
+      origin: 'agent',
+      agent_session_id: 'sess-3',
+      prompt: '一只柴犬',
+      model: 'img-model',
+    });
+    expect(request.task_group_id).toMatch(/^web-tg-/);
+    expect(provider.id).toBe('prov-img');
+
+    const lastMsg = session.messages.at(-1);
+    expect(lastMsg.taskGroup).toMatchObject({
+      status: 'queued',
+      taskIds: ['task-1'],
+      titles: ['柴犬'],
+    });
+    expect(lastMsg.toolCall.status).toBe('completed');
+
+    expect(events.filter((e) => e.phase === 'tool_start')).toHaveLength(1);
+    expect(
+      events.filter((e) => e.phase === 'tool_result' && e.message === '工具执行完成')
+    ).toHaveLength(1);
+
+    const saved = JSON.parse(localStorage.getItem('if_agent_sessions'));
+    expect(saved.some((s) => s.id === 'sess-3')).toBe(true);
+  });
+
+  it('referencePolicy=use 缺少参考图时工具报错回传', async () => {
+    const plans = [
+      {
+        title: 'x',
+        prompt: 'p',
+        resolution: 'standard',
+        ratio: '1:1',
+        quality: 'high',
+        promptFidelity: 'original',
+        referencePolicy: 'use',
+        referenceIds: [],
+      },
+    ];
+    fetchMock
+      .mockResolvedValueOnce(
+        sseResponse(toolCallChunks('call-2', 'create_image_tasks', JSON.stringify({ plans })))
+      )
+      .mockResolvedValueOnce(sseResponse([textChunk('好的'), 'data: [DONE]\n\n']));
+
+    const events = [];
+    await runAgentTurn(chatProvider, newSession('sess-4'), '画', [], (e) => events.push(e));
+
+    expect(enqueueTask).not.toHaveBeenCalled();
+    expect(
+      events.some((e) => e.phase === 'tool_result' && e.message.includes('必须指定参考图'))
+    ).toBe(true);
+  });
+
+  it('plans 为空时工具报错回传', async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        sseResponse(toolCallChunks('call-2b', 'create_image_tasks', JSON.stringify({ plans: [] })))
+      )
+      .mockResolvedValueOnce(sseResponse([textChunk('好的'), 'data: [DONE]\n\n']));
+
+    const events = [];
+    await runAgentTurn(chatProvider, newSession('sess-4b'), '画', [], (e) => events.push(e));
+
+    expect(enqueueTask).not.toHaveBeenCalled();
+    expect(events.some((e) => e.message.includes('图片计划数量必须在 1 到 12 之间'))).toBe(true);
+  });
+
+  it('没有可用生图配置时报错回传', async () => {
+    localStorage.setItem('if_settings', JSON.stringify({ providers: [] }));
+    const plans = [
+      {
+        title: 'x',
+        prompt: 'p',
+        resolution: 'standard',
+        ratio: '1:1',
+        quality: 'high',
+        promptFidelity: 'original',
+        referencePolicy: 'none',
+        referenceIds: [],
+      },
+    ];
+    fetchMock
+      .mockResolvedValueOnce(
+        sseResponse(toolCallChunks('call-2c', 'create_image_tasks', JSON.stringify({ plans })))
+      )
+      .mockResolvedValueOnce(sseResponse([textChunk('好的'), 'data: [DONE]\n\n']));
+
+    const events = [];
+    await runAgentTurn(chatProvider, newSession('sess-4c'), '画', [], (e) => events.push(e));
+
+    expect(enqueueTask).not.toHaveBeenCalled();
+    expect(events.some((e) => e.message.includes('没有可用的生图 API 配置'))).toBe(true);
+  });
+
+  it('get_task_status 回传查询结果', async () => {
+    getAllTasks.mockResolvedValueOnce([
+      {
+        id: 't-9',
+        task_group_id: 'tg-9',
+        status: 'completed',
+        prompt: 'p',
+        model: 'm',
+        outputs: [{}],
+      },
+    ]);
+    fetchMock
+      .mockResolvedValueOnce(
+        sseResponse(
+          toolCallChunks('call-3', 'get_task_status', JSON.stringify({ taskGroupId: 'tg-9' }))
+        )
+      )
+      .mockResolvedValueOnce(sseResponse([textChunk('查完'), 'data: [DONE]\n\n']));
+
+    await runAgentTurn(chatProvider, newSession('sess-5'), '查询', [], () => {});
+
+    const secondPayload = JSON.parse(fetchMock.mock.calls[1][1].body);
+    const toolMsg = secondPayload.messages.find((m) => m.role === 'tool');
+    const result = JSON.parse(toolMsg.content).result;
+    expect(result.count).toBe(1);
+    expect(result.tasks[0]).toMatchObject({ id: 't-9', status: 'completed', outputs: 1 });
+  });
+
+  it('超过最大循环次数时抛错停止', async () => {
+    fetchMock.mockImplementation(async () =>
+      sseResponse(toolCallChunks('call-loop', 'get_task_status', JSON.stringify({ taskId: 't' })))
+    );
+
+    await expect(
+      runAgentTurn(chatProvider, newSession('sess-6'), 'loop', [], () => {})
+    ).rejects.toThrow('超过最大循环次数');
+    expect(fetchMock).toHaveBeenCalledTimes(8);
+  });
+});
+
+describe('Envelope 降级与非流式回退', () => {
+  it('识别 needs_input envelope 并记录问题', async () => {
+    const envelope = {
+      schemaVersion: 1,
+      type: 'assistant',
+      status: 'needs_input',
+      content: '需要更多信息',
+      questions: ['主体是什么？'],
+    };
+    fetchMock.mockResolvedValueOnce(
+      sseResponse([
+        `data: ${JSON.stringify({ choices: [{ delta: { content: JSON.stringify(envelope) } }] })}\n\n`,
+        'data: [DONE]\n\n',
+      ])
+    );
+
+    const session = await runAgentTurn(
+      chatProvider,
+      newSession('sess-7'),
+      '画个东西',
+      [],
+      () => {}
+    );
+
+    expect(session.messages.at(-1)).toMatchObject({
+      content: '需要更多信息',
+      questions: ['主体是什么？'],
+    });
+  });
+
+  it('模型不支持 tools 时回退非流式请求', async () => {
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        text: async () => 'model does not support tools',
+      })
+      .mockResolvedValueOnce(
+        jsonNonStreamResponse({ choices: [{ message: { content: '非流式回复' } }] })
+      );
+
+    const session = await runAgentTurn(chatProvider, newSession('sess-8'), 'hi', [], () => {});
+
+    const payload = JSON.parse(fetchMock.mock.calls[1][1].body);
+    expect(payload.stream).toBe(false);
+    expect(payload.tools).toBeUndefined();
+    expect(session.messages.at(-1).content).toBe('非流式回复');
+  });
+
+  it('普通 HTTP 错误直接上抛', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      text: async () => JSON.stringify({ error: { message: '炸了' } }),
+    });
+
+    await expect(
+      runAgentTurn(chatProvider, newSession('sess-9'), 'hi', [], () => {})
+    ).rejects.toThrow('Agent 请求失败: HTTP 500 炸了');
+  });
+});
+
+describe('导出契约', () => {
+  it('schema 版本与工具清单', () => {
+    expect(AGENT_SCHEMA_VERSION).toBe(1);
+    expect(TOOLS.map((t) => t.function.name)).toEqual(['create_image_tasks', 'get_task_status']);
+  });
+});
