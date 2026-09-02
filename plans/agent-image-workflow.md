@@ -10,7 +10,7 @@
 
 ## 当前状态
 
-待接手。前端测试基线 99/99 通过（2026-09-03），工作区 clean，主分支 main，版本 1.0.88。
+已完成（2026-09-03，goal 模式自主执行）。P0 / P1 / P2 全部实现并通过 `pnpm verify`，先后发布 1.0.89（P1 后）与 1.0.90（P2 后）。执行中的补充决策：Web 端历史重建采用「配对注入」而非桌面端的「全量折叠」（两端各自最小改动）；`adapter-web` 预写入会话的当前用户消息会在 `runAgentTurn` 中去重；直接绘画任务标记 `origin=agent-direct`；重画沿用原任务组 id 以便聊天卡片聚合；任务组终态回写含 failed（决策 5 的自然延伸）。
 
 ## 背景与现状事实（已核实，接手前不必重查）
 
@@ -43,26 +43,26 @@
 
 ### P0 稳定性修复（先行，独立提交）
 
-- [ ] **P0-1 桌面端历史重建折叠**：改 `agent_message_to_chat_value`（`commands.rs:384`）——历史消息中 `role=tool` 一律折叠为 assistant 文本：从 tool result JSON 里提取 `taskGroupId`、`tasks[].id/status`、`outputs[].path`、`error`（尽量解析，失败则原文截断 400 字符）；`status=task_group` 消息折叠为「已创建 N 个绘图任务（taskGroupId=…，状态 …）」。保证输出数组中不出现 `role=tool`。
-- [ ] **P0-2 Web 端重建配对**：改 `agentMessageToChat`（`agent.js:564`）——assistant 带 `toolCall` 时，在其后注入配对的 `{role:"tool", tool_call_id, content}`（用 toolCall.result/error 构造，content 截断 400 字符）；`taskGroup`-only 消息折叠为 assistant 文本；`finalizeSession` 落盘全部 toolCalls（不再只留第一个）。
-- [ ] **P0-3 回归测试**：桌面在 `src-tauri/tests/agent_integration.rs` 加「两轮对话」用例（mock provider，第一轮含工具调用，断言第二轮请求体无 `role=tool` 历史消息且含折叠摘要）；Web 在 `tests/api/agent.spec.js` 加对应用例。
-- [ ] P0 完成：`pnpm verify` → 提交（`fix: 修复 Agent 多轮对话历史重建产生孤立 tool 消息`，Web/桌面可拆两个提交）。
+- [x] **P0-1 桌面端历史重建折叠**：改 `agent_message_to_chat_value`（`commands.rs:384`）——历史消息中 `role=tool` 一律折叠为 assistant 文本：从 tool result JSON 里提取 `taskGroupId`、`tasks[].id/status`、`outputs[].path`、`error`（尽量解析，失败则原文截断 400 字符）；`status=task_group` 消息折叠为「已创建 N 个绘图任务（taskGroupId=…，状态 …）」。保证输出数组中不出现 `role=tool`。
+- [x] **P0-2 Web 端重建配对**：改 `agentMessageToChat`（`agent.js:564`）——assistant 带 `toolCall` 时，在其后注入配对的 `{role:"tool", tool_call_id, content}`（用 toolCall.result/error 构造，content 截断 400 字符）；`taskGroup`-only 消息折叠为 assistant 文本；`finalizeSession` 落盘全部 toolCalls（不再只留第一个）。
+- [x] **P0-3 回归测试**：桌面在 `src-tauri/tests/agent_integration.rs` 加「两轮对话」用例（mock provider，第一轮含工具调用，断言第二轮请求体无 `role=tool` 历史消息且含折叠摘要）；Web 在 `tests/api/agent.spec.js` 加对应用例。
+- [x] P0 完成：`pnpm verify` → 提交（`fix: 修复 Agent 多轮对话历史重建产生孤立 tool 消息`，Web/桌面可拆两个提交）。
 
 ### P1 模板闭环（需求核心）
 
-- [ ] **P1-1 `list_templates` 工具**（只读）：`agent_tools.rs` 新增 schema（无参数）；`commands.rs` `execute_agent_tool` 加分支，返回 `{ templates: [{ id, title, preview(内容截断 200 字符), referenceCount }] }`，上限 50 条；`agent.js` 同步注册工具定义与执行分支；envelope 降级协议天然兼容（type=tool_call）。测试：Rust 集成 + `tests/api/agent.spec.js`。
-- [ ] **P1-2 plan 可选 `templateId`**：`agent_tools.rs` schema 与 `validate_tool_arguments` 增加可选 `templateId`（保持 `additionalProperties: false` 语义下放行）；`create_agent_image_tasks_in_data_dir`（`commands.rs:617`）校验模板存在、按关键决策 3 合并模板参考图（走 `references.rs` 哈希去重路径）；`agent_system_prompt`（`commands.rs:339`）注入模板清单（id + 标题 + 一句话说明）与使用指示。测试：合法 templateId / 不存在 / policy=none 忽略模板图。
-- [ ] **P1-3 输入区模板选择器**：`AgentComposer.vue`「模板」按钮改为轻量 popover（标题 + 内容预览 + 参考图缩略），选中后 emit 携带 templateId；`App.vue` 把模板内容填入输入框、模板参考图走现有附件上传路径挂载；不再 `openDesign()`。更新 `tests/components/AgentComposer.spec.js`、`AgentWorkspace.spec.js`。
-- [ ] **P1-4 接通 AI 填充**：`adapter-tauri.js` 新增 `fillPromptTemplate(sessionId, providerId, content, onEvent)`（invoke + 监听 `template-fill` 事件）；`adapter-web.js` 用 chat provider fetch 实现同语义；`index.js` 导出同步（`adapter-consistency.spec.js` 会自动校验）。模板选择器里内容含 `{占位符}` 时显示「AI 填充」按钮，流式回填输入框。测试：adapter 层 mock 用例。
-- [ ] P1 完成：`pnpm verify` → `pnpm ship 1.0.89` → 按任务拆分提交（`feat: Agent 新增 list_templates 工具` 等，Conventional Commits + 中文描述）。
+- [x] **P1-1 `list_templates` 工具**（只读）：`agent_tools.rs` 新增 schema（无参数）；`commands.rs` `execute_agent_tool` 加分支，返回 `{ templates: [{ id, title, preview(内容截断 200 字符), referenceCount }] }`，上限 50 条；`agent.js` 同步注册工具定义与执行分支；envelope 降级协议天然兼容（type=tool_call）。测试：Rust 集成 + `tests/api/agent.spec.js`。
+- [x] **P1-2 plan 可选 `templateId`**：`agent_tools.rs` schema 与 `validate_tool_arguments` 增加可选 `templateId`（保持 `additionalProperties: false` 语义下放行）；`create_agent_image_tasks_in_data_dir`（`commands.rs:617`）校验模板存在、按关键决策 3 合并模板参考图（走 `references.rs` 哈希去重路径）；`agent_system_prompt`（`commands.rs:339`）注入模板清单（id + 标题 + 一句话说明）与使用指示。测试：合法 templateId / 不存在 / policy=none 忽略模板图。
+- [x] **P1-3 输入区模板选择器**：`AgentComposer.vue`「模板」按钮改为轻量 popover（标题 + 内容预览 + 参考图缩略），选中后 emit 携带 templateId；`App.vue` 把模板内容填入输入框、模板参考图走现有附件上传路径挂载；不再 `openDesign()`。更新 `tests/components/AgentComposer.spec.js`、`AgentWorkspace.spec.js`。
+- [x] **P1-4 接通 AI 填充**：`adapter-tauri.js` 新增 `fillPromptTemplate(sessionId, providerId, content, onEvent)`（invoke + 监听 `template-fill` 事件）；`adapter-web.js` 用 chat provider fetch 实现同语义；`index.js` 导出同步（`adapter-consistency.spec.js` 会自动校验）。模板选择器里内容含 `{占位符}` 时显示「AI 填充」按钮，流式回填输入框。测试：adapter 层 mock 用例。
+- [x] P1 完成：`pnpm verify` → `pnpm ship 1.0.89` → 按任务拆分提交（`feat: Agent 新增 list_templates 工具` 等，Conventional Commits + 中文描述）。
 
 ### P2 体验增强（按序独立提交，时间不足可留到下次）
 
-- [ ] **P2-1 任务完成回写会话**：按关键决策 5 追加 `task_result` 消息，并确保 P0 折叠规则覆盖新 status；不改 UI（任务组卡片已原地更新）。
-- [ ] **P2-2 图库按来源筛选**：`src/lib/libraryFormat.js` 扩展来源分组/筛选（agent / 直接绘画 / 全部），`AgentLibraryPanel.vue` 顶部加筛选控件。
-- [ ] **P2-3 重画/变体**：任务组卡片与图库 hover 操作加「再来一张」，用原任务 plan 重新入队（复用 `create_agent_image_tasks` / 直接任务命令，前端拼 plan）。
-- [ ] **P2-4 桌面视觉输入**：按关键决策 6 实现 `chatVision` 设置与 `image_url` 传递，两端行为对齐。
-- [ ] P2 完成：`pnpm verify` → `pnpm ship 1.0.90` → 独立提交。
+- [x] **P2-1 任务完成回写会话**：按关键决策 5 追加 `task_result` 消息，并确保 P0 折叠规则覆盖新 status；不改 UI（任务组卡片已原地更新）。
+- [x] **P2-2 图库按来源筛选**：`src/lib/libraryFormat.js` 扩展来源分组/筛选（agent / 直接绘画 / 全部），`AgentLibraryPanel.vue` 顶部加筛选控件。
+- [x] **P2-3 重画/变体**：任务组卡片与图库 hover 操作加「再来一张」，用原任务 plan 重新入队（复用 `create_agent_image_tasks` / 直接任务命令，前端拼 plan）。
+- [x] **P2-4 桌面视觉输入**：按关键决策 6 实现 `chatVision` 设置与 `image_url` 传递，两端行为对齐。
+- [x] P2 完成：`pnpm verify` → `pnpm ship 1.0.90` → 独立提交。
 
 ## 执行策略（goal 模式）
 
