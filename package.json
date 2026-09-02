@@ -1,7 +1,7 @@
 {
   "name": "image-forge",
   "private": true,
-  "version": "1.0.89",
+  "version": "1.0.90",
   "type": "module",
   "packageManager": "pnpm@10.25.0",
   "scripts": {
