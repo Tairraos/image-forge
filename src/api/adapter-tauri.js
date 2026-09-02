@@ -26,6 +26,8 @@ export const sendAgentMessage = (sessionId, providerId, content, attachments) =>
 export const createAgentDirectImageTask = (sessionId, content, attachments, plan) =>
   invoke('create_agent_direct_image_task', { sessionId, content, attachments, plan });
 export const cancelAgentTurn = (sessionId) => invoke('cancel_agent_turn', { sessionId });
+export const fillPromptTemplate = (sessionId, providerId, template) =>
+  invoke('fill_prompt_template', { sessionId, providerId, template });
 
 // ── 任务组 ──
 export const cancelAgentTaskGroup = (taskGroupId) =>

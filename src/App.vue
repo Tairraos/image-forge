@@ -42,6 +42,8 @@
         :ratio="form.ratio"
         :resolution="form.resolution"
         :prefill-prompt="agentPrefillPrompt"
+        :templates="templates"
+        :template-fill-busy="templateFillBusy"
         @create="createAgentConversation"
         @select="selectAgentConversation"
         @send="sendAgentConversationMessage"
@@ -63,7 +65,8 @@
         @download-output="downloadOutput"
         @reveal-output="reveal($event.path)"
         @open-settings="openDesign"
-        @select-template="selectTemplate"
+        @apply-template="handleApplyTemplate"
+        @fill-template="handleFillTemplate"
         @update:ratio="form.ratio = $event"
         @update:resolution="form.resolution = $event"
         @reference-to-agent="handleLibraryReferenceToAgent"
@@ -239,6 +242,7 @@ const agentStreamText = ref('');
 const agentToolStatus = ref('');
 const agentAnswers = ref({});
 const agentAttachments = ref([]);
+const templateFillBusy = ref(false);
 const agentPrefillPrompt = ref('');
 const settings = ref(defaultSettings());
 const history = ref([]);
@@ -738,8 +742,53 @@ async function handleLibraryAddToTemplate({ task }) {
   setStatus('已添加到模板编辑器', 'ok');
 }
 
-function selectTemplate() {
-  openDesign();
+async function handleApplyTemplate({ template }) {
+  if (!template) return;
+  const refPaths = template.referencePaths || template.reference_paths || [];
+  for (const path of refPaths) {
+    try {
+      const preview = await api.referenceFromPath(path);
+      if (!agentAttachments.value.some((item) => item.path === preview.path)) {
+        agentAttachments.value.push({
+          id: createAgentAttachmentId(),
+          path: preview.path,
+          fileName: preview.fileName,
+          mimeType: preview.mimeType,
+          dataUrl: preview.dataUrl,
+        });
+      }
+    } catch {
+      // 模板参考图加载失败不阻塞插入
+    }
+  }
+  setStatus(
+    `已插入模板「${template.title || '未命名模板'}」${
+      refPaths.length ? `（${refPaths.length} 张参考图）` : ''
+    }`,
+    'ok'
+  );
+}
+
+async function handleFillTemplate({ template }) {
+  const content = String(template?.content || '').trim();
+  if (!content) return;
+  templateFillBusy.value = true;
+  try {
+    const filled = await api.fillPromptTemplate(
+      currentAgentSessionId.value || '',
+      form.chatProviderId,
+      content
+    );
+    agentPrefillPrompt.value = filled;
+    setTimeout(() => {
+      agentPrefillPrompt.value = '';
+    }, 100);
+    setStatus('AI 已填充模板占位符', 'ok');
+  } catch (error) {
+    setStatus(String(error), 'error');
+  } finally {
+    templateFillBusy.value = false;
+  }
 }
 
 function handleAgentProgressEvent(event) {

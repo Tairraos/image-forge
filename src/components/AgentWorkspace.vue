@@ -141,13 +141,16 @@
           :ratio="ratio"
           :resolution="resolution"
           :prefill-prompt="prefillPrompt"
+          :templates="templates"
+          :template-fill-busy="templateFillBusy"
           @send="$emit('send', $event)"
           @stop="$emit('stop')"
           @add-reference="$emit('add-reference')"
           @paste-reference="$emit('paste-reference', $event)"
           @drop-reference="$emit('drop-reference', $event)"
           @remove-attachment="$emit('remove-attachment', $event)"
-          @select-template="$emit('select-template')"
+          @apply-template="$emit('apply-template', $event)"
+          @fill-template="$emit('fill-template', $event)"
           @update:ratio="$emit('update:ratio', $event)"
           @update:resolution="$emit('update:resolution', $event)"
         />
@@ -183,6 +186,8 @@ defineProps({
   ratio: { type: String, default: '1:1' },
   resolution: { type: String, default: 'standard' },
   prefillPrompt: { type: String, default: '' },
+  templates: { type: Array, default: () => [] },
+  templateFillBusy: Boolean,
 });
 const emit = defineEmits([
   'create',
@@ -206,7 +211,8 @@ const emit = defineEmits([
   'delete-session',
   'open-settings',
   'rename-session',
-  'select-template',
+  'apply-template',
+  'fill-template',
   'update:ratio',
   'update:resolution',
   'reference-to-agent',

@@ -280,6 +280,53 @@ export async function cancelAgentTurn() {
   // Web 版可通过 AbortController 实现，当前占位
 }
 
+// 与桌面 chat.rs 的 TEMPLATE_SYSTEM_PROMPT 保持一致
+const TEMPLATE_FILL_SYSTEM_PROMPT =
+  '你是提示词模板填充助手。用户会提供一个包含若干 {占位描述} 的生图提示词模板。请根据花括号里的描述语义，把每一处花括号连同里面的描述替换为具体、自然、适合生图的中文内容。不要保留花括号，不要改变花括号外的其它文字，不要输出解释、Markdown 或代码块，只输出填充后的完整文本。';
+
+export async function fillPromptTemplate(sessionId, providerId, template) {
+  void sessionId;
+  const content = String(template || '').trim();
+  if (!content) throw new Error('模板内容不能为空');
+  const settings = readJSON(KEYS.settings) || { providers: [] };
+  const provider =
+    (settings.providers || []).find((p) => p.id === providerId && p.modelType === 'chat') ||
+    (settings.providers || []).find((p) => p.modelType === 'chat');
+  if (!provider) throw new Error('请选择可用的对话模型');
+  if (!(provider.apiKey || '').trim()) {
+    throw new Error(`对话模型「${provider.name}」还没有填写 API Key`);
+  }
+  const baseUrl = (provider.baseUrl || '').replace(/\/+$/, '');
+  const res = await fetch(`${baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${(provider.apiKey || '').trim()}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({
+      model: provider.imageModel || 'gpt-4o',
+      temperature: 0.2,
+      stream: false,
+      messages: [
+        { role: 'system', content: TEMPLATE_FILL_SYSTEM_PROMPT },
+        { role: 'user', content },
+      ],
+    }),
+  });
+  if (!res.ok) {
+    let msg = await res.text();
+    try {
+      msg = JSON.parse(msg).error?.message || msg;
+    } catch {
+      /* ignore parse error */
+    }
+    throw new Error(`模板填充失败: HTTP ${res.status} ${msg}`);
+  }
+  const json = await res.json();
+  return json.choices?.[0]?.message?.content?.trim() || '';
+}
+
 export async function cancelAgentTaskGroup(taskGroupId) {
   queue.cancelTaskGroup(taskGroupId);
 }

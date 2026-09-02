@@ -48,4 +48,61 @@ describe('AgentComposer', () => {
     await wrapper.setProps({ busy: true });
     expect(wrapper.text()).toContain('停止');
   });
+
+  it('模板选择器：插入模板内容并上报 apply-template', async () => {
+    const wrapper = mount(AgentComposer, {
+      props: {
+        providerId: 'chat',
+        imageProviderId: 'image',
+        templates: [
+          { id: 'tpl-1', title: '电影海报', content: '一张{主题}的电影海报', referencePaths: [] },
+        ],
+      },
+    });
+    const picker = wrapper.findAll('.template-picker-item');
+    expect(picker).toHaveLength(1);
+    await picker[0].findAll('button')[0].trigger('click');
+    expect(wrapper.emitted('apply-template')).toEqual([
+      [
+        {
+          template: {
+            id: 'tpl-1',
+            title: '电影海报',
+            content: '一张{主题}的电影海报',
+            referencePaths: [],
+          },
+        },
+      ],
+    ]);
+    expect(wrapper.get('textarea').element.value).toBe('一张{主题}的电影海报');
+  });
+
+  it('再次插入模板时追加而不是覆盖，占位符模板展示 AI 填充按钮', async () => {
+    const wrapper = mount(AgentComposer, {
+      props: {
+        providerId: 'chat',
+        imageProviderId: 'image',
+        templates: [
+          { id: 'tpl-1', title: '海报', content: '海报模板{主题}', referencePaths: [] },
+          { id: 'tpl-2', title: '无占位', content: '纯文本模板', referencePaths: [] },
+        ],
+      },
+    });
+    const items = wrapper.findAll('.template-picker-item');
+    expect(items[1].findAll('button').some((b) => b.text().includes('AI 填充'))).toBe(false);
+    const fillButtons = items[0].findAll('button');
+    expect(fillButtons.some((b) => b.text().includes('AI 填充'))).toBe(true);
+
+    await wrapper.get('textarea').setValue('已有内容');
+    await items[0].findAll('button')[0].trigger('click');
+    expect(wrapper.get('textarea').element.value).toBe('已有内容\n\n海报模板{主题}');
+
+    await items[0]
+      .findAll('button')
+      .find((b) => b.text().includes('AI 填充'))
+      .trigger('click');
+    expect(wrapper.emitted('fill-template')).toEqual([
+      [{ template: { id: 'tpl-1', title: '海报', content: '海报模板{主题}', referencePaths: [] } }],
+    ]);
+  });
 });

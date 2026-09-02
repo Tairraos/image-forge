@@ -2888,6 +2888,83 @@ button:disabled {
   cursor: not-allowed;
 }
 
+.template-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 320px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.template-picker-empty {
+  padding: 8px 4px;
+  font-size: 12px;
+  color: var(--text-tertiary, #999);
+}
+
+.template-picker-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.template-picker-main {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+
+.template-picker-main strong {
+  font-size: 12px;
+}
+
+.template-picker-main span {
+  font-size: 12px;
+  color: var(--text-secondary, #666);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-all;
+}
+
+.template-picker-actions {
+  display: inline-flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.template-picker-actions button {
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    color 160ms ease;
+}
+
+.template-picker-actions button:hover:not(:disabled) {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.template-picker-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .agent-param-group {
   display: inline-flex;
   align-items: center;

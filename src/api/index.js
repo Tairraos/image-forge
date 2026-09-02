@@ -18,6 +18,7 @@ export const {
   sendAgentMessage,
   createAgentDirectImageTask,
   cancelAgentTurn,
+  fillPromptTemplate,
   cancelAgentTaskGroup,
   retryAgentTaskGroup,
   getTaskStatus,

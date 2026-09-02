@@ -44,15 +44,36 @@
           <ImagePlus :size="15" />
           <span>参考图</span>
         </button>
-        <button
-          type="button"
-          class="agent-toolbar-btn"
-          :disabled="busy"
-          @click="$emit('select-template')"
-        >
-          <LayoutTemplate :size="15" />
-          <span>模板</span>
-        </button>
+        <n-popover trigger="click" placement="top-start" :show-arrow="false">
+          <template #trigger>
+            <button type="button" class="agent-toolbar-btn" :disabled="busy">
+              <LayoutTemplate :size="15" />
+              <span>模板</span>
+            </button>
+          </template>
+          <div class="template-picker">
+            <div v-if="!templates.length" class="template-picker-empty">
+              还没有模板；在设计面板的模板库里创建后即可在这里调用。
+            </div>
+            <div v-for="template in templates" :key="template.id" class="template-picker-item">
+              <div class="template-picker-main">
+                <strong>{{ template.title || '未命名模板' }}</strong>
+                <span>{{ template.content }}</span>
+              </div>
+              <div class="template-picker-actions">
+                <button type="button" @click.stop="insertTemplate(template)">插入</button>
+                <button
+                  v-if="hasPlaceholders(template.content)"
+                  type="button"
+                  :disabled="templateFillBusy"
+                  @click.stop="$emit('fill-template', { template })"
+                >
+                  {{ templateFillBusy ? '填充中…' : 'AI 填充' }}
+                </button>
+              </div>
+            </div>
+          </div>
+        </n-popover>
 
         <div class="agent-param-group">
           <span class="agent-param-label">比例</span>
@@ -149,6 +170,8 @@ const props = defineProps({
   ratio: { type: String, default: '1:1' },
   resolution: { type: String, default: 'standard' },
   prefillPrompt: { type: String, default: '' },
+  templates: { type: Array, default: () => [] },
+  templateFillBusy: Boolean,
 });
 
 const emit = defineEmits([
@@ -158,7 +181,8 @@ const emit = defineEmits([
   'paste-reference',
   'drop-reference',
   'remove-attachment',
-  'select-template',
+  'apply-template',
+  'fill-template',
   'update:ratio',
   'update:resolution',
 ]);
@@ -192,6 +216,19 @@ function send() {
   emit('send', { content, drawThisTurn: drawThisTurn.value });
   draft.value = '';
   drawThisTurn.value = false;
+}
+
+function hasPlaceholders(content) {
+  const text = String(content || '');
+  const start = text.indexOf('{');
+  return start >= 0 && text.indexOf('}', start + 1) > start;
+}
+
+function insertTemplate(template) {
+  const content = String(template?.content || '').trim();
+  if (!content) return;
+  draft.value = draft.value.trim() ? `${draft.value.trimEnd()}\n\n${content}` : content;
+  emit('apply-template', { template });
 }
 
 function handleKeydown(event) {
