@@ -284,7 +284,36 @@ fn open(data_dir: &Path) -> Result<Connection, String> {
     if schema_version < 2 {
         migrate_json_to_sqlite(data_dir, &connection)?;
     }
+    backfill_library_dates(&connection)?;
     Ok(connection)
+}
+
+/// 老版本写入的任务可能留下空的 library_date，图库按月过滤会漏掉它们；
+/// 每次打开库时按 completed_at / created_at 回填一次，幂等。
+fn backfill_library_dates(connection: &Connection) -> Result<(), String> {
+    let pending = {
+        let mut statement = connection
+            .prepare("SELECT id, record_json FROM tasks WHERE library_date = ''")
+            .map_err(db_error)?;
+        let rows = statement
+            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+            .map_err(db_error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(db_error)?;
+        rows
+    };
+    for (id, record_json) in pending {
+        let Ok(record) = serde_json::from_str::<TaskRecord>(&record_json) else {
+            continue;
+        };
+        connection
+            .execute(
+                "UPDATE tasks SET library_date = ?2 WHERE id = ?1 AND library_date = ''",
+                params![id, library_date(&record)],
+            )
+            .map_err(db_error)?;
+    }
+    Ok(())
 }
 
 fn initialize_schema(connection: &Connection) -> Result<(), String> {
@@ -949,6 +978,58 @@ mod tests {
         let no_match = agent_library(&root, "2026-07", "不存在的关键词").unwrap();
         assert!(no_match.tasks.is_empty());
         assert_eq!(no_match.total_images, 0);
+        let _ = trash::delete(&root);
+    }
+
+    #[test]
+    fn agent_library_backfills_empty_library_dates_on_open() {
+        let root = root("sqlite-library-backfill");
+        initialize(&root, &root.join("outputs")).unwrap();
+        let mut record = fallback_failed_record("task-backfill", "placeholder");
+        record.status = "completed".into();
+        record.prompt = "写一首诗的插图".into();
+        record.created_at = "2026-09-01T04:00:00+00:00".into();
+        record.completed_at = Some(record.created_at.clone());
+        record.outputs.push(crate::models::OutputImage {
+            path: root
+                .join("outputs/2026/09/backfill.png")
+                .to_string_lossy()
+                .into_owned(),
+            file_name: "backfill.png".into(),
+            mime_type: "image/png".into(),
+            output_format: "png".into(),
+            size: "1024x1024".into(),
+            background: String::new(),
+            quality: String::new(),
+            revised_prompt: String::new(),
+            usage: serde_json::Value::Null,
+        });
+        upsert(&root, &record).unwrap();
+        let expected_month = library_date(&record)[..7].to_string();
+
+        // 模拟老版本写入的空 library_date
+        {
+            let connection = Connection::open(root.join(DATABASE_FILE)).unwrap();
+            connection
+                .execute("UPDATE tasks SET library_date = ''", [])
+                .unwrap();
+        }
+
+        // 重新打开库时自动回填，按月能查到
+        let page = agent_library(&root, &expected_month, "").unwrap();
+        assert_eq!(page.tasks.len(), 1);
+        assert_eq!(page.tasks[0].id, "task-backfill");
+        assert_eq!(page.total_images, 1);
+
+        let connection = Connection::open(root.join(DATABASE_FILE)).unwrap();
+        let library_date: String = connection
+            .query_row(
+                "SELECT library_date FROM tasks WHERE id = 'task-backfill'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(!library_date.is_empty());
         let _ = trash::delete(&root);
     }
 
