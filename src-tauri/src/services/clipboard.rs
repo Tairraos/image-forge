@@ -17,7 +17,6 @@ use crate::{
     store::ensure_data_dir,
 };
 
-
 pub(crate) fn read_clipboard_text() -> Result<String, String> {
     let mut clipboard = Clipboard::new().map_err(|error| format!("打开剪贴板失败: {error}"))?;
     clipboard

@@ -231,9 +231,8 @@ pub(crate) fn agent_library(
         })
         .map_err(db_error)?;
 
-    let tasks_sql = format!(
-        "SELECT record_json FROM tasks WHERE {where_clause} ORDER BY created_at DESC"
-    );
+    let tasks_sql =
+        format!("SELECT record_json FROM tasks WHERE {where_clause} ORDER BY created_at DESC");
     let mut task_statement = connection.prepare(&tasks_sql).map_err(db_error)?;
     let tasks = task_statement
         .query_map(params_from_iter(values.iter()), |row| {
@@ -243,7 +242,8 @@ pub(crate) fn agent_library(
         .map(|value| value.map_err(db_error).and_then(parse_record))
         .collect::<Result<Vec<_>, _>>()?;
 
-    let months_sql = "SELECT substr(tasks.library_date, 1, 7) AS month, COUNT(output.path) AS image_count
+    let months_sql =
+        "SELECT substr(tasks.library_date, 1, 7) AS month, COUNT(output.path) AS image_count
         FROM tasks JOIN task_outputs output ON output.task_id = tasks.id
         WHERE tasks.status = 'completed'
           AND EXISTS (SELECT 1 FROM task_outputs present WHERE present.task_id = tasks.id)
@@ -575,8 +575,7 @@ fn migrate_json_to_sqlite(data_dir: &Path, connection: &Connection) -> Result<()
     if templates_path.is_file() {
         let text = fs::read_to_string(&templates_path)
             .map_err(|e| format!("读取 prompt-templates.json 失败: {e}"))?;
-        let templates: Vec<serde_json::Value> =
-            serde_json::from_str(&text).unwrap_or_default();
+        let templates: Vec<serde_json::Value> = serde_json::from_str(&text).unwrap_or_default();
         let now = chrono::Local::now().to_rfc3339();
         for (i, tpl) in templates.iter().enumerate() {
             let id = tpl["id"].as_str().unwrap_or("").to_string();
@@ -596,8 +595,8 @@ fn migrate_json_to_sqlite(data_dir: &Path, connection: &Connection) -> Result<()
     let sessions_dir = data_dir.join("agent").join("sessions");
     let now = chrono::Local::now().to_rfc3339();
     if sessions_dir.is_dir() {
-        for entry in fs::read_dir(&sessions_dir)
-            .map_err(|e| format!("读取 Agent 会话目录失败: {e}"))?
+        for entry in
+            fs::read_dir(&sessions_dir).map_err(|e| format!("读取 Agent 会话目录失败: {e}"))?
         {
             let entry = entry.map_err(|e| format!("读取 Agent 会话失败: {e}"))?;
             let path = entry.path();
@@ -606,8 +605,7 @@ fn migrate_json_to_sqlite(data_dir: &Path, connection: &Connection) -> Result<()
             }
             let text = fs::read_to_string(&path)
                 .map_err(|e| format!("读取 {} 失败: {e}", path.display()))?;
-            let session: serde_json::Value =
-                serde_json::from_str(&text).unwrap_or_default();
+            let session: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
             let id = session["id"].as_str().unwrap_or("").to_string();
             if id.is_empty() {
                 continue;
@@ -632,8 +630,8 @@ fn migrate_json_to_sqlite(data_dir: &Path, connection: &Connection) -> Result<()
     // 迁移 queue.json
     let queue_path = data_dir.join("queue.json");
     if queue_path.is_file() {
-        let text = fs::read_to_string(&queue_path)
-            .map_err(|e| format!("读取 queue.json 失败: {e}"))?;
+        let text =
+            fs::read_to_string(&queue_path).map_err(|e| format!("读取 queue.json 失败: {e}"))?;
         let queue: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
         let waiting = queue["waiting"].as_array().cloned().unwrap_or_default();
         let running = queue["running"].as_array().cloned().unwrap_or_default();
@@ -678,7 +676,10 @@ pub(crate) fn read_settings(data_dir: &Path) -> Result<Option<String>, String> {
         .prepare("SELECT value FROM app_settings WHERE key = 'settings'")
         .map_err(db_error)?;
     let mut rows = stmt.query([]).map_err(db_error)?;
-    Ok(rows.next().map_err(db_error)?.map(|row| row.get::<_, String>(0).unwrap_or_default()))
+    Ok(rows
+        .next()
+        .map_err(db_error)?
+        .map(|row| row.get::<_, String>(0).unwrap_or_default()))
 }
 
 pub(crate) fn write_settings(data_dir: &Path, json: &str) -> Result<(), String> {
@@ -717,8 +718,7 @@ pub(crate) fn write_templates(data_dir: &Path, records: &[String]) -> Result<(),
         .map_err(db_error)?;
     let now = chrono::Local::now().to_rfc3339();
     for (i, json) in records.iter().enumerate() {
-        let tpl: serde_json::Value =
-            serde_json::from_str(json).unwrap_or_default();
+        let tpl: serde_json::Value = serde_json::from_str(json).unwrap_or_default();
         let id = tpl["id"].as_str().unwrap_or("").to_string();
         if id.is_empty() {
             continue;
@@ -750,7 +750,10 @@ pub(crate) fn read_agent_sessions(data_dir: &Path) -> Result<Vec<String>, String
     Ok(sessions)
 }
 
-pub(crate) fn read_agent_session(data_dir: &Path, session_id: &str) -> Result<Option<String>, String> {
+pub(crate) fn read_agent_session(
+    data_dir: &Path,
+    session_id: &str,
+) -> Result<Option<String>, String> {
     let connection = open(data_dir)?;
     let mut stmt = connection
         .prepare("SELECT record_json FROM agent_sessions WHERE id = ?1")
@@ -784,7 +787,10 @@ pub(crate) fn upsert_agent_session(data_dir: &Path, session: &str) -> Result<(),
 pub(crate) fn delete_agent_session(data_dir: &Path, session_id: &str) -> Result<(), String> {
     let connection = open(data_dir)?;
     let affected = connection
-        .execute("DELETE FROM agent_sessions WHERE id = ?1", params![session_id])
+        .execute(
+            "DELETE FROM agent_sessions WHERE id = ?1",
+            params![session_id],
+        )
         .map_err(db_error)?;
     if affected == 0 {
         return Err(format!("找不到 Agent 会话: {session_id}"));

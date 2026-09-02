@@ -85,23 +85,23 @@ pub(crate) fn output_dir_for(data_dir: &Path, settings: &Settings) -> Result<Pat
 pub(crate) fn read_settings(data_dir: &Path) -> Result<Settings, String> {
     let raw = history_db::read_settings(data_dir)?;
     let settings: Settings = match raw {
-        Some(json) => serde_json::from_str(&json)
-            .map_err(|e| format!("解析设置 JSON 失败: {e}"))?,
+        Some(json) => {
+            serde_json::from_str(&json).map_err(|e| format!("解析设置 JSON 失败: {e}"))?
+        }
         None => Settings::default(),
     };
     let original = serde_json::to_value(&settings).ok();
     let normalized = normalize_settings(settings);
     if original != serde_json::to_value(&normalized).ok() {
-        let json = serde_json::to_string(&normalized)
-            .map_err(|e| format!("序列化设置失败: {e}"))?;
+        let json =
+            serde_json::to_string(&normalized).map_err(|e| format!("序列化设置失败: {e}"))?;
         history_db::write_settings(data_dir, &json)?;
     }
     Ok(normalized)
 }
 
 pub(crate) fn write_settings(data_dir: &Path, settings: &Settings) -> Result<(), String> {
-    let json = serde_json::to_string(settings)
-        .map_err(|e| format!("序列化设置失败: {e}"))?;
+    let json = serde_json::to_string(settings).map_err(|e| format!("序列化设置失败: {e}"))?;
     history_db::write_settings(data_dir, &json)
 }
 
@@ -372,9 +372,9 @@ pub(crate) fn read_queue(data_dir: &Path) -> Result<QueueState, String> {
                 let id = item["id"].as_str().unwrap_or("").to_string();
                 match status {
                     "running" => {
-                        let record: serde_json::Value = serde_json::from_str(
-                            item["record"].as_str().unwrap_or("{}"),
-                        ).unwrap_or_default();
+                        let record: serde_json::Value =
+                            serde_json::from_str(item["record"].as_str().unwrap_or("{}"))
+                                .unwrap_or_default();
                         running.push(QueueRun {
                             task_id: id,
                             provider_id: item["provider_id"].as_str().unwrap_or("").to_string(),
@@ -756,7 +756,10 @@ pub(crate) fn read_templates(data_dir: &Path) -> Result<Vec<PromptTemplate>, Str
     Ok(templates)
 }
 
-pub(crate) fn write_templates_to_db(data_dir: &Path, templates: &[PromptTemplate]) -> Result<(), String> {
+pub(crate) fn write_templates_to_db(
+    data_dir: &Path,
+    templates: &[PromptTemplate],
+) -> Result<(), String> {
     let jsons: Vec<String> = templates
         .iter()
         .filter_map(|t| serde_json::to_string(t).ok())
@@ -973,8 +976,7 @@ pub(crate) fn read_agent_session(
 ) -> Result<crate::models::AgentSession, String> {
     let raw = history_db::read_agent_session(data_dir, session_id)?;
     match raw {
-        Some(json) => serde_json::from_str(&json)
-            .map_err(|e| format!("解析 Agent 会话失败: {e}")),
+        Some(json) => serde_json::from_str(&json).map_err(|e| format!("解析 Agent 会话失败: {e}")),
         None => Err(format!("找不到 Agent 会话: {session_id}")),
     }
 }
@@ -983,8 +985,7 @@ pub(crate) fn write_agent_session(
     data_dir: &Path,
     session: &crate::models::AgentSession,
 ) -> Result<(), String> {
-    let json = serde_json::to_string(session)
-        .map_err(|e| format!("序列化 Agent 会话失败: {e}"))?;
+    let json = serde_json::to_string(session).map_err(|e| format!("序列化 Agent 会话失败: {e}"))?;
     history_db::upsert_agent_session(data_dir, &json)
 }
 
@@ -994,9 +995,7 @@ pub(crate) fn list_agent_sessions(
     let jsons = history_db::read_agent_sessions(data_dir)?;
     jsons
         .iter()
-        .map(|json| {
-            serde_json::from_str(json).map_err(|e| format!("解析 Agent 会话失败: {e}"))
-        })
+        .map(|json| serde_json::from_str(json).map_err(|e| format!("解析 Agent 会话失败: {e}")))
         .collect()
 }
 
@@ -1031,9 +1030,7 @@ fn normalize_provider(provider: ApiProvider, index: usize) -> ApiProvider {
 pub(crate) fn normalize_model_type(value: &str, model: &str, base_url: &str) -> String {
     match value.trim() {
         "chat" => "chat".into(),
-        "image-gpt" | "image-gemini" | "image-grok" => {
-            value.into()
-        }
+        "image-gpt" | "image-gemini" | "image-grok" => value.into(),
         _ => recommend_image_model_type(model, base_url),
     }
 }

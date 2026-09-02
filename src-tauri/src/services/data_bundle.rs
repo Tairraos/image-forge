@@ -98,10 +98,7 @@ fn collect_file_paths(
 }
 
 /// 导出数据：按分类打包 ZIP，文件去重。
-pub(crate) fn export_data_bundle(
-    data_dir: &Path,
-    categories: &[String],
-) -> Result<String, String> {
+pub(crate) fn export_data_bundle(data_dir: &Path, categories: &[String]) -> Result<String, String> {
     let export: bool = categories.contains(&"settings".to_string());
     let export_templates = categories.contains(&"templates".to_string());
     let export_sessions = categories.contains(&"sessions".to_string());
@@ -142,10 +139,7 @@ pub(crate) fn export_data_bundle(
             Err(_) => continue,
         };
         let hash = hex::encode(Sha256::digest(&bytes));
-        let ext = src
-            .extension()
-            .and_then(|v| v.to_str())
-            .unwrap_or("png");
+        let ext = src.extension().and_then(|v| v.to_str()).unwrap_or("png");
         let archive_name = format!("files/{}.{}", &hash[..16], ext);
         if archive_paths.insert(archive_name.clone()) {
             file_map.insert(src.to_string_lossy().to_string(), (archive_name, bytes));
@@ -192,10 +186,7 @@ pub(crate) fn export_data_bundle(
 }
 
 /// 导入数据从 ZIP
-pub(crate) fn import_data_bundle(
-    data_dir: &Path,
-    file_path: &str,
-) -> Result<ImportResult, String> {
+pub(crate) fn import_data_bundle(data_dir: &Path, file_path: &str) -> Result<ImportResult, String> {
     let path = PathBuf::from(file_path);
     let file = File::open(&path).map_err(|e| format!("打开 ZIP 失败: {e}"))?;
     let metadata = file
@@ -220,8 +211,8 @@ pub(crate) fn import_data_bundle(
             .map_err(|e| format!("读取 manifest 失败: {e}"))?;
         buf
     };
-    let manifest: BundleManifest = serde_json::from_slice(&manifest_bytes)
-        .map_err(|e| format!("解析 manifest 失败: {e}"))?;
+    let manifest: BundleManifest =
+        serde_json::from_slice(&manifest_bytes).map_err(|e| format!("解析 manifest 失败: {e}"))?;
     if manifest.format != BUNDLE_FORMAT {
         return Err(format!("不支持的格式: {}", manifest.format));
     }
