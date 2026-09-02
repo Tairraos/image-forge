@@ -23,6 +23,7 @@ use crate::{
             append_message, create_session, delete_session, prepare_context, recover_sessions,
             rename_session, save_session, session,
         },
+        agent_tools::{TOOL_CREATE_IMAGE_TASKS, TOOL_GET_TASK_STATUS},
         chat::fill_template_response,
         images::reference_preview,
         provider_bundle::{export_providers_json, read_providers_json},
@@ -381,28 +382,29 @@ fn agent_chat_provider(
     Ok(provider.clone())
 }
 
-fn agent_message_to_chat_value(message: &AgentMessage) -> serde_json::Value {
-    if let Some(call) = &message.tool_call {
-        if message.role == "tool" {
-            return serde_json::json!({
-                "role": "tool",
-                "tool_call_id": call.id,
-                "name": call.name,
-                "content": message.content,
-            });
-        }
+pub(crate) fn agent_message_to_chat_value(message: &AgentMessage) -> serde_json::Value {
+    // 历史里的 tool / task_group 消息没有可配对的 assistant tool_calls（中间消息不落盘），
+    // 原样转换会产生孤立 role=tool 消息，严格的 OpenAI 兼容端点会拒绝；统一折叠为 assistant 文本。
+    if message.role == "tool" {
         return serde_json::json!({
             "role": "assistant",
-            "content": if message.content.trim().is_empty() { serde_json::Value::Null } else { serde_json::Value::String(message.content.clone()) },
-            "tool_calls": [{
-                "id": call.id,
-                "type": "function",
-                "function": {
-                    "name": call.name,
-                    "arguments": serde_json::to_string(&call.arguments).unwrap_or_else(|_| "{}".into()),
-                }
-            }]
+            "content": fold_tool_message_text(message),
         });
+    }
+    if message.role == "assistant" && message.tool_call.is_some() {
+        // 跨端同步可能带来带 tool_call 的 assistant 消息；其结果消息已被折叠，去掉 tool_calls 保证配对合法
+        let call_name = message
+            .tool_call
+            .as_ref()
+            .map(|call| call.name.clone())
+            .unwrap_or_default();
+        let mut content = message.content.clone();
+        if content.trim().is_empty() {
+            content = format!("（已调用工具 {call_name}）");
+        } else {
+            content.push_str(&format!("\n\n（已调用工具 {call_name}）"));
+        }
+        return serde_json::json!({ "role": "assistant", "content": content });
     }
     let attachment_metadata = message
         .attachments
@@ -437,6 +439,111 @@ fn agent_message_to_chat_value(message: &AgentMessage) -> serde_json::Value {
         "role": message.role,
         "content": content,
     })
+}
+
+const FOLD_TEXT_LIMIT: usize = 400;
+
+fn fold_tool_message_text(message: &AgentMessage) -> String {
+    if let Some(group) = &message.task_group {
+        return format!(
+            "已创建 {} 个绘图任务（taskGroupId={}，当前状态：{}）",
+            group.task_ids.len(),
+            group.id,
+            group.status
+        );
+    }
+    let Some(call) = message.tool_call.as_ref() else {
+        return limit_fold_text(&message.content);
+    };
+    let name = call.name.as_str();
+    if let Some(error) = call.error.as_deref().filter(|error| !error.trim().is_empty()) {
+        return format!("工具 {name} 执行失败：{}", limit_fold_text(error));
+    }
+    let Some(result) = call.result.as_ref() else {
+        return format!("工具 {name} 执行完成");
+    };
+    if name == TOOL_CREATE_IMAGE_TASKS {
+        if let Some(text) = fold_task_group_result(result) {
+            return text;
+        }
+    }
+    if name == TOOL_GET_TASK_STATUS {
+        if let Some(text) = fold_task_status_result(result) {
+            return text;
+        }
+    }
+    format!(
+        "工具 {name} 执行结果：{}",
+        limit_fold_text(result.to_string().as_str())
+    )
+}
+
+fn fold_task_group_result(result: &serde_json::Value) -> Option<String> {
+    let group_id = result.get("id")?.as_str()?;
+    let tasks = result.get("tasks")?.as_array()?;
+    let mut lines = vec![format!(
+        "已创建绘图任务组 taskGroupId={group_id}（{} 张）",
+        tasks.len()
+    )];
+    for task in tasks {
+        lines.push(task_status_line(task));
+    }
+    Some(lines.join("\n"))
+}
+
+fn fold_task_status_result(result: &serde_json::Value) -> Option<String> {
+    let group_id = result
+        .get("taskGroupId")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("");
+    let tasks = result.get("tasks")?.as_array()?;
+    let mut lines = vec![format!("绘图任务状态查询结果（taskGroupId={group_id}）：")];
+    for task in tasks {
+        lines.push(task_status_line(task));
+    }
+    Some(lines.join("\n"))
+}
+
+fn task_status_line(task: &serde_json::Value) -> String {
+    let id = task
+        .get("id")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("未知任务");
+    let status = task
+        .get("status")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("unknown");
+    let title = task
+        .pointer("/agentPlan/title")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("图片");
+    let mut line = format!("- 「{title}」任务 {id} 状态 {status}");
+    let paths = task
+        .get("outputs")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|output| {
+            output
+                .get("path")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+        })
+        .collect::<Vec<_>>();
+    if !paths.is_empty() {
+        line.push_str(&format!("，输出：{}", paths.join("、")));
+    }
+    line
+}
+
+fn limit_fold_text(text: &str) -> String {
+    let compact = text.trim();
+    if compact.chars().count() <= FOLD_TEXT_LIMIT {
+        return compact.to_string();
+    }
+    let mut truncated: String = compact.chars().take(FOLD_TEXT_LIMIT).collect();
+    truncated.push_str("…");
+    truncated
 }
 
 async fn execute_agent_tool(
@@ -1745,6 +1852,7 @@ fn unique_download_path(downloads_dir: &Path, file_name: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::{AgentTaskGroupSummary, AgentToolCall, AGENT_SCHEMA_VERSION};
 
     #[test]
     fn imported_templates_skip_duplicates_and_continue_numeric_ids() {
@@ -1960,6 +2068,175 @@ mod tests {
         assert!(content.contains("\"fileName\":\"reference.png\""));
         assert!(content.contains("\"mimeType\":\"image/png\""));
         assert!(!content.contains("/Users/xiaole/secret/reference.png"));
+    }
+
+    #[test]
+    fn agent_history_rebuild_folds_tool_and_task_group_messages_into_assistant_text() {
+        let messages = vec![
+            AgentMessage {
+                id: "m-user".into(),
+                role: "user".into(),
+                status: "user".into(),
+                content: "画一张电影感的柴犬".into(),
+                attachments: Vec::new(),
+                tool_call: None,
+                questions: Vec::new(),
+                task_group: None,
+                error: String::new(),
+                created_at: utc_now(),
+            },
+            AgentMessage {
+                id: "m-tool".into(),
+                role: "tool".into(),
+                status: "tool".into(),
+                content: r#"{"result":{"id":"group-1","tasks":[{"id":"task-1","status":"completed","agentPlan":{"title":"柴犬海报"},"outputs":[{"path":"/outputs/a.png"}]}]},"error":""}"#.into(),
+                attachments: Vec::new(),
+                tool_call: Some(AgentToolCall {
+                    schema_version: AGENT_SCHEMA_VERSION,
+                    id: "call-1".into(),
+                    name: TOOL_CREATE_IMAGE_TASKS.into(),
+                    arguments: serde_json::json!({ "plans": [] }),
+                    result: Some(serde_json::json!({
+                        "id": "group-1",
+                        "tasks": [{
+                            "id": "task-1",
+                            "status": "completed",
+                            "agentPlan": { "title": "柴犬海报" },
+                            "outputs": [{ "path": "/outputs/a.png" }]
+                        }]
+                    })),
+                    error: None,
+                    status: "completed".into(),
+                    created_at: utc_now(),
+                    completed_at: Some(utc_now()),
+                }),
+                questions: Vec::new(),
+                task_group: None,
+                error: String::new(),
+                created_at: utc_now(),
+            },
+            AgentMessage {
+                id: "m-group".into(),
+                role: "tool".into(),
+                status: "task_group".into(),
+                content: "已创建 1 个绘图任务".into(),
+                attachments: Vec::new(),
+                tool_call: None,
+                questions: Vec::new(),
+                task_group: Some(AgentTaskGroupSummary {
+                    schema_version: AGENT_SCHEMA_VERSION,
+                    id: "group-1".into(),
+                    task_ids: vec!["task-1".into()],
+                    titles: vec!["柴犬海报".into()],
+                    prompt_summaries: Vec::new(),
+                    status: "completed".into(),
+                }),
+                error: String::new(),
+                created_at: utc_now(),
+            },
+            AgentMessage {
+                id: "m-final".into(),
+                role: "assistant".into(),
+                status: "chat".into(),
+                content: "图已经生成好了".into(),
+                attachments: Vec::new(),
+                tool_call: None,
+                questions: Vec::new(),
+                task_group: None,
+                error: String::new(),
+                created_at: utc_now(),
+            },
+            AgentMessage {
+                id: "m-assistant-call".into(),
+                role: "assistant".into(),
+                status: "chat".into(),
+                content: String::new(),
+                attachments: Vec::new(),
+                tool_call: Some(AgentToolCall {
+                    schema_version: AGENT_SCHEMA_VERSION,
+                    id: "call-2".into(),
+                    name: "get_task_status".into(),
+                    arguments: serde_json::json!({ "taskGroupId": "group-1" }),
+                    result: None,
+                    error: None,
+                    status: "completed".into(),
+                    created_at: utc_now(),
+                    completed_at: Some(utc_now()),
+                }),
+                questions: Vec::new(),
+                task_group: None,
+                error: String::new(),
+                created_at: utc_now(),
+            },
+        ];
+
+        let rebuilt = messages
+            .iter()
+            .map(agent_message_to_chat_value)
+            .collect::<Vec<_>>();
+        assert!(rebuilt
+            .iter()
+            .all(|value| value.get("role").and_then(serde_json::Value::as_str) != Some("tool")));
+        assert!(rebuilt.iter().all(|value| value.get("tool_calls").is_none()));
+
+        let tool_fold = rebuilt[1].get("content").and_then(serde_json::Value::as_str).unwrap();
+        assert!(tool_fold.contains("taskGroupId=group-1"));
+        assert!(tool_fold.contains("状态 completed"));
+        assert!(tool_fold.contains("/outputs/a.png"));
+
+        let group_fold = rebuilt[2].get("content").and_then(serde_json::Value::as_str).unwrap();
+        assert!(group_fold.contains("已创建 1 个绘图任务"));
+        assert!(group_fold.contains("completed"));
+
+        assert_eq!(
+            rebuilt[3]
+                .get("content")
+                .and_then(serde_json::Value::as_str)
+                .unwrap(),
+            "图已经生成好了"
+        );
+        assert!(rebuilt[4]
+            .get("content")
+            .and_then(serde_json::Value::as_str)
+            .unwrap()
+            .contains("已调用工具 get_task_status"));
+    }
+
+    #[test]
+    fn agent_history_rebuild_folds_failed_tool_result_and_truncates_long_payload() {
+        let long_payload = "很长的结果".repeat(300);
+        let message = AgentMessage {
+            id: "m-tool-failed".into(),
+            role: "tool".into(),
+            status: "tool".into(),
+            content: String::new(),
+            attachments: Vec::new(),
+            tool_call: Some(AgentToolCall {
+                schema_version: AGENT_SCHEMA_VERSION,
+                id: "call-3".into(),
+                name: "get_task_status".into(),
+                arguments: serde_json::json!({ "taskId": "task-9" }),
+                result: Some(serde_json::Value::String(long_payload)),
+                error: Some("找不到任务或任务组".into()),
+                status: "failed".into(),
+                created_at: utc_now(),
+                completed_at: Some(utc_now()),
+            }),
+            questions: Vec::new(),
+            task_group: None,
+            error: String::new(),
+            created_at: utc_now(),
+        };
+
+        let value = agent_message_to_chat_value(&message);
+        assert_eq!(
+            value.get("role").and_then(serde_json::Value::as_str),
+            Some("assistant")
+        );
+        let content = value.get("content").and_then(serde_json::Value::as_str).unwrap();
+        assert!(content.contains("工具 get_task_status 执行失败"));
+        assert!(content.contains("找不到任务或任务组"));
+        assert!(content.chars().count() <= FOLD_TEXT_LIMIT + 40);
     }
 
     #[test]

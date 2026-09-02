@@ -1,8 +1,8 @@
 use std::{fs, path::PathBuf};
 
 use image_forge_lib::integration_checks::{
-    verify_cancellation_recovery, verify_network_failure, verify_reference_cleanup_scan,
-    verify_session_and_task_group_recovery, verify_tool_call_loop,
+    verify_cancellation_recovery, verify_multi_turn_context_rebuild, verify_network_failure,
+    verify_reference_cleanup_scan, verify_session_and_task_group_recovery, verify_tool_call_loop,
 };
 use uuid::Uuid;
 
@@ -31,6 +31,11 @@ fn session_and_task_group_recover_across_persistence_boundary() {
 #[test]
 fn tool_call_loop_parses_call_and_followup_response() {
     verify_tool_call_loop().unwrap();
+}
+
+#[test]
+fn multi_turn_rebuild_produces_valid_openai_messages() {
+    verify_multi_turn_context_rebuild().unwrap();
 }
 
 #[test]

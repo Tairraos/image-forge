@@ -86,6 +86,109 @@ pub fn verify_tool_call_loop() -> Result<(), String> {
     Ok(())
 }
 
+/// 第一轮工具调用落盘后，第二轮重建上下文不得产生孤立 role=tool 消息，
+/// 否则严格的 OpenAI 兼容端点会直接拒绝请求。
+pub fn verify_multi_turn_context_rebuild() -> Result<(), String> {
+    let messages = vec![
+        crate::models::AgentMessage {
+            id: "msg-user".into(),
+            role: "user".into(),
+            status: "user".into(),
+            content: "画两张猫".into(),
+            attachments: Vec::new(),
+            tool_call: None,
+            questions: Vec::new(),
+            task_group: None,
+            error: String::new(),
+            created_at: utc_now(),
+        },
+        crate::models::AgentMessage {
+            id: "msg-tool".into(),
+            role: "tool".into(),
+            status: "tool".into(),
+            content: String::new(),
+            attachments: Vec::new(),
+            tool_call: Some(crate::models::AgentToolCall {
+                schema_version: crate::models::AGENT_SCHEMA_VERSION,
+                id: "call-9".into(),
+                name: "create_image_tasks".into(),
+                arguments: serde_json::json!({ "plans": [] }),
+                result: Some(serde_json::json!({
+                    "id": "group-2",
+                    "tasks": [
+                        { "id": "task-a", "status": "queued", "agentPlan": { "title": "橘猫" } },
+                        { "id": "task-b", "status": "queued", "agentPlan": { "title": "黑猫" } }
+                    ]
+                })),
+                error: None,
+                status: "completed".into(),
+                created_at: utc_now(),
+                completed_at: Some(utc_now()),
+            }),
+            questions: Vec::new(),
+            task_group: None,
+            error: String::new(),
+            created_at: utc_now(),
+        },
+        crate::models::AgentMessage {
+            id: "msg-group".into(),
+            role: "tool".into(),
+            status: "task_group".into(),
+            content: "已创建 2 个绘图任务".into(),
+            attachments: Vec::new(),
+            tool_call: None,
+            questions: Vec::new(),
+            task_group: Some(crate::models::AgentTaskGroupSummary {
+                schema_version: crate::models::AGENT_SCHEMA_VERSION,
+                id: "group-2".into(),
+                task_ids: vec!["task-a".into(), "task-b".into()],
+                titles: vec!["橘猫".into(), "黑猫".into()],
+                prompt_summaries: Vec::new(),
+                status: "completed".into(),
+            }),
+            error: String::new(),
+            created_at: utc_now(),
+        },
+        crate::models::AgentMessage {
+            id: "msg-final".into(),
+            role: "assistant".into(),
+            status: "chat".into(),
+            content: "两只猫的任务都已创建".into(),
+            attachments: Vec::new(),
+            tool_call: None,
+            questions: Vec::new(),
+            task_group: None,
+            error: String::new(),
+            created_at: utc_now(),
+        },
+    ];
+
+    let rebuilt = messages
+        .iter()
+        .map(crate::commands::agent_message_to_chat_value)
+        .collect::<Vec<_>>();
+    for value in &rebuilt {
+        let role = value
+            .get("role")
+            .and_then(serde_json::Value::as_str)
+            .ok_or("重建后的消息缺少 role")?;
+        if role == "tool" {
+            return Err("第二轮上下文重建仍产生孤立 role=tool 消息".into());
+        }
+        if value.get("tool_calls").is_some() {
+            return Err("第二轮上下文重建产生未配对的 tool_calls".into());
+        }
+    }
+    let folded = rebuilt[1]
+        .get("content")
+        .and_then(serde_json::Value::as_str)
+        .ok_or("折叠后的工具消息缺少文本内容")?;
+    if !folded.contains("taskGroupId=group-2") || !folded.contains("task-a") {
+        return Err(format!("折叠文本缺少任务组关键信息：{folded}"));
+    }
+    Ok(())
+}
+
 pub fn verify_cancellation_recovery(root: &Path) -> Result<(), String> {
     fs::create_dir_all(root.join("requests")).map_err(|error| error.to_string())?;
     let mut queued = fallback_failed_record("queued-task", "running");
