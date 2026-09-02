@@ -35,18 +35,21 @@ pub(crate) fn sessions(data_dir: &Path) -> Result<Vec<AgentSession>, String> {
 }
 
 pub(crate) fn session(data_dir: &Path, session_id: &str) -> Result<AgentSession, String> {
-    validate_session_id(session_id)?;
+    ensure_session_id(session_id)?;
     read_agent_session(data_dir, session_id)
 }
 
 pub(crate) fn delete_session(data_dir: &Path, session_id: &str) -> Result<(), String> {
-    validate_session_id(session_id)?;
+    ensure_session_id(session_id)?;
     // 会话已迁移到 SQLite，删除以数据库行为准
     history_db::delete_agent_session(data_dir, session_id)?;
-    // JSON 时代迁移遗留的会话文件已不再被读取，删除会话时一并回收
-    let path = agent_session_path(data_dir, session_id);
-    if path.exists() {
-        recycle_path(&path).map_err(|error| format!("将 Agent 会话移入回收站失败: {error}"))?;
+    // JSON 时代迁移遗留的会话文件已不再被读取；只有安全 ID（历史上是 UUID）
+    // 才可能对应真实文件路径，其余 ID 直接跳过文件清理。
+    if validate_legacy_session_id(session_id) {
+        let path = agent_session_path(data_dir, session_id);
+        if path.exists() {
+            recycle_path(&path).map_err(|error| format!("将 Agent 会话移入回收站失败: {error}"))?;
+        }
     }
     Ok(())
 }
@@ -70,7 +73,7 @@ pub(crate) fn save_session(
     data_dir: &Path,
     mut session: AgentSession,
 ) -> Result<AgentSession, String> {
-    validate_session_id(&session.id)?;
+    ensure_session_id(&session.id)?;
     session.updated_at = utc_now();
     write_agent_session(data_dir, &session)?;
     Ok(session)
@@ -336,10 +339,33 @@ fn validate_schema_version(kind: &str, version: u32) -> Result<(), String> {
     Ok(())
 }
 
+/// SQLite 时代会话 ID 不再要求 UUID（Web 端同步/导入的会话使用 `web-session-*` 等 ID），
+/// 只要求非空且不能构造出文件路径。
+fn ensure_session_id(value: &str) -> Result<(), String> {
+    let id = value.trim();
+    if id.is_empty()
+        || id.len() > 200
+        || id.contains('/')
+        || id.contains('\\')
+        || id.contains("..")
+        || id.contains('\0')
+    {
+        return Err("Agent 会话 ID 无效".into());
+    }
+    Ok(())
+}
+
+/// 旧 JSON 文件按 ID 落盘，只有当年的 UUID 格式 ID 才可能对应真实文件。
+fn validate_legacy_session_id(value: &str) -> bool {
+    Uuid::parse_str(value.trim()).is_ok()
+}
+
 fn validate_session_id(value: &str) -> Result<(), String> {
-    Uuid::parse_str(value.trim())
-        .map(|_| ())
-        .map_err(|_| "Agent 会话 ID 无效".into())
+    if validate_legacy_session_id(value) {
+        Ok(())
+    } else {
+        Err("Agent 会话 ID 无效".into())
+    }
 }
 
 fn title_from_message(content: &str) -> String {
@@ -390,8 +416,27 @@ mod tests {
     }
 
     #[test]
-    fn delete_session_removes_sqlite_row_and_recycles_legacy_file() {
-        let data_dir = temp_data_dir("delete-session");
+    fn non_uuid_sessions_can_be_read_and_deleted() {
+        let data_dir = temp_data_dir("non-uuid-session");
+        let mut created = create_session(&data_dir, "chat-provider").unwrap();
+        // 模拟 Web 端同步 / 导入来的非 UUID 会话
+        created.id = "web-session-1787487024202".into();
+        write_agent_session(&data_dir, &created).unwrap();
+
+        let loaded = session(&data_dir, "web-session-1787487024202").unwrap();
+        assert_eq!(loaded.id, "web-session-1787487024202");
+
+        delete_session(&data_dir, "web-session-1787487024202").unwrap();
+        assert!(read_agent_session(&data_dir, "web-session-1787487024202").is_err());
+
+        // 路径不安全 ID 仍然拒绝
+        assert!(session(&data_dir, "../escape").is_err());
+        assert!(session(&data_dir, "  ").is_err());
+        recycle(&data_dir);
+    }
+
+    #[test]
+    fn delete_session_removes_sqlite_row_and_recycles_legacy_file() {        let data_dir = temp_data_dir("delete-session");
         let session = create_session(&data_dir, "chat-provider").unwrap();
         // 模拟 JSON 时代迁移遗留的会话文件
         let legacy_path = agent_session_path(&data_dir, &session.id);
