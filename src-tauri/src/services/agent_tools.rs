@@ -4,6 +4,7 @@ use crate::models::{AgentEnvelope, AGENT_SCHEMA_VERSION};
 
 pub(crate) const TOOL_CREATE_IMAGE_TASKS: &str = "create_image_tasks";
 pub(crate) const TOOL_GET_TASK_STATUS: &str = "get_task_status";
+pub(crate) const TOOL_LIST_TEMPLATES: &str = "list_templates";
 
 pub(crate) fn tool_definitions() -> Vec<Value> {
     vec![
@@ -28,7 +29,8 @@ pub(crate) fn tool_definitions() -> Vec<Value> {
                                 "quality": { "enum": ["auto", "low", "medium", "high"] },
                                 "promptFidelity": { "enum": ["original", "strict", "off"] },
                                 "referencePolicy": { "enum": ["use", "optional", "none"] },
-                                "referenceIds": { "type": "array", "items": { "type": "string" } }
+                                "referenceIds": { "type": "array", "items": { "type": "string" } },
+                                "templateId": { "type": "string" }
                             },
                             "required": [
                                 "title", "prompt", "resolution", "ratio", "quality",
@@ -56,6 +58,15 @@ pub(crate) fn tool_definitions() -> Vec<Value> {
                     { "required": ["taskGroupId"] },
                     { "required": ["taskId"] }
                 ]
+            }),
+        ),
+        function_tool(
+            TOOL_LIST_TEMPLATES,
+            "只读列出本机提示词模板（id、标题、内容摘要、参考图数量）。用户要求使用模板绘画时先查询，再把模板 id 填入计划的 templateId。",
+            json!({
+                "type": "object",
+                "properties": {},
+                "additionalProperties": false
             }),
         ),
     ]
@@ -100,6 +111,7 @@ pub(crate) fn validate_tool_arguments(name: &str, arguments: &Value) -> Result<(
                         "promptFidelity",
                         "referencePolicy",
                         "referenceIds",
+                        "templateId",
                     ],
                 )?;
                 let label = format!("plans[{index}]");
@@ -142,6 +154,11 @@ pub(crate) fn validate_tool_arguments(name: &str, arguments: &Value) -> Result<(
                 if policy == "none" && !reference_ids.is_empty() {
                     return Err(format!("plans[{index}] 禁止参考图但仍提供了 referenceIds"));
                 }
+                if let Some(template_id) = plan.get("templateId") {
+                    if template_id.as_str().is_none() {
+                        return Err(format!("{label}.templateId 必须是字符串"));
+                    }
+                }
             }
             Ok(())
         }
@@ -154,6 +171,10 @@ pub(crate) fn validate_tool_arguments(name: &str, arguments: &Value) -> Result<(
             } else {
                 Err("get_task_status 需要 taskGroupId 或 taskId".into())
             }
+        }
+        TOOL_LIST_TEMPLATES => {
+            reject_unknown_fields(name, object, &[])?;
+            Ok(())
         }
         _ => Err(format!("不允许的 Agent 工具：{name}")),
     }
@@ -320,7 +341,7 @@ mod tests {
     }
 
     #[test]
-    fn tool_registry_exposes_only_image_tasks_and_status() {
+    fn tool_registry_exposes_image_tasks_status_and_templates() {
         let tools = tool_definitions();
         let names = tools
             .iter()
@@ -329,7 +350,10 @@ mod tests {
                     .and_then(|value| value.as_str())
             })
             .collect::<Vec<_>>();
-        assert_eq!(names, vec!["create_image_tasks", "get_task_status"]);
+        assert_eq!(
+            names,
+            vec!["create_image_tasks", "get_task_status", "list_templates"]
+        );
         let required = tools
             .iter()
             .find(|tool| tool.pointer("/function/name") == Some(&json!("create_image_tasks")))

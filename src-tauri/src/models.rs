@@ -531,6 +531,9 @@ pub struct AgentImagePlan {
     pub reference_policy: String,
     #[serde(default)]
     pub reference_ids: Vec<String>,
+    /// 可选：引用本机提示词模板，执行端会并入模板参考图（referencePolicy=none 时忽略）。
+    #[serde(default)]
+    pub template_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

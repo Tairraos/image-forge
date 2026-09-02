@@ -12,10 +12,10 @@ use crate::{
     defaults::APP_BUILD_TIME,
     history_db,
     models::{
-        AboutInfo, AgentAttachment, AgentImagePlan, AgentMessage, AgentProgressEvent, AgentSession,
-        AgentTaskGroup, AgentLibraryPage, ApiProvider, AppState, CleanupCandidate, GenerateRequest,
-        LibraryPage, PromptTemplate, QueueSnapshot, ReferencePreview, Settings, TaskRecord,
-        TemplateFillEvent, TemplateImportResult,
+        AboutInfo, AgentAttachment, AgentImagePlan, AgentLibraryPage, AgentMessage,
+        AgentProgressEvent, AgentSession, AgentTaskGroup, ApiProvider, AppState, CleanupCandidate,
+        GenerateRequest, LibraryPage, PromptTemplate, QueueSnapshot, ReferencePreview, Settings,
+        TaskRecord, TemplateFillEvent, TemplateImportResult,
     },
     services::{
         agent::run_turn,
@@ -25,6 +25,7 @@ use crate::{
         },
         agent_tools::{TOOL_CREATE_IMAGE_TASKS, TOOL_GET_TASK_STATUS},
         chat::fill_template_response,
+        data_bundle,
         images::reference_preview,
         provider_bundle::{export_providers_json, read_providers_json},
         queue::{
@@ -35,16 +36,14 @@ use crate::{
             prune_unreferenced_files_with_data, scan_orphan_files,
         },
         template_bundle::{export_templates_archive, import_templates_archive},
-        data_bundle,
     },
     state::{record_operation, runtime_logs_text, RuntimeState},
     store::{
         enqueue_task, ensure_data_dir, next_template_id, normalize_request, normalize_settings,
         normalize_template, params_from_request, provider_for_request, read_history, read_json,
         read_queue, read_recent_history, read_settings, read_templates,
-        refresh_history_output_sizes, request_path, write_generation_batch,
-        write_history, write_history_queue_transaction, write_queue, write_settings,
-        write_templates_to_db,
+        refresh_history_output_sizes, request_path, write_generation_batch, write_history,
+        write_history_queue_transaction, write_queue, write_settings, write_templates_to_db,
     },
     utils::{recycle_path, utc_now},
 };
@@ -169,9 +168,10 @@ pub(crate) async fn send_agent_message(
     } else {
         format!("历史摘要：\n{}", current.summary)
     };
+    let template_catalog = template_catalog_text(&read_templates(&data_dir)?);
     let mut chat_messages = vec![serde_json::json!({
         "role": "system",
-        "content": agent_system_prompt(&context),
+        "content": agent_system_prompt(&context, &template_catalog),
     })];
     chat_messages.extend(context_messages.iter().map(agent_message_to_chat_value));
     let task_provider = provider.clone();
@@ -337,11 +337,40 @@ pub(crate) fn cancel_agent_turn(app: AppHandle, session_id: String) -> Result<bo
     }
 }
 
-fn agent_system_prompt(context: &str) -> String {
-    format!(
-        "你是 Image Forge 本地绘画助手。普通聊天直接回答；需要绘图时必须调用 create_image_tasks。禁止声称执行终端、脚本、任意文件读写、任意 HTTP、浏览器、数据库或插件。缺少绘图信息时返回 schemaVersion=1 的 assistant envelope，status=needs_input 并在 questions 中提出最多 3 个问题；无法完成时返回 status=rejected 和原因；信息完整时返回 status=ready 及逐图 plans，或调用 create_image_tasks。每个 plan 必须明确 resolution、ratio、quality、promptFidelity、referencePolicy 和 referenceIds；referencePolicy=optional 时如果 referenceIds 为空，默认沿用当前附图。参考图只有 ID 和元数据；不支持视觉的模型不能假装看到了图片内容。\n\n当前会话上下文：\n{}",
-        context.trim()
-    )
+fn agent_system_prompt(context: &str, template_catalog: &str) -> String {
+    let mut prompt = "你是 Image Forge 本地绘画助手。普通聊天直接回答；需要绘图时必须调用 create_image_tasks。用户点名使用模板时，先用 list_templates 查询模板，再把模板 id 填入 plan.templateId，并把模板内容按用户意图填充为完整提示词；模板自带的参考图会由执行端自动并入任务。禁止声称执行终端、脚本、任意文件读写、任意 HTTP、浏览器、数据库或插件。缺少绘图信息时返回 schemaVersion=1 的 assistant envelope，status=needs_input 并在 questions 中提出最多 3 个问题；无法完成时返回 status=rejected 和原因；信息完整时返回 status=ready 及逐图 plans，或调用 create_image_tasks。每个 plan 必须明确 resolution、ratio、quality、promptFidelity、referencePolicy 和 referenceIds；referencePolicy=optional 时如果 referenceIds 为空，默认沿用当前附图。参考图只有 ID 和元数据；不支持视觉的模型不能假装看到了图片内容。".to_string();
+    if !template_catalog.trim().is_empty() {
+        prompt.push_str("\n\n");
+        prompt.push_str(template_catalog.trim());
+    }
+    if !context.trim().is_empty() {
+        prompt.push_str("\n\n当前会话上下文：\n");
+        prompt.push_str(context.trim());
+    }
+    prompt
+}
+
+/// 系统提示词注入的模板清单（比工具返回更短，避免挤占上下文预算）。
+fn template_catalog_text(templates: &[PromptTemplate]) -> String {
+    if templates.is_empty() {
+        return String::new();
+    }
+    let mut lines = vec!["可用提示词模板（可通过 plan.templateId 引用）：".to_string()];
+    for template in templates.iter().take(LIST_TEMPLATES_LIMIT) {
+        let title = if template.title.trim().is_empty() {
+            "未命名"
+        } else {
+            template.title.trim()
+        };
+        lines.push(format!(
+            "- [{}] {}（参考图 {} 张）：{}",
+            template.id,
+            title,
+            template.reference_paths.len(),
+            limit_text(&template.content, TEMPLATE_PROMPT_SUMMARY_LIMIT)
+        ));
+    }
+    lines.join("\n")
 }
 
 fn agent_reference_paths(session: &AgentSession) -> Vec<String> {
@@ -442,6 +471,38 @@ pub(crate) fn agent_message_to_chat_value(message: &AgentMessage) -> serde_json:
 }
 
 const FOLD_TEXT_LIMIT: usize = 400;
+const LIST_TEMPLATES_LIMIT: usize = 50;
+const TEMPLATE_PREVIEW_LIMIT: usize = 200;
+const TEMPLATE_PROMPT_SUMMARY_LIMIT: usize = 60;
+
+/// 模板清单摘要：Agent 工具返回与系统提示词注入共用，字段保持精简。
+pub(crate) fn template_summaries(
+    templates: &[PromptTemplate],
+    limit: usize,
+) -> Vec<serde_json::Value> {
+    templates
+        .iter()
+        .take(limit)
+        .map(|template| {
+            serde_json::json!({
+                "id": template.id,
+                "title": template.title,
+                "preview": limit_text(&template.content, TEMPLATE_PREVIEW_LIMIT),
+                "referenceCount": template.reference_paths.len(),
+            })
+        })
+        .collect()
+}
+
+fn limit_text(text: &str, limit: usize) -> String {
+    let compact = text.trim();
+    if compact.chars().count() <= limit {
+        return compact.to_string();
+    }
+    let mut truncated: String = compact.chars().take(limit).collect();
+    truncated.push('…');
+    truncated
+}
 
 fn fold_tool_message_text(message: &AgentMessage) -> String {
     if let Some(group) = &message.task_group {
@@ -456,7 +517,11 @@ fn fold_tool_message_text(message: &AgentMessage) -> String {
         return limit_fold_text(&message.content);
     };
     let name = call.name.as_str();
-    if let Some(error) = call.error.as_deref().filter(|error| !error.trim().is_empty()) {
+    if let Some(error) = call
+        .error
+        .as_deref()
+        .filter(|error| !error.trim().is_empty())
+    {
         return format!("工具 {name} 执行失败：{}", limit_fold_text(error));
     }
     let Some(result) = call.result.as_ref() else {
@@ -537,13 +602,7 @@ fn task_status_line(task: &serde_json::Value) -> String {
 }
 
 fn limit_fold_text(text: &str) -> String {
-    let compact = text.trim();
-    if compact.chars().count() <= FOLD_TEXT_LIMIT {
-        return compact.to_string();
-    }
-    let mut truncated: String = compact.chars().take(FOLD_TEXT_LIMIT).collect();
-    truncated.push_str("…");
-    truncated
+    limit_text(text, FOLD_TEXT_LIMIT)
 }
 
 async fn execute_agent_tool(
@@ -578,6 +637,13 @@ async fn execute_agent_tool(
                 .unwrap_or_default();
             let tasks = task_status_records(&data_dir, task_group_id, task_id)?;
             Ok(serde_json::json!({ "taskGroupId": task_group_id, "tasks": tasks }))
+        }
+        "list_templates" => {
+            let data_dir = ensure_data_dir(app)?;
+            let templates = read_templates(&data_dir)?;
+            Ok(serde_json::json!({
+                "templates": template_summaries(&templates, LIST_TEMPLATES_LIMIT)
+            }))
         }
         _ => Err(format!("不允许的 Agent 工具：{name}")),
     }
@@ -721,6 +787,50 @@ fn create_agent_direct_image_task_in_data_dir(
     create_agent_image_tasks_in_data_dir(data_dir, session_id, vec![plan])
 }
 
+/// 按 plan 的参考策略解析参考图路径：会话附图 + 模板参考图（去重；policy=none 时忽略模板图，
+/// 但模板 id 仍校验存在性）。
+fn resolve_plan_reference_paths(
+    plan: &AgentImagePlan,
+    policy: &str,
+    attachment_paths: &std::collections::HashMap<String, String>,
+    default_reference_paths: &[String],
+    template_lookup: &std::collections::HashMap<String, PromptTemplate>,
+) -> Result<Vec<String>, String> {
+    let template_id = plan.template_id.trim();
+    let template_reference_paths = if template_id.is_empty() {
+        Vec::new()
+    } else {
+        template_lookup
+            .get(template_id)
+            .ok_or_else(|| format!("模板不存在：{template_id}"))?
+            .reference_paths
+            .clone()
+    };
+    let mut paths = if policy == "none" {
+        Vec::new()
+    } else if plan.reference_ids.is_empty() && policy == "optional" {
+        default_reference_paths.to_vec()
+    } else {
+        plan.reference_ids
+            .iter()
+            .map(|id| {
+                attachment_paths
+                    .get(id)
+                    .cloned()
+                    .ok_or_else(|| format!("参考图 ID 不属于当前 Agent 会话：{id}"))
+            })
+            .collect::<Result<Vec<_>, String>>()?
+    };
+    if policy != "none" {
+        for path in template_reference_paths {
+            if !paths.contains(&path) {
+                paths.push(path);
+            }
+        }
+    }
+    Ok(paths)
+}
+
 fn create_agent_image_tasks_in_data_dir(
     data_dir: &Path,
     session_id: String,
@@ -731,6 +841,10 @@ fn create_agent_image_tasks_in_data_dir(
     }
     let settings = read_settings(data_dir)?;
     let agent_session = session(data_dir, &session_id)?;
+    let template_lookup = read_templates(data_dir)?
+        .into_iter()
+        .map(|template| (template.id.clone(), template))
+        .collect::<std::collections::HashMap<_, _>>();
     let attachment_paths = agent_session
         .messages
         .iter()
@@ -759,21 +873,13 @@ fn create_agent_image_tasks_in_data_dir(
                 plan.provider_id.clone()
             }),
             prompt: plan.prompt.clone(),
-            reference_paths: if policy == "none" {
-                Vec::new()
-            } else if plan.reference_ids.is_empty() && policy == "optional" {
-                default_reference_paths.clone()
-            } else {
-                plan.reference_ids
-                    .iter()
-                    .map(|id| {
-                        attachment_paths
-                            .get(id)
-                            .cloned()
-                            .ok_or_else(|| format!("参考图 ID 不属于当前 Agent 会话：{id}"))
-                    })
-                    .collect::<Result<Vec<_>, String>>()?
-            },
+            reference_paths: resolve_plan_reference_paths(
+                &plan,
+                &policy,
+                &attachment_paths,
+                &default_reference_paths,
+                &template_lookup,
+            )?,
             resolution: if plan.resolution.trim().is_empty() {
                 "standard".into()
             } else {
@@ -1443,7 +1549,10 @@ pub(crate) fn export_templates(app: AppHandle, destination: String) -> Result<St
 
 #[tauri::command]
 /// 导出数据包：按分类打包 ZIP，文件去重。
-pub(crate) fn export_data_bundle(app: AppHandle, categories: Vec<String>) -> Result<String, String> {
+pub(crate) fn export_data_bundle(
+    app: AppHandle,
+    categories: Vec<String>,
+) -> Result<String, String> {
     let data_dir = ensure_data_dir(&app)?;
     let params = format!("categories={}", categories.join(","));
     let result = data_bundle::export_data_bundle(&data_dir, &categories);
@@ -1460,12 +1569,15 @@ pub(crate) fn import_data_bundle(
     let data_dir = ensure_data_dir(&app)?;
     let params = format!("path={}", file_path);
     let result = data_bundle::import_data_bundle(&data_dir, &file_path);
-    let log_result: Result<String, String> = result.as_ref().map(|r| {
-        format!(
-            "s={} t={} c={} i={}",
-            r.settings, r.templates, r.sessions, r.tasks
-        )
-    }).map_err(|e| e.clone());
+    let log_result: Result<String, String> = result
+        .as_ref()
+        .map(|r| {
+            format!(
+                "s={} t={} c={} i={}",
+                r.settings, r.templates, r.sessions, r.tasks
+            )
+        })
+        .map_err(|e| e.clone());
     record_result("导入数据包", &params, None, &log_result);
     result
 }
@@ -1761,7 +1873,6 @@ pub(crate) fn download_output(app: AppHandle, path: String) -> Result<String, St
     result
 }
 
-
 #[tauri::command]
 /// 读取系统剪贴板中的纯文本。
 pub(crate) fn read_clipboard_text() -> Result<String, String> {
@@ -1988,6 +2099,67 @@ mod tests {
     }
 
     #[test]
+    fn agent_image_tasks_merge_template_reference_paths() {
+        let (data_dir, agent_session, reference_id) = agent_task_data_dir("agent-image-template");
+        let template_source = data_dir.join("template-ref.png");
+        std::fs::write(&template_source, b"\x89PNG\r\n\x1a\ntemplate-reference").unwrap();
+        let template_source_str = template_source.to_string_lossy().into_owned();
+        write_templates_to_db(
+            &data_dir,
+            &[template(
+                "tpl-1",
+                "海报模板",
+                "一张{主题}海报",
+                &[template_source_str.as_str()],
+            )],
+        )
+        .unwrap();
+
+        let mut plan = agent_plan("用模板画海报", "optional", &[]);
+        plan.template_id = "tpl-1".into();
+        let group =
+            create_agent_image_tasks_in_data_dir(&data_dir, agent_session.id.clone(), vec![plan])
+                .unwrap();
+        let paths = &group.tasks[0].reference_paths;
+        // optional 策略默认沿用会话附图（1 张）+ 模板参考图（1 张）
+        assert_eq!(paths.len(), 2);
+        assert!(paths
+            .iter()
+            .any(|path| Path::new(path).starts_with(data_dir.join("references"))));
+
+        let mut missing = agent_plan("模板缺失", "optional", &[]);
+        missing.template_id = "tpl-404".into();
+        let error = create_agent_image_tasks_in_data_dir(
+            &data_dir,
+            agent_session.id.clone(),
+            vec![missing],
+        )
+        .unwrap_err();
+        assert!(error.contains("模板不存在：tpl-404"));
+
+        let mut none_policy = agent_plan("策略为 none 忽略模板图", "none", &[]);
+        none_policy.template_id = "tpl-1".into();
+        let group = create_agent_image_tasks_in_data_dir(
+            &data_dir,
+            agent_session.id.clone(),
+            vec![none_policy],
+        )
+        .unwrap();
+        assert!(group.tasks[0].reference_paths.is_empty());
+
+        let mut with_attachment = agent_plan("附图加模板图", "use", &[&reference_id]);
+        with_attachment.template_id = "tpl-1".into();
+        let group = create_agent_image_tasks_in_data_dir(
+            &data_dir,
+            agent_session.id,
+            vec![with_attachment],
+        )
+        .unwrap();
+        assert_eq!(group.tasks[0].reference_paths.len(), 2);
+        recycle(&data_dir);
+    }
+
+    #[test]
     fn agent_direct_image_task_saves_message_and_uses_current_attachments() {
         let (data_dir, agent_session, reference_id) = agent_task_data_dir("agent-direct-image");
         let attachment = agent_session.messages[0].attachments[0].clone();
@@ -2177,14 +2349,22 @@ mod tests {
         assert!(rebuilt
             .iter()
             .all(|value| value.get("role").and_then(serde_json::Value::as_str) != Some("tool")));
-        assert!(rebuilt.iter().all(|value| value.get("tool_calls").is_none()));
+        assert!(rebuilt
+            .iter()
+            .all(|value| value.get("tool_calls").is_none()));
 
-        let tool_fold = rebuilt[1].get("content").and_then(serde_json::Value::as_str).unwrap();
+        let tool_fold = rebuilt[1]
+            .get("content")
+            .and_then(serde_json::Value::as_str)
+            .unwrap();
         assert!(tool_fold.contains("taskGroupId=group-1"));
         assert!(tool_fold.contains("状态 completed"));
         assert!(tool_fold.contains("/outputs/a.png"));
 
-        let group_fold = rebuilt[2].get("content").and_then(serde_json::Value::as_str).unwrap();
+        let group_fold = rebuilt[2]
+            .get("content")
+            .and_then(serde_json::Value::as_str)
+            .unwrap();
         assert!(group_fold.contains("已创建 1 个绘图任务"));
         assert!(group_fold.contains("completed"));
 
@@ -2233,7 +2413,10 @@ mod tests {
             value.get("role").and_then(serde_json::Value::as_str),
             Some("assistant")
         );
-        let content = value.get("content").and_then(serde_json::Value::as_str).unwrap();
+        let content = value
+            .get("content")
+            .and_then(serde_json::Value::as_str)
+            .unwrap();
         assert!(content.contains("工具 get_task_status 执行失败"));
         assert!(content.contains("找不到任务或任务组"));
         assert!(content.chars().count() <= FOLD_TEXT_LIMIT + 40);
@@ -2299,6 +2482,85 @@ mod tests {
         let error = task_status_records(&data_dir, "missing-group", "").unwrap_err();
         assert!(error.contains("找不到任务"));
         recycle(&data_dir);
+    }
+
+    #[test]
+    fn template_summaries_truncate_preview_and_count_references() {
+        let long_content = format!("{}", "一部电影海报。".repeat(60));
+        let templates = vec![template(
+            "1",
+            "电影感海报",
+            &long_content,
+            &["/references/a.png", "/references/b.png"],
+        )];
+        let summaries = template_summaries(&templates, LIST_TEMPLATES_LIMIT);
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(summaries[0]["id"], "1");
+        assert_eq!(summaries[0]["title"], "电影感海报");
+        assert_eq!(summaries[0]["referenceCount"], 2);
+        let preview = summaries[0]["preview"].as_str().unwrap();
+        assert!(preview.chars().count() <= TEMPLATE_PREVIEW_LIMIT + 1);
+        assert!(preview.ends_with('…'));
+
+        let empty: Vec<PromptTemplate> = Vec::new();
+        assert!(template_summaries(&empty, LIST_TEMPLATES_LIMIT).is_empty());
+    }
+
+    #[test]
+    fn list_templates_tool_rejects_unknown_arguments() {
+        use crate::services::agent_tools::validate_tool_arguments;
+        assert!(validate_tool_arguments("list_templates", &serde_json::json!({})).is_ok());
+        let error = validate_tool_arguments("list_templates", &serde_json::json!({ "limit": 5 }))
+            .unwrap_err();
+        assert!(error.contains("未知字段"));
+    }
+
+    #[test]
+    fn image_plan_accepts_optional_template_id_and_rejects_non_string() {
+        use crate::services::agent_tools::validate_tool_arguments;
+        let mut plan = serde_json::json!({
+            "title": "图一",
+            "prompt": "完整提示词",
+            "resolution": "standard",
+            "ratio": "1:1",
+            "quality": "auto",
+            "promptFidelity": "original",
+            "referencePolicy": "none",
+            "referenceIds": [],
+            "templateId": "tpl-1"
+        });
+        assert!(validate_tool_arguments(
+            "create_image_tasks",
+            &serde_json::json!({ "plans": [plan] })
+        )
+        .is_ok());
+        plan.as_object_mut()
+            .unwrap()
+            .insert("templateId".into(), serde_json::json!(123));
+        let error = validate_tool_arguments(
+            "create_image_tasks",
+            &serde_json::json!({ "plans": [plan] }),
+        )
+        .unwrap_err();
+        assert!(error.contains("templateId 必须是字符串"));
+    }
+
+    #[test]
+    fn agent_system_prompt_injects_template_catalog_and_context() {
+        let templates = vec![template(
+            "tpl-1",
+            "电影海报",
+            "一张{主题}电影海报",
+            &["/r/a.png"],
+        )];
+        let prompt = agent_system_prompt("历史摘要", &template_catalog_text(&templates));
+        assert!(prompt.contains("plan.templateId"));
+        assert!(prompt.contains("[tpl-1] 电影海报"));
+        assert!(prompt.contains("当前会话上下文"));
+        assert!(prompt.contains("历史摘要"));
+
+        let bare = agent_system_prompt("", "");
+        assert!(!bare.contains("可用提示词模板"));
     }
 
     fn command_test_data_dir(name: &str) -> PathBuf {
@@ -2374,6 +2636,7 @@ mod tests {
             prompt_fidelity: "original".into(),
             reference_policy: reference_policy.into(),
             reference_ids: reference_ids.iter().map(|value| (*value).into()).collect(),
+            template_id: String::new(),
         }
     }
 

@@ -21,6 +21,17 @@ const chatProvider = {
   imageModel: 'gpt-test',
 };
 
+const imagePlan = {
+  title: '柴犬',
+  prompt: '一只柴犬',
+  resolution: 'standard',
+  ratio: '1:1',
+  quality: 'high',
+  promptFidelity: 'original',
+  referencePolicy: 'none',
+  referenceIds: [],
+};
+
 function sseResponse(lines) {
   const encoder = new TextEncoder();
   return {
@@ -129,6 +140,7 @@ describe('纯文本回复', () => {
     expect(payload.tools.map((t) => t.function.name)).toEqual([
       'create_image_tasks',
       'get_task_status',
+      'list_templates',
     ]);
     expect(payload.messages.at(-1)).toEqual({ role: 'user', content: '你好' });
 
@@ -313,6 +325,56 @@ describe('工具调用循环', () => {
     expect(result.tasks[0]).toMatchObject({ id: 't-9', status: 'completed', outputs: 1 });
   });
 
+  it('templateId 合并模板参考图，模板不存在时工具报错', async () => {
+    localStorage.setItem(
+      'if_templates',
+      JSON.stringify([
+        {
+          id: 'tpl-1',
+          title: '海报模板',
+          content: '一张{主题}海报',
+          referencePaths: ['/refs/tpl-a.png'],
+        },
+      ])
+    );
+    const withTemplate = { ...imagePlan, referencePolicy: 'optional', templateId: 'tpl-1' };
+    const missingTemplate = {
+      ...imagePlan,
+      title: '另一张',
+      referencePolicy: 'optional',
+      templateId: 'tpl-404',
+    };
+    fetchMock
+      .mockResolvedValueOnce(
+        sseResponse(
+          toolCallChunks(
+            'call-tid',
+            'create_image_tasks',
+            JSON.stringify({ plans: [withTemplate] })
+          )
+        )
+      )
+      .mockResolvedValueOnce(
+        sseResponse(
+          toolCallChunks(
+            'call-tid2',
+            'create_image_tasks',
+            JSON.stringify({ plans: [missingTemplate] })
+          )
+        )
+      )
+      .mockResolvedValueOnce(sseResponse([textChunk('结束'), 'data: [DONE]\n\n']));
+
+    await runAgentTurn(chatProvider, newSession('sess-tid'), '用模板画', [], () => {});
+
+    const [request] = enqueueTask.mock.calls[0];
+    expect(request.reference_paths).toEqual(['/refs/tpl-a.png']);
+    // 模板不存在的失败结果会回传给模型
+    const lastPayload = JSON.parse(fetchMock.mock.calls[2][1].body);
+    const toolMsgs = lastPayload.messages.filter((m) => m.role === 'tool');
+    expect(toolMsgs.at(-1).content).toContain('模板不存在：tpl-404');
+  });
+
   it('超过最大循环次数时抛错停止', async () => {
     fetchMock.mockImplementation(async () =>
       sseResponse(toolCallChunks('call-loop', 'get_task_status', JSON.stringify({ taskId: 't' })))
@@ -388,17 +450,6 @@ describe('Envelope 降级与非流式回退', () => {
 });
 
 describe('多轮对话历史重建', () => {
-  const imagePlan = {
-    title: '柴犬',
-    prompt: '一只柴犬',
-    resolution: 'standard',
-    ratio: '1:1',
-    quality: 'high',
-    promptFidelity: 'original',
-    referencePolicy: 'none',
-    referenceIds: [],
-  };
-
   it('第二轮请求中历史工具消息正确配对且用户消息不重复', async () => {
     fetchMock
       .mockResolvedValueOnce(
@@ -470,6 +521,44 @@ describe('多轮对话历史重建', () => {
 describe('导出契约', () => {
   it('schema 版本与工具清单', () => {
     expect(AGENT_SCHEMA_VERSION).toBe(1);
-    expect(TOOLS.map((t) => t.function.name)).toEqual(['create_image_tasks', 'get_task_status']);
+    expect(TOOLS.map((t) => t.function.name)).toEqual([
+      'create_image_tasks',
+      'get_task_status',
+      'list_templates',
+    ]);
+  });
+
+  it('list_templates 返回模板摘要并截断内容', async () => {
+    localStorage.setItem(
+      'if_templates',
+      JSON.stringify([
+        {
+          id: 'tpl-1',
+          title: '电影感海报',
+          content: '一部{主题}的电影海报'.repeat(30),
+          referencePaths: ['/refs/a.png'],
+        },
+        { id: 'tpl-2', title: '极简图标', prompt: '极简风格的{物体}图标', referencePaths: [] },
+      ])
+    );
+    fetchMock.mockResolvedValueOnce(
+      sseResponse(toolCallChunks('call-tpl', 'list_templates', JSON.stringify({})))
+    );
+    fetchMock.mockResolvedValueOnce(sseResponse([textChunk('已列出'), 'data: [DONE]\n\n']));
+
+    await runAgentTurn(chatProvider, newSession('sess-tpl'), '有哪些模板', [], () => {});
+
+    const secondPayload = JSON.parse(fetchMock.mock.calls[1][1].body);
+    const toolMsg = secondPayload.messages.find((m) => m.role === 'tool');
+    const result = JSON.parse(toolMsg.content).result;
+    expect(result.templates).toHaveLength(2);
+    expect(result.templates[0]).toMatchObject({
+      id: 'tpl-1',
+      title: '电影感海报',
+      referenceCount: 1,
+    });
+    expect(result.templates[0].preview.length).toBeLessThanOrEqual(201);
+    expect(result.templates[0].preview.endsWith('…')).toBe(true);
+    expect(result.templates[1].preview).toBe('极简风格的{物体}图标');
   });
 });

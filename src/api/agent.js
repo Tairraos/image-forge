@@ -9,11 +9,39 @@ const AGENT_SCHEMA_VERSION = 1;
 
 // ── 系统提示词 ──
 
-function systemPrompt(context) {
-  return `你是 Image Forge 本地绘画助手。普通聊天直接回答；需要绘图时必须调用 create_image_tasks。禁止声称执行终端、脚本、任意文件读写、任意 HTTP、浏览器、数据库或插件。缺少绘图信息时返回 schemaVersion=1 的 assistant envelope，status=needs_input 并在 questions 中提出最多 3 个问题；无法完成时返回 status=rejected 和原因；信息完整时返回 status=ready 及逐图 plans，或调用 create_image_tasks。每个 plan 必须明确 resolution、ratio、quality、promptFidelity、referencePolicy 和 referenceIds；referencePolicy=optional 时如果 referenceIds 为空，默认沿用当前附图。参考图只有 ID 和元数据；不支持视觉的模型不能假装看到了图片内容。
+function systemPrompt(context, templateCatalog = '') {
+  const base = `你是 Image Forge 本地绘画助手。普通聊天直接回答；需要绘图时必须调用 create_image_tasks。用户点名使用模板时，先用 list_templates 查询模板，再把模板 id 填入 plan.templateId，并把模板内容按用户意图填充为完整提示词；模板自带的参考图会由执行端自动并入任务。禁止声称执行终端、脚本、任意文件读写、任意 HTTP、浏览器、数据库或插件。缺少绘图信息时返回 schemaVersion=1 的 assistant envelope，status=needs_input 并在 questions 中提出最多 3 个问题；无法完成时返回 status=rejected 和原因；信息完整时返回 status=ready 及逐图 plans，或调用 create_image_tasks。每个 plan 必须明确 resolution、ratio、quality、promptFidelity、referencePolicy 和 referenceIds；referencePolicy=optional 时如果 referenceIds 为空，默认沿用当前附图。参考图只有 ID 和元数据；不支持视觉的模型不能假装看到了图片内容。
 
 当前会话上下文：
 ${context.trim()}`;
+  const catalog = (templateCatalog || '').trim();
+  return catalog ? `${base}\n\n${catalog}` : base;
+}
+
+function readTemplates() {
+  try {
+    const templates = JSON.parse(localStorage.getItem('if_templates') || '[]');
+    return Array.isArray(templates) ? templates : [];
+  } catch {
+    return [];
+  }
+}
+
+function templateCatalogText(templates) {
+  if (!templates.length) return '';
+  const lines = ['可用提示词模板（可通过 plan.templateId 引用）：'];
+  for (const template of templates.slice(0, 50)) {
+    const title = (template.title || '').trim() || '未命名';
+    const refs = (template.referencePaths || []).length;
+    lines.push(
+      `- [${template.id || ''}] ${title}（参考图 ${refs} 张）：${String(
+        template.content || template.prompt || ''
+      )
+        .trim()
+        .slice(0, 60)}`
+    );
+  }
+  return lines.join('\n');
 }
 
 // ── 工具定义 ──
@@ -43,6 +71,7 @@ const TOOLS = [
                 promptFidelity: { enum: ['original', 'strict', 'off'] },
                 referencePolicy: { enum: ['use', 'optional', 'none'] },
                 referenceIds: { type: 'array', items: { type: 'string' } },
+                templateId: { type: 'string' },
               },
               required: [
                 'title',
@@ -76,6 +105,19 @@ const TOOLS = [
         },
         additionalProperties: false,
         anyOf: [{ required: ['taskGroupId'] }, { required: ['taskId'] }],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_templates',
+      description:
+        '只读列出本机提示词模板（id、标题、内容摘要、参考图数量）。用户要求使用模板绘画时先查询，再把模板 id 填入计划的 templateId。',
+      parameters: {
+        type: 'object',
+        properties: {},
+        additionalProperties: false,
       },
     },
   },
@@ -251,7 +293,10 @@ async function parseSSEStream(res, onDelta) {
 export async function runAgentTurn(provider, session, content, attachments, onEvent) {
   // 构建上下文
   const context = buildContext(session, attachments);
-  const systemMsg = { role: 'system', content: systemPrompt(context) };
+  const systemMsg = {
+    role: 'system',
+    content: systemPrompt(context, templateCatalogText(readTemplates())),
+  };
 
   // 构建消息列表；调用方（adapter-web）可能已把当前用户消息预写入会话，跳过避免重复
   const history = session.messages || [];
@@ -385,7 +430,35 @@ async function executeToolCall(name, args, session, attachments) {
   if (name === 'get_task_status') {
     return executeGetTaskStatus(args);
   }
+  if (name === 'list_templates') {
+    return executeListTemplates();
+  }
   return { value: null, error: `未知工具: ${name}` };
+}
+
+async function executeListTemplates() {
+  let templates;
+  try {
+    templates = JSON.parse(localStorage.getItem('if_templates') || '[]');
+  } catch {
+    templates = [];
+  }
+  const previewText = (value) => {
+    const compact = String(value || '').trim();
+    if (compact.length <= 200) return compact;
+    return `${compact.slice(0, 200)}…`;
+  };
+  return {
+    value: {
+      templates: (Array.isArray(templates) ? templates : []).slice(0, 50).map((t) => ({
+        id: t.id || '',
+        title: t.title || '',
+        preview: previewText(t.content || t.prompt || ''),
+        referenceCount: (t.referencePaths || []).length,
+      })),
+    },
+    error: '',
+  };
 }
 
 async function executeCreateImageTasks(args, session, attachments) {
@@ -396,6 +469,7 @@ async function executeCreateImageTasks(args, session, attachments) {
 
   const settings = JSON.parse(localStorage.getItem('if_settings') || '{}');
   const providers = settings.providers || [];
+  const templates = readTemplates();
 
   // 构建 attachment id -> path 映射
   const attachmentMap = new Map();
@@ -424,6 +498,19 @@ async function executeCreateImageTasks(args, session, attachments) {
     let refPaths = [];
     if (policy !== 'none') {
       refPaths = (plan.referenceIds || []).map((id) => attachmentMap.get(id) || '').filter(Boolean);
+    }
+
+    const templateId = (plan.templateId || '').trim();
+    if (templateId) {
+      const template = templates.find((t) => t.id === templateId);
+      if (!template) {
+        return { value: null, error: `模板不存在：${templateId}` };
+      }
+      if (policy !== 'none') {
+        for (const path of template.referencePaths || []) {
+          if (!refPaths.includes(path)) refPaths.push(path);
+        }
+      }
     }
 
     const provider =
