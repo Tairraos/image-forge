@@ -253,11 +253,16 @@ export async function runAgentTurn(provider, session, content, attachments, onEv
   const context = buildContext(session, attachments);
   const systemMsg = { role: 'system', content: systemPrompt(context) };
 
-  // 构建消息列表
-  const messages = [systemMsg];
-  for (const msg of session.messages || []) {
-    messages.push(agentMessageToChat(msg));
-  }
+  // 构建消息列表；调用方（adapter-web）可能已把当前用户消息预写入会话，跳过避免重复
+  const history = session.messages || [];
+  const last = history[history.length - 1];
+  const skipTrailingDuplicate =
+    Boolean(last) &&
+    last.role === 'user' &&
+    (last.content || '') === content &&
+    (content || '') !== '';
+  const historyMessages = skipTrailingDuplicate ? history.slice(0, -1) : history;
+  const messages = [systemMsg, ...agentMessagesToChat(historyMessages)];
   // 用户消息
   const userMsg = buildUserMessage(content, attachments);
   messages.push(userMsg);
@@ -561,7 +566,39 @@ function buildUserMessage(content, attachments) {
   };
 }
 
-function agentMessageToChat(msg) {
+const FOLD_TEXT_LIMIT = 400;
+
+// 历史消息重建：assistant 带 toolCall 时补齐配对的 tool 结果消息，
+// tool/task_group-only 消息折叠为 assistant 文本，避免产生孤立 role=tool 或未配对的 tool_calls。
+function agentMessagesToChat(messages) {
+  const seenToolCallIds = new Set();
+  const out = [];
+  for (const msg of messages || []) {
+    out.push(...agentMessageToChat(msg, seenToolCallIds));
+  }
+  return out;
+}
+
+function limitFoldText(text) {
+  const compact = String(text || '').trim();
+  if (compact.length <= FOLD_TEXT_LIMIT) return compact;
+  return `${compact.slice(0, FOLD_TEXT_LIMIT)}…`;
+}
+
+function taskGroupNote(taskGroup) {
+  if (!taskGroup) return '';
+  const count = taskGroup.taskIds?.length || 0;
+  const id = taskGroup.id ? `taskGroupId=${taskGroup.id}` : '';
+  return `（绘图任务组 ${id}：${taskGroup.status || 'unknown'}，共 ${count} 张）`;
+}
+
+function toolCallsOf(msg) {
+  if (Array.isArray(msg.toolCalls) && msg.toolCalls.length) return msg.toolCalls;
+  if (msg.toolCall) return [msg.toolCall];
+  return [];
+}
+
+function agentMessageToChat(msg, seenToolCallIds = new Set()) {
   if (msg.role === 'user') {
     // 用户消息可能包含附件
     const parts = [{ type: 'text', text: msg.content || '' }];
@@ -573,46 +610,105 @@ function agentMessageToChat(msg) {
         });
       }
     }
-    return {
-      role: 'user',
-      content: parts.length === 1 ? msg.content || '' : parts,
-    };
+    return [
+      {
+        role: 'user',
+        content: parts.length === 1 ? msg.content || '' : parts,
+      },
+    ];
   }
 
-  if (msg.role === 'assistant') {
-    const result = { role: 'assistant', content: msg.content || null };
-    if (msg.toolCall) {
-      result.tool_calls = [
-        {
-          id: msg.toolCall.id,
-          type: 'function',
-          function: {
-            name: msg.toolCall.name,
-            arguments: JSON.stringify(msg.toolCall.arguments),
+  const calls = toolCallsOf(msg);
+
+  // 历史里的 tool 消息（含跨端同步）：没有可配对的前置 assistant 时补一个；
+  // 重复的 tool_call_id 直接折叠为文本，避免出现孤立 tool 消息。
+  if (msg.role === 'tool' && calls.length) {
+    const out = [];
+    for (const call of calls) {
+      if (seenToolCallIds.has(call.id)) {
+        out.push({ role: 'assistant', content: `（已调用工具 ${call.name}）` });
+        continue;
+      }
+      seenToolCallIds.add(call.id);
+      out.push({
+        role: 'assistant',
+        content: null,
+        tool_calls: [
+          {
+            id: call.id,
+            type: 'function',
+            function: {
+              name: call.name,
+              arguments: JSON.stringify(call.arguments ?? {}),
+            },
           },
+        ],
+      });
+      out.push(syntheticToolResult(call));
+    }
+    return out;
+  }
+
+  if (msg.role === 'tool') {
+    // task_group / task_result 等没有 tool_call 的消息：折叠为 assistant 文本
+    if (msg.taskGroup) {
+      return [
+        {
+          role: 'assistant',
+          content: `已创建 ${(msg.taskGroup.taskIds || []).length} 个绘图任务${taskGroupNote(msg.taskGroup)}`,
         },
       ];
     }
-    return result;
+    return [{ role: 'assistant', content: limitFoldText(msg.content) }];
   }
 
-  if (msg.role === 'tool' && msg.toolCall) {
-    return {
-      role: 'tool',
-      tool_call_id: msg.toolCall.id,
-      name: msg.toolCall.name,
-      content: JSON.stringify({
-        result: msg.toolCall.result || null,
-        error: msg.toolCall.error || '',
-      }),
-    };
+  if (msg.role === 'assistant') {
+    let content = msg.content || null;
+    if (msg.taskGroup && !calls.length) {
+      const note = taskGroupNote(msg.taskGroup);
+      content = content ? `${content}\n\n${note}` : note;
+    }
+    if (!calls.length) {
+      return [{ role: 'assistant', content }];
+    }
+    const out = [
+      {
+        role: 'assistant',
+        content,
+        tool_calls: calls.map((call) => ({
+          id: call.id,
+          type: 'function',
+          function: {
+            name: call.name,
+            arguments: JSON.stringify(call.arguments ?? {}),
+          },
+        })),
+      },
+    ];
+    for (const call of calls) {
+      if (seenToolCallIds.has(call.id)) continue;
+      seenToolCallIds.add(call.id);
+      out.push(syntheticToolResult(call));
+    }
+    return out;
   }
 
-  return { role: msg.role || 'user', content: msg.content || '' };
+  return [{ role: msg.role || 'user', content: msg.content || '' }];
+}
+
+function syntheticToolResult(call) {
+  return {
+    role: 'tool',
+    tool_call_id: call.id,
+    name: call.name,
+    content: limitFoldText(
+      JSON.stringify({ result: call.result ?? null, error: call.error ?? '' })
+    ),
+  };
 }
 
 function finalizeSession(session, messages, result) {
-  // 把 assistant 消息持久化到 session
+  // 把 assistant 消息持久化到 session（toolCalls 全量落盘，toolCall 保留首项兼容旧 UI）
   const now = new Date().toISOString();
   const assistantMsg = {
     id: `web-msg-${Date.now()}`,
@@ -629,6 +725,7 @@ function finalizeSession(session, messages, result) {
           }
         : null,
     toolCall: result.toolCalls.length > 0 ? result.toolCalls[0] : null,
+    toolCalls: result.toolCalls,
     questions: result.questions || [],
   };
 

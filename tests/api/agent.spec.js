@@ -387,6 +387,86 @@ describe('Envelope 降级与非流式回退', () => {
   });
 });
 
+describe('多轮对话历史重建', () => {
+  const imagePlan = {
+    title: '柴犬',
+    prompt: '一只柴犬',
+    resolution: 'standard',
+    ratio: '1:1',
+    quality: 'high',
+    promptFidelity: 'original',
+    referencePolicy: 'none',
+    referenceIds: [],
+  };
+
+  it('第二轮请求中历史工具消息正确配对且用户消息不重复', async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        sseResponse(
+          toolCallChunks('call-h1', 'create_image_tasks', JSON.stringify({ plans: [imagePlan] }))
+        )
+      )
+      .mockResolvedValueOnce(sseResponse([textChunk('第一轮完成'), 'data: [DONE]\n\n']));
+    const session = await runAgentTurn(chatProvider, newSession('sess-m1'), '画柴犬', [], () => {});
+
+    fetchMock.mockResolvedValueOnce(sseResponse([textChunk('第二轮回复'), 'data: [DONE]\n\n']));
+    await runAgentTurn(chatProvider, session, '再来一张', [], () => {});
+
+    const payload = JSON.parse(fetchMock.mock.calls[2][1].body);
+    const msgs = payload.messages;
+    expect(msgs.filter((m) => m.role === 'user' && m.content === '再来一张')).toHaveLength(1);
+    expect(msgs.at(-1)).toEqual({ role: 'user', content: '再来一张' });
+    for (let i = 0; i < msgs.length; i++) {
+      if (msgs[i].role === 'tool') {
+        expect(msgs[i - 1]?.role).toBe('assistant');
+        expect(msgs[i - 1].tool_calls.map((c) => c.id)).toContain(msgs[i].tool_call_id);
+      }
+      if (msgs[i].tool_calls) {
+        expect(msgs[i + 1]?.role).toBe('tool');
+      }
+    }
+    const historyTool = msgs.find((m) => m.role === 'tool' && m.content.includes('task-1'));
+    expect(historyTool).toBeTruthy();
+  });
+
+  it('跨端同步来的 task_group 消息在重建时折叠为 assistant 文本', async () => {
+    const session = newSession('sess-m2');
+    session.messages.push({
+      id: 'm1',
+      role: 'tool',
+      status: 'task_group',
+      content: '已创建 1 个绘图任务',
+      taskGroup: { id: 'tg-x', status: 'completed', taskIds: ['t-1'], titles: ['海报'] },
+    });
+
+    fetchMock.mockResolvedValueOnce(sseResponse([textChunk('好的'), 'data: [DONE]\n\n']));
+    await runAgentTurn(chatProvider, session, '继续', [], () => {});
+
+    const payload = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(payload.messages.some((m) => m.role === 'tool')).toBe(false);
+    const folded = payload.messages.find(
+      (m) => m.role === 'assistant' && (m.content || '').includes('tg-x')
+    );
+    expect(folded).toBeTruthy();
+    expect(folded.content).toContain('已创建 1 个绘图任务');
+  });
+
+  it('finalizeSession 全量落盘 toolCalls 且 toolCall 保留首项兼容旧 UI', async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        sseResponse(
+          toolCallChunks('call-h2', 'create_image_tasks', JSON.stringify({ plans: [imagePlan] }))
+        )
+      )
+      .mockResolvedValueOnce(sseResponse([textChunk('完成'), 'data: [DONE]\n\n']));
+    const session = await runAgentTurn(chatProvider, newSession('sess-m3'), '画', [], () => {});
+
+    const lastMsg = session.messages.at(-1);
+    expect(lastMsg.toolCalls).toHaveLength(1);
+    expect(lastMsg.toolCall.id).toBe(lastMsg.toolCalls[0].id);
+  });
+});
+
 describe('导出契约', () => {
   it('schema 版本与工具清单', () => {
     expect(AGENT_SCHEMA_VERSION).toBe(1);
