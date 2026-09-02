@@ -173,7 +173,12 @@ pub(crate) async fn send_agent_message(
         "role": "system",
         "content": agent_system_prompt(&context, &template_catalog),
     })];
-    chat_messages.extend(context_messages.iter().map(agent_message_to_chat_value));
+    let chat_vision = provider.chat_vision;
+    chat_messages.extend(
+        context_messages
+            .iter()
+            .map(|message| agent_message_to_chat_value(message, chat_vision)),
+    );
     let task_provider = provider.clone();
     let task_messages = chat_messages;
     let user_confirmation = content.clone();
@@ -411,7 +416,10 @@ fn agent_chat_provider(
     Ok(provider.clone())
 }
 
-pub(crate) fn agent_message_to_chat_value(message: &AgentMessage) -> serde_json::Value {
+pub(crate) fn agent_message_to_chat_value(
+    message: &AgentMessage,
+    chat_vision: bool,
+) -> serde_json::Value {
     // 历史里的 tool / task_group 消息没有可配对的 assistant tool_calls（中间消息不落盘），
     // 原样转换会产生孤立 role=tool 消息，严格的 OpenAI 兼容端点会拒绝；统一折叠为 assistant 文本。
     if message.role == "tool" {
@@ -464,10 +472,44 @@ pub(crate) fn agent_message_to_chat_value(message: &AgentMessage) -> serde_json:
             serde_json::to_string(&message.questions).unwrap_or_default()
         ));
     }
+    if message.role == "user" && chat_vision && !message.attachments.is_empty() {
+        let mut parts = vec![serde_json::json!({ "type": "text", "text": content })];
+        let mut attached = false;
+        for attachment in &message.attachments {
+            if let Some(data_url) = read_attachment_data_url(attachment) {
+                parts.push(serde_json::json!({
+                    "type": "image_url",
+                    "image_url": { "url": data_url, "detail": "auto" }
+                }));
+                attached = true;
+            }
+        }
+        if attached {
+            return serde_json::json!({ "role": "user", "content": parts });
+        }
+    }
     serde_json::json!({
         "role": message.role,
         "content": content,
     })
+}
+
+/// 视觉对话模型开启时读取附件为 data URL；读取失败则跳过该图（仅保留元数据文本）。
+fn read_attachment_data_url(attachment: &AgentAttachment) -> Option<String> {
+    let bytes = fs::read(&attachment.path).ok()?;
+    if bytes.is_empty() {
+        return None;
+    }
+    use base64::Engine as _;
+    let mime = if attachment.mime_type.trim().is_empty() {
+        "image/png"
+    } else {
+        attachment.mime_type.trim()
+    };
+    Some(format!(
+        "data:{mime};base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    ))
 }
 
 const FOLD_TEXT_LIMIT: usize = 400;
@@ -784,7 +826,7 @@ fn create_agent_direct_image_task_in_data_dir(
             created_at: utc_now(),
         },
     )?;
-    create_agent_image_tasks_in_data_dir(data_dir, session_id, vec![plan])
+    create_agent_image_tasks_with_origin(data_dir, session_id, vec![plan], "agent-direct")
 }
 
 /// 按 plan 的参考策略解析参考图路径：会话附图 + 模板参考图（去重；policy=none 时忽略模板图，
@@ -835,6 +877,17 @@ fn create_agent_image_tasks_in_data_dir(
     data_dir: &Path,
     session_id: String,
     plans: Vec<AgentImagePlan>,
+) -> Result<AgentTaskGroup, String> {
+    create_agent_image_tasks_with_origin(data_dir, session_id, plans, "agent")
+}
+
+/// `origin` 区分任务来源：`agent`（对话生图）或 `agent-direct`（输入区直接绘画），
+/// 图库按来源筛选依赖该标记。
+fn create_agent_image_tasks_with_origin(
+    data_dir: &Path,
+    session_id: String,
+    plans: Vec<AgentImagePlan>,
+    origin: &str,
 ) -> Result<AgentTaskGroup, String> {
     if plans.is_empty() || plans.len() > 12 {
         return Err("图片计划数量必须在 1 到 12 之间".into());
@@ -927,6 +980,9 @@ fn create_agent_image_tasks_in_data_dir(
         plan.quality = task.request.quality.clone();
         plan.prompt_fidelity = task.request.prompt_fidelity.clone();
         titles.push(plan.title.clone());
+        if origin != "agent" {
+            task.record.origin = origin.into();
+        }
         task.record.agent_plan = Some(plan);
     }
     let tasks = commit_generation_batch(data_dir, &prepared)?;
@@ -1404,6 +1460,44 @@ pub(crate) fn retry_task(app: AppHandle, task_id: String) -> Result<TaskRecord, 
     ensure_queue_worker(&app);
     let _ = emit_queue_updated(&app, &data_dir);
     Ok(next)
+}
+
+#[tauri::command]
+/// 以原任务的请求参数重新创建一个新任务（再来一张），原任务与已生成图片保留。
+pub(crate) fn redraw_task(app: AppHandle, task_id: String) -> Result<TaskRecord, String> {
+    let data_dir = ensure_data_dir(&app)?;
+    let result = redraw_task_in_data_dir(&data_dir, &task_id);
+    if result.is_ok() {
+        let _ = emit_queue_updated(&app, &data_dir);
+        ensure_queue_worker(&app);
+    }
+    record_result("重画任务", &format!("task_id={task_id}"), None, &result);
+    result
+}
+
+fn redraw_task_in_data_dir(data_dir: &Path, task_id: &str) -> Result<TaskRecord, String> {
+    let history = read_history(data_dir)?;
+    let source = history
+        .iter()
+        .find(|record| record.id == task_id)
+        .ok_or("找不到要重画的任务")?;
+    let request: GenerateRequest = read_json(&request_path(data_dir, task_id))?;
+    let session_id = source.agent_session_id.clone();
+    let group_id = source.task_group_id.clone();
+    let origin = source.origin.clone();
+    let settings = read_settings(data_dir)?;
+    let agent_origin = if session_id.trim().is_empty() || group_id.trim().is_empty() {
+        None
+    } else {
+        Some((session_id.as_str(), group_id.as_str()))
+    };
+    let mut prepared =
+        prepare_generation_batch(data_dir, &settings, vec![request], agent_origin)?;
+    if !origin.is_empty() && origin != "agent" {
+        prepared[0].record.origin = origin;
+    }
+    let mut records = commit_generation_batch(data_dir, &prepared)?;
+    records.pop().ok_or_else(|| "重画任务准备失败".into())
 }
 
 #[tauri::command]
@@ -2173,7 +2267,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(group.tasks.len(), 1);
-        assert_eq!(group.tasks[0].origin, "agent");
+        assert_eq!(group.tasks[0].origin, "agent-direct");
         assert_eq!(group.tasks[0].reference_paths.len(), 1);
         assert_eq!(
             group.tasks[0].agent_plan.as_ref().unwrap().reference_ids,
@@ -2230,7 +2324,7 @@ mod tests {
             created_at: utc_now(),
         };
 
-        let value = agent_message_to_chat_value(&message);
+        let value = agent_message_to_chat_value(&message, false);
         let content = value
             .get("content")
             .and_then(serde_json::Value::as_str)
@@ -2240,6 +2334,55 @@ mod tests {
         assert!(content.contains("\"fileName\":\"reference.png\""));
         assert!(content.contains("\"mimeType\":\"image/png\""));
         assert!(!content.contains("/Users/xiaole/secret/reference.png"));
+    }
+
+    #[test]
+    fn chat_vision_attaches_images_as_data_url_parts() {
+        let data_dir = command_test_data_dir("chat-vision");
+        let image_path = data_dir.join("vision-ref.png");
+        std::fs::write(&image_path, b"\x89PNG fake-bytes").unwrap();
+        let message = AgentMessage {
+            id: "m-vision".into(),
+            role: "user".into(),
+            status: "user".into(),
+            content: "参考这张图".into(),
+            attachments: vec![AgentAttachment {
+                id: "ref-v".into(),
+                path: image_path.to_string_lossy().into_owned(),
+                file_name: "vision-ref.png".into(),
+                mime_type: "image/png".into(),
+                width: Some(8),
+                height: Some(8),
+            }],
+            tool_call: None,
+            questions: Vec::new(),
+            task_group: None,
+            error: String::new(),
+            created_at: utc_now(),
+        };
+
+        let with_vision = agent_message_to_chat_value(&message, true);
+        let parts = with_vision
+            .get("content")
+            .and_then(serde_json::Value::as_array)
+            .unwrap();
+        assert_eq!(parts[0]["type"], "text");
+        assert!(parts[0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("<reference_attachments>"));
+        assert_eq!(parts[1]["type"], "image_url");
+        assert!(parts[1]["image_url"]["url"]
+            .as_str()
+            .unwrap()
+            .starts_with("data:image/png;base64,"));
+
+        let without_vision = agent_message_to_chat_value(&message, false);
+        assert!(without_vision
+            .get("content")
+            .and_then(serde_json::Value::as_str)
+            .is_some());
+        recycle(&data_dir);
     }
 
     #[test]
@@ -2344,7 +2487,7 @@ mod tests {
 
         let rebuilt = messages
             .iter()
-            .map(agent_message_to_chat_value)
+            .map(|message| agent_message_to_chat_value(message, false))
             .collect::<Vec<_>>();
         assert!(rebuilt
             .iter()
@@ -2408,7 +2551,7 @@ mod tests {
             created_at: utc_now(),
         };
 
-        let value = agent_message_to_chat_value(&message);
+        let value = agent_message_to_chat_value(&message, false);
         assert_eq!(
             value.get("role").and_then(serde_json::Value::as_str),
             Some("assistant")
@@ -2433,6 +2576,7 @@ mod tests {
             proxy_url: String::new(),
             image_model: "model-a".into(),
             images_concurrency: 1,
+            chat_vision: false,
             enabled: true,
             notes: String::new(),
         };
@@ -2445,6 +2589,7 @@ mod tests {
             proxy_url: String::new(),
             image_model: "model-b".into(),
             images_concurrency: 1,
+            chat_vision: false,
             enabled: true,
             notes: String::new(),
         };
@@ -2481,6 +2626,34 @@ mod tests {
         let data_dir = command_test_data_dir("missing-task-status");
         let error = task_status_records(&data_dir, "missing-group", "").unwrap_err();
         assert!(error.contains("找不到任务"));
+        recycle(&data_dir);
+    }
+
+    #[test]
+    fn redraw_task_creates_new_task_with_same_request_and_group() {
+        let (data_dir, agent_session, reference_id) = agent_task_data_dir("redraw-task");
+        let group = create_agent_image_tasks_in_data_dir(
+            &data_dir,
+            agent_session.id.clone(),
+            vec![agent_plan("重画原图", "use", &[&reference_id])],
+        )
+        .unwrap();
+        let source = group.tasks[0].clone();
+
+        let redrawn = redraw_task_in_data_dir(&data_dir, &source.id).unwrap();
+
+        assert_ne!(redrawn.id, source.id);
+        assert_eq!(redrawn.prompt, source.prompt);
+        assert_eq!(redrawn.status, "queued");
+        assert_eq!(redrawn.origin, "agent");
+        assert_eq!(redrawn.task_group_id, source.task_group_id);
+        assert_eq!(redrawn.agent_session_id, source.agent_session_id);
+        let history = read_history(&data_dir).unwrap();
+        assert_eq!(history.len(), 2);
+        let queue = read_queue(&data_dir).unwrap();
+        assert!(queue.waiting.contains(&redrawn.id));
+
+        assert!(redraw_task_in_data_dir(&data_dir, "missing-task").is_err());
         recycle(&data_dir);
     }
 
@@ -2584,6 +2757,7 @@ mod tests {
             proxy_url: String::new(),
             image_model: "gpt-image-1".into(),
             images_concurrency: 1,
+            chat_vision: false,
             enabled: true,
             notes: String::new(),
         };

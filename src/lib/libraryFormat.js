@@ -1,10 +1,26 @@
 // 图片库相关的任务与日期格式化工具，供独立图片库与 agent 内嵌图片库共用。
 export function taskSource(task) {
+  if (task.origin === 'agent-direct') return 'direct';
   return task.origin === 'agent' || task.agentSessionId || task.taskGroupId ? 'agent' : 'drawing';
 }
 
+const TASK_SOURCE_LABELS = {
+  agent: 'Agent',
+  direct: '直接绘画',
+  drawing: '绘画',
+};
+
 export function taskSourceLabel(task) {
-  return taskSource(task) === 'agent' ? 'Agent' : '绘画';
+  return TASK_SOURCE_LABELS[taskSource(task)] || '绘画';
+}
+
+export function taskSourceOptions() {
+  return [
+    { label: '全部来源', value: 'all' },
+    { label: 'Agent 对话', value: 'agent' },
+    { label: '直接绘画', value: 'direct' },
+    { label: '绘画', value: 'drawing' },
+  ];
 }
 
 export function taskTime(task) {

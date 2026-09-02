@@ -117,6 +117,7 @@
         @reveal-output="$emit('reveal-output', $event)"
         @reference-to-agent="handleReferenceToAgent"
         @add-to-template="$emit('add-to-template', $event)"
+        @redraw-task="$emit('redraw-task', $event)"
       />
       <template v-else>
         <AgentMessageList
@@ -129,6 +130,7 @@
           @preview-images="$emit('preview-images', $event)"
           @cancel-task-group="$emit('cancel-task-group', $event)"
           @retry-task-group="$emit('retry-task-group', $event)"
+          @redraw-task-group="$emit('redraw-task-group', $event)"
           @retry="$emit('retry', $event)"
           @update-answer="$emit('update-answer', $event)"
           @answer-questions="$emit('answer-questions', $event)"
@@ -217,6 +219,8 @@ const emit = defineEmits([
   'update:resolution',
   'reference-to-agent',
   'add-to-template',
+  'redraw-task',
+  'redraw-task-group',
 ]);
 
 const panel = ref('chat');

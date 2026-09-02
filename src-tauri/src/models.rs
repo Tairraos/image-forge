@@ -45,6 +45,9 @@ pub struct ApiProvider {
     pub image_model: String,
     #[serde(default = "default_provider_concurrency")]
     pub images_concurrency: u8,
+    /// 对话模型是否支持视觉输入；开启后 Agent 会把附件图片一并发给对话模型。
+    #[serde(default)]
+    pub chat_vision: bool,
     #[serde(default = "default_true")]
     pub enabled: bool,
     #[serde(default)]
@@ -62,6 +65,7 @@ impl Default for ApiProvider {
             proxy_url: String::new(),
             image_model: default_image_model(),
             images_concurrency: default_provider_concurrency(),
+            chat_vision: false,
             enabled: true,
             notes: String::new(),
         }

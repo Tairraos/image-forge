@@ -71,6 +71,8 @@
         @update:resolution="form.resolution = $event"
         @reference-to-agent="handleLibraryReferenceToAgent"
         @add-to-template="handleLibraryAddToTemplate"
+        @redraw-task="handleRedrawTask"
+        @redraw-task-group="handleRedrawTaskGroup"
       />
 
       <template #footer>
@@ -829,6 +831,33 @@ async function cancelAgentTaskGroup(group) {
     if (currentAgentSessionId.value) await selectAgentConversation(currentAgentSessionId.value);
     await refreshAgentTaskGroups();
     setStatus('Agent 任务组已取消', 'ok');
+  } catch (error) {
+    setStatus(String(error), 'error');
+  }
+}
+
+// 以原任务请求重新排队一个新任务（再来一张），原任务与图片保留。
+async function handleRedrawTask({ task }) {
+  if (!task?.id) return;
+  try {
+    await api.redrawTask(task.id);
+    await refreshQueueOnly();
+    agentLibraryVersion.value += 1;
+    setStatus('已按原参数重新排队', 'ok');
+  } catch (error) {
+    setStatus(String(error), 'error');
+  }
+}
+
+async function handleRedrawTaskGroup(group) {
+  const taskId = group?.taskIds?.[0];
+  if (!taskId) return;
+  try {
+    await api.redrawTask(taskId);
+    await refreshQueueOnly();
+    if (currentAgentSessionId.value) await selectAgentConversation(currentAgentSessionId.value);
+    await refreshAgentTaskGroups();
+    setStatus('已按原参数重新排队', 'ok');
   } catch (error) {
     setStatus(String(error), 'error');
   }

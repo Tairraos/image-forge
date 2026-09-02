@@ -20,6 +20,7 @@ export const {
   cancelAgentTurn,
   fillPromptTemplate,
   cancelAgentTaskGroup,
+  redrawTask,
   retryAgentTaskGroup,
   getTaskStatus,
   queueSnapshot,

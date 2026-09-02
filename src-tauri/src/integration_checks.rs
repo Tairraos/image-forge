@@ -165,7 +165,7 @@ pub fn verify_multi_turn_context_rebuild() -> Result<(), String> {
 
     let rebuilt = messages
         .iter()
-        .map(crate::commands::agent_message_to_chat_value)
+        .map(|message| crate::commands::agent_message_to_chat_value(message, false))
         .collect::<Vec<_>>();
     for value in &rebuilt {
         let role = value

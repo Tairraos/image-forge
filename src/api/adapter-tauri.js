@@ -34,6 +34,7 @@ export const cancelAgentTaskGroup = (taskGroupId) =>
   invoke('cancel_agent_task_group', { taskGroupId });
 export const retryAgentTaskGroup = (taskGroupId) =>
   invoke('retry_agent_task_group', { taskGroupId });
+export const redrawTask = (taskId) => invoke('redraw_task', { taskId });
 export const getTaskStatus = (taskGroupId, taskId) =>
   invoke('get_task_status', { taskGroupId, taskId });
 

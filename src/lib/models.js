@@ -44,6 +44,7 @@ export function defaultProvider(index = 1, modelType = 'image-gpt') {
     // 对话默认 gpt-5.6-luna；绘图默认 gpt-image-2
     imageModel: isChat ? DEFAULT_CHAT_MODEL : DEFAULT_IMAGE_MODEL,
     imagesConcurrency: 1,
+    chatVision: false,
     enabled: true,
     notes: '',
   };
@@ -60,6 +61,7 @@ export function normalizeSettingsForUi(value) {
     modelType: normalizeModelType(provider.modelType, provider.imageModel, provider.baseUrl),
     proxyUrl: provider.proxyUrl || '',
     imagesConcurrency: 1,
+    chatVision: Boolean(provider.chatVision),
     notes: '',
   }));
 

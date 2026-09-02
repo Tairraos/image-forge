@@ -142,6 +142,7 @@ pub fn run() {
             commands::move_template,
             commands::queue_snapshot,
             commands::read_api_providers_file,
+            commands::redraw_task,
             commands::reference_from_clipboard,
             commands::reference_from_path,
             commands::rename_agent_session,

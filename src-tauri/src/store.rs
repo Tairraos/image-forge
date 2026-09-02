@@ -125,6 +125,7 @@ pub(crate) fn normalize_settings(mut settings: Settings) -> Settings {
                 settings.image_model.clone()
             },
             images_concurrency: default_provider_concurrency(),
+            chat_vision: false,
             enabled: true,
             notes: String::new(),
         }];
@@ -1022,6 +1023,7 @@ fn normalize_provider(provider: ApiProvider, index: usize) -> ApiProvider {
         proxy_url: provider.proxy_url.trim().to_string(),
         image_model: clean_text(provider.image_model, DEFAULT_IMAGE_MODEL),
         images_concurrency: default_provider_concurrency(),
+        chat_vision: provider.chat_vision,
         enabled: provider.enabled,
         notes: String::new(),
     }
@@ -1152,6 +1154,7 @@ mod transaction_tests {
             proxy_url: String::new(),
             image_model: "gpt-image-1".into(),
             images_concurrency: concurrency,
+            chat_vision: false,
             enabled: true,
             notes: String::new(),
         };

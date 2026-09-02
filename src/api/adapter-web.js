@@ -168,7 +168,7 @@ export async function createAgentDirectImageTask(sessionId, content, attachments
         return att?.path || '';
       })
       .filter(Boolean),
-    origin: 'agent',
+    origin: 'agent-direct',
     agent_session_id: sessionId,
     task_group_id: `web-tg-${Date.now()}`,
   };
@@ -333,6 +333,38 @@ export async function cancelAgentTaskGroup(taskGroupId) {
 
 export async function retryAgentTaskGroup(taskGroupId) {
   queue.retryTaskGroup(taskGroupId);
+}
+
+export async function redrawTask(taskId) {
+  const tasks = await db.getAllTasks();
+  const source = tasks.find((t) => t.id === taskId);
+  if (!source) throw new Error('找不到要重画的任务');
+  const settings = readJSON(KEYS.settings) || { providers: [] };
+  const provider =
+    (settings.providers || []).find((p) => p.id === source.provider_id) ||
+    (settings.providers || []).find((p) => p.modelType !== 'chat') ||
+    settings.providers?.[0];
+  if (!provider) throw new Error('没有可用的生图 API 配置');
+  const request = {
+    prompt: source.prompt || '',
+    ratio: source.params?.ratio || '1:1',
+    resolution: source.params?.resolution || '1K',
+    count: source.params?.count || 1,
+    output_format: source.params?.output_format || 'png',
+    quality: source.params?.quality || '',
+    background: source.params?.background || '',
+    size: source.params?.size || '',
+    reference_paths: source.reference_paths || [],
+    origin: source.origin || 'agent',
+    agent_session_id: source.agent_session_id || '',
+    task_group_id: source.task_group_id || `web-tg-${Date.now()}`,
+  };
+  const task = queue.enqueueTask(request, provider);
+  return {
+    id: source.task_group_id || task.task_group_id,
+    status: 'queued',
+    taskIds: [task.id],
+  };
 }
 
 export async function referenceFromPath(path) {

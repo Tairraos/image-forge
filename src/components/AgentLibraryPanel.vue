@@ -97,6 +97,18 @@
                       <template #trigger>
                         <button
                           type="button"
+                          aria-label="再来一张"
+                          @click.stop="$emit('redraw-task', { task, output })"
+                        >
+                          <RotateCcw :size="14" />
+                        </button>
+                      </template>
+                      再来一张
+                    </n-tooltip>
+                    <n-tooltip trigger="hover" :delay="0">
+                      <template #trigger>
+                        <button
+                          type="button"
                           aria-label="下载图片"
                           @click.stop="$emit('download-output', output)"
                         >
@@ -144,6 +156,17 @@
       >
         <template #prefix><Search :size="15" /></template>
       </n-input>
+      <n-popselect
+        v-model:value="sourceFilter"
+        :options="sourceOptions"
+        placement="top-start"
+        trigger="click"
+      >
+        <button class="agent-library-month" type="button" aria-label="按来源筛选">
+          <Filter :size="15" />
+          <span>{{ sourceLabel }}</span>
+        </button>
+      </n-popselect>
       <n-popselect
         v-model:value="month"
         :options="monthOptions"
@@ -193,9 +216,11 @@ import {
   ChevronRight,
   Copy,
   Download,
+  Filter,
   FolderOpen,
   Images,
   Link2,
+  RotateCcw,
   Search,
   Trash2,
 } from '@lucide/vue';
@@ -209,6 +234,8 @@ import {
   formatTime,
   monthKey,
   previewItem,
+  taskSource,
+  taskSourceOptions,
   taskTime,
 } from '../lib/libraryFormat';
 import * as api from '../api/index.js';
@@ -223,6 +250,7 @@ const emit = defineEmits([
   'reveal-output',
   'reference-to-agent',
   'add-to-template',
+  'redraw-task',
 ]);
 
 const month = ref(monthKey(new Date()));
@@ -230,8 +258,19 @@ const query = ref('');
 const months = ref([]);
 const tasks = ref([]);
 const loading = ref(false);
+const sourceFilter = ref('all');
 let queryTimer = 0;
 let requestId = 0;
+
+const sourceOptions = taskSourceOptions();
+const sourceLabel = computed(
+  () => sourceOptions.find((option) => option.value === sourceFilter.value)?.label || '全部来源'
+);
+const filteredTasks = computed(() =>
+  sourceFilter.value === 'all'
+    ? tasks.value
+    : tasks.value.filter((task) => taskSource(task) === sourceFilter.value)
+);
 
 const searching = computed(() => query.value.trim() !== '');
 const monthLabel = computed(() => formatMonth(month.value));
@@ -259,11 +298,11 @@ const nextMonth = computed(() => {
 });
 
 const visibleImages = computed(() =>
-  tasks.value.flatMap((task) => task.outputs.map((output) => previewItem(task, output)))
+  filteredTasks.value.flatMap((task) => task.outputs.map((output) => previewItem(task, output)))
 );
 const dayGroups = computed(() => {
   const groups = new Map();
-  for (const task of tasks.value) {
+  for (const task of filteredTasks.value) {
     const date = dateKey(taskTime(task));
     if (!date) continue;
     if (!groups.has(date)) groups.set(date, []);

@@ -54,6 +54,11 @@
             />
             <n-input v-else :value="chatModelTypeLabel" readonly disabled />
           </n-form-item>
+          <n-form-item v-if="kind === 'chat'" label="视觉输入">
+            <n-checkbox v-model:checked="selectedProvider.chatVision">
+              对话模型支持图片理解（Agent 会把参考图一并发送）
+            </n-checkbox>
+          </n-form-item>
           <p v-if="modelFetchMessage" class="model-fetch-message" :data-tone="modelFetchTone">
             {{ modelFetchMessage }}
           </p>

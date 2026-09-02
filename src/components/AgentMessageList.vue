@@ -77,6 +77,14 @@
           >
             重试
           </n-button>
+          <n-button
+            v-if="message.taskGroup.status === 'completed' && message.taskGroup.taskIds?.length"
+            size="tiny"
+            secondary
+            @click="$emit('redraw-task-group', message.taskGroup)"
+          >
+            再来一张
+          </n-button>
         </div>
         <div v-if="message.taskGroup.images?.length" class="agent-generated-thumbs">
           <button
@@ -152,6 +160,7 @@ defineEmits([
   'preview-images',
   'cancel-task-group',
   'retry-task-group',
+  'redraw-task-group',
   'retry',
   'update-answer',
   'answer-questions',
