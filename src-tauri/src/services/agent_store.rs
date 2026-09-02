@@ -4,8 +4,11 @@ use uuid::Uuid;
 
 use crate::{
     history_db,
-    models::{AgentMessage, AgentSession, AGENT_SCHEMA_VERSION},
-    store::{agent_session_path, list_agent_sessions, read_agent_session, write_agent_session},
+    models::{AgentMessage, AgentSession, AgentTaskGroupSummary, AGENT_SCHEMA_VERSION},
+    store::{
+        agent_session_path, list_agent_sessions, read_agent_session, read_history,
+        write_agent_session,
+    },
     utils::{recycle_path, utc_now},
 };
 
@@ -71,6 +74,124 @@ pub(crate) fn save_session(
     session.updated_at = utc_now();
     write_agent_session(data_dir, &session)?;
     Ok(session)
+}
+
+/// 队列 worker 在任务达到终态后调用：刷新会话内任务组摘要状态；
+/// 整组到达 completed / failed 时追加一条 task_result 消息，让下一轮对话感知生图结果。
+/// 重复调用是幂等的（同组只追加一次），并发场景由进程内互斥锁串行化。
+pub(crate) fn record_agent_task_result(
+    data_dir: &Path,
+    session_id: &str,
+    task_group_id: &str,
+) -> Result<(), String> {
+    if session_id.trim().is_empty() || task_group_id.trim().is_empty() {
+        return Ok(());
+    }
+    static TASK_RESULT_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = TASK_RESULT_LOCK
+        .lock()
+        .map_err(|_| "任务组回写状态锁定失败")?;
+    let records = read_history(data_dir)?
+        .into_iter()
+        .filter(|record| record.task_group_id == task_group_id)
+        .collect::<Vec<_>>();
+    if records.is_empty() {
+        return Ok(());
+    }
+    let statuses = records
+        .iter()
+        .map(|record| record.status.as_str())
+        .collect::<Vec<_>>();
+    let group_status = summarize_group_status(&statuses);
+    let mut session = session(data_dir, session_id)?;
+    let mut changed = false;
+    for message in &mut session.messages {
+        if let Some(group) = &mut message.task_group {
+            if group.id == task_group_id && group.status != group_status {
+                group.status = group_status.clone();
+                changed = true;
+            }
+        }
+    }
+    let terminal = matches!(group_status.as_str(), "completed" | "failed");
+    let already_recorded = session.messages.iter().any(|message| {
+        message.status == "task_result" && message.content.contains(task_group_id)
+    });
+    if terminal && !already_recorded {
+        let succeeded = records
+            .iter()
+            .filter(|record| record.status == "completed")
+            .count();
+        let failed = records
+            .iter()
+            .filter(|record| record.status == "failed")
+            .count();
+        let content = if group_status == "completed" {
+            let paths = records
+                .iter()
+                .flat_map(|record| record.outputs.iter().map(|output| output.path.clone()))
+                .collect::<Vec<_>>();
+            if paths.is_empty() {
+                format!("[taskGroupId={task_group_id}] 绘图任务组已完成，共 {} 张", records.len())
+            } else {
+                format!(
+                    "[taskGroupId={task_group_id}] 绘图任务组已完成，共 {} 张：{}",
+                    paths.len(),
+                    paths.join("、")
+                )
+            }
+        } else {
+            let first_error = records
+                .iter()
+                .find_map(|record| record.error.clone())
+                .unwrap_or_default();
+            format!(
+                "[taskGroupId={task_group_id}] 绘图任务组未全部成功：成功 {succeeded} 张，失败 {failed} 张。{first_error}"
+            )
+        };
+        session.messages.push(AgentMessage {
+            id: Uuid::new_v4().to_string(),
+            role: "tool".into(),
+            status: "task_result".into(),
+            content,
+            attachments: Vec::new(),
+            tool_call: None,
+            questions: Vec::new(),
+            task_group: None,
+            error: String::new(),
+            created_at: utc_now(),
+        });
+        changed = true;
+    }
+    if changed {
+        save_session(data_dir, session)?;
+    }
+    Ok(())
+}
+
+fn summarize_group_status(statuses: &[&str]) -> String {
+    if statuses.is_empty() {
+        return "missing".into();
+    }
+    if statuses.iter().any(|status| *status == "cancelling") {
+        return "cancelling".into();
+    }
+    if statuses.iter().any(|status| *status == "running") {
+        return "running".into();
+    }
+    if statuses.iter().any(|status| *status == "queued") {
+        return "queued".into();
+    }
+    if statuses.iter().all(|status| *status == "completed") {
+        return "completed".into();
+    }
+    if statuses.iter().any(|status| *status == "failed") {
+        return "failed".into();
+    }
+    if statuses.iter().any(|status| *status == "cancelled") {
+        return "cancelled".into();
+    }
+    "missing".into()
 }
 pub(crate) fn rename_session(
     data_dir: &Path,
@@ -329,8 +450,83 @@ mod tests {
     }
 
     #[test]
-    fn prepare_context_keeps_recent_messages_and_builds_summary() {
-        let data_dir = temp_data_dir("prepare-context");
+    fn task_result_recorded_once_when_group_reaches_terminal_status() {
+        let data_dir = temp_data_dir("task-result");
+        let session = create_session(&data_dir, "chat-provider").unwrap();
+        let group_id = "group-result-x";
+        append_message(
+            &data_dir,
+            &session.id,
+            AgentMessage {
+                id: Uuid::new_v4().to_string(),
+                role: "tool".into(),
+                status: "task_group".into(),
+                content: "已创建 2 个绘图任务".into(),
+                attachments: Vec::new(),
+                tool_call: None,
+                questions: Vec::new(),
+                task_group: Some(AgentTaskGroupSummary {
+                    schema_version: AGENT_SCHEMA_VERSION,
+                    id: group_id.into(),
+                    task_ids: vec!["t-1".into(), "t-2".into()],
+                    titles: Vec::new(),
+                    prompt_summaries: Vec::new(),
+                    status: "queued".into(),
+                }),
+                error: String::new(),
+                created_at: utc_now(),
+            },
+        )
+        .unwrap();
+
+        let mut first = crate::store::fallback_failed_record("t-1", "x");
+        first.status = "completed".into();
+        first.error = None;
+        first.task_group_id = group_id.into();
+        let mut second = crate::store::fallback_failed_record("t-2", "x");
+        second.status = "completed".into();
+        second.error = None;
+        second.task_group_id = group_id.into();
+        crate::store::write_history(&data_dir, &[first, second]).unwrap();
+
+        record_agent_task_result(&data_dir, &session.id, group_id).unwrap();
+
+        let saved = read_agent_session(&data_dir, &session.id).unwrap();
+        let result_count = saved
+            .messages
+            .iter()
+            .filter(|message| message.status == "task_result")
+            .count();
+        assert_eq!(result_count, 1);
+        let group_message = saved
+            .messages
+            .iter()
+            .find(|message| message.task_group.is_some())
+            .unwrap();
+        assert_eq!(group_message.task_group.as_ref().unwrap().status, "completed");
+        let result_message = saved
+            .messages
+            .iter()
+            .find(|message| message.status == "task_result")
+            .unwrap();
+        assert!(result_message.content.contains(group_id));
+
+        // 幂等：重复回写不追加
+        record_agent_task_result(&data_dir, &session.id, group_id).unwrap();
+        let saved = read_agent_session(&data_dir, &session.id).unwrap();
+        assert_eq!(
+            saved
+                .messages
+                .iter()
+                .filter(|message| message.status == "task_result")
+                .count(),
+            1
+        );
+        recycle(&data_dir);
+    }
+
+    #[test]
+    fn prepare_context_keeps_recent_messages_and_builds_summary() {        let data_dir = temp_data_dir("prepare-context");
         let mut session = AgentSession {
             schema_version: AGENT_SCHEMA_VERSION,
             id: Uuid::new_v4().to_string(),

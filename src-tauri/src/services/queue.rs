@@ -460,6 +460,8 @@ async fn run_task(app: AppHandle, task_id: String, provider: ApiProvider) -> Res
             record.error = None;
             record.completed_at = Some(utc_now());
             record.updated_at = utc_now();
+            let agent_session_id = record.agent_session_id.clone();
+            let task_group_id = record.task_group_id.clone();
             match upsert_task_history(&app, &data_dir, record) {
                 Ok(true) => {}
                 Ok(false) => {
@@ -472,6 +474,11 @@ async fn run_task(app: AppHandle, task_id: String, provider: ApiProvider) -> Res
                     return Err(error);
                 }
             }
+            let _ = crate::services::agent_store::record_agent_task_result(
+                &data_dir,
+                &agent_session_id,
+                &task_group_id,
+            );
             clear_running_task(&data_dir, &task_id)?;
             let _ = emit_queue_updated(&app, &data_dir);
             Ok(())
@@ -502,9 +509,16 @@ async fn run_task(app: AppHandle, task_id: String, provider: ApiProvider) -> Res
                 record.error = Some(error);
                 record.completed_at = Some(utc_now());
                 record.updated_at = utc_now();
+                let agent_session_id = record.agent_session_id.clone();
+                let task_group_id = record.task_group_id.clone();
                 if !upsert_task_history(&app, &data_dir, record)? {
                     finish_deleted_task(&app, &data_dir, &task_id)?;
                 } else {
+                    let _ = crate::services::agent_store::record_agent_task_result(
+                        &data_dir,
+                        &agent_session_id,
+                        &task_group_id,
+                    );
                     let _ = emit_queue_updated(&app, &data_dir);
                 }
                 Ok(())

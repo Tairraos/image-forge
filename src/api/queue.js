@@ -180,12 +180,88 @@ async function runWorker() {
 
     // 持久化
     db.upsertTask(task).catch(() => {});
+    void recordAgentTaskResult(task);
 
     notifyChange();
   }
 
   workerActive = false;
   notifyChange();
+}
+
+function summarizeGroupStatus(statuses) {
+  if (!statuses.length) return 'missing';
+  if (statuses.includes('cancelling')) return 'cancelling';
+  if (statuses.includes('running')) return 'running';
+  if (statuses.includes('queued')) return 'queued';
+  if (statuses.every((s) => s === 'completed')) return 'completed';
+  if (statuses.includes('failed')) return 'failed';
+  if (statuses.includes('cancelled')) return 'cancelled';
+  return 'missing';
+}
+
+// 任务终态后回写 Agent 会话：刷新任务组摘要状态，整组 completed/failed 时追加
+// 一条 task_result 消息（幂等）。读写 localStorage 之间不留 await，避免并发覆写。
+async function recordAgentTaskResult(task) {
+  const sessionId = task.agent_session_id || '';
+  const groupId = task.task_group_id || '';
+  if (!sessionId || !groupId) return;
+  try {
+    const all = await db.getAllTasks();
+    const groupTasks = all.filter((t) => t.task_group_id === groupId);
+    const statuses = groupTasks.map((t) => t.status || '');
+    if (!statuses.length) return;
+    const groupStatus = summarizeGroupStatus(statuses);
+
+    const sessions = JSON.parse(localStorage.getItem('if_agent_sessions') || '[]');
+    const session = sessions.find((s) => s.id === sessionId);
+    if (!session) return;
+    let changed = false;
+    for (const msg of session.messages || []) {
+      if (msg.taskGroup?.id === groupId && msg.taskGroup.status !== groupStatus) {
+        msg.taskGroup.status = groupStatus;
+        changed = true;
+      }
+    }
+    const terminal = groupStatus === 'completed' || groupStatus === 'failed';
+    const already = (session.messages || []).some(
+      (m) => m.status === 'task_result' && String(m.content || '').includes(groupId)
+    );
+    if (terminal && !already) {
+      const succeeded = statuses.filter((s) => s === 'completed').length;
+      const failed = statuses.filter((s) => s === 'failed').length;
+      const outputs = groupTasks
+        .flatMap((t) => (t.outputs || []).map((o) => o.path))
+        .filter(Boolean);
+      const content =
+        groupStatus === 'completed'
+          ? `[taskGroupId=${groupId}] 绘图任务组已完成，共 ${outputs.length || statuses.length} 张${
+              outputs.length ? `：${outputs.join('、')}` : ''
+            }`
+          : `[taskGroupId=${groupId}] 绘图任务组未全部成功：成功 ${succeeded} 张，失败 ${failed} 张。`;
+      session.messages = [
+        ...(session.messages || []),
+        {
+          id: `web-msg-${Date.now()}-tr`,
+          role: 'tool',
+          status: 'task_result',
+          content,
+          createdAt: new Date().toISOString(),
+        },
+      ];
+      changed = true;
+    }
+    if (changed) {
+      session.updatedAt = new Date().toISOString();
+      const idx = sessions.findIndex((s) => s.id === sessionId);
+      if (idx >= 0) {
+        sessions[idx] = session;
+        localStorage.setItem('if_agent_sessions', JSON.stringify(sessions));
+      }
+    }
+  } catch {
+    // 会话回写失败不影响生图流程
+  }
 }
 
 // ── 取消 ──
