@@ -524,16 +524,21 @@ async function selectAgentConversation(sessionId) {
 }
 
 async function deleteAgentConversation(sessionId) {
-  const confirmed = await requestConfirmation(
-    '删除 Agent 对话',
-    '确认把这个 Agent 对话移入系统回收站？关联的绘图任务不会删除。'
-  );
-  if (!confirmed) return;
+  // 空会话（没有任何消息）不弹确认框，直接删除
+  const target = agentSessions.value.find((item) => item.id === sessionId);
+  const isEmptySession = Boolean(target) && !(target.messages || []).length;
+  if (!isEmptySession) {
+    const confirmed = await requestConfirmation(
+      '删除 Agent 对话',
+      '确认把这个 Agent 对话移入系统回收站？关联的绘图任务不会删除。'
+    );
+    if (!confirmed) return;
+  }
   try {
     await api.deleteAgentSession(sessionId);
     if (currentAgentSessionId.value === sessionId) currentAgentSessionId.value = '';
     await refreshAgentSessions();
-    setStatus('Agent 对话已移入回收站', 'ok');
+    setStatus(isEmptySession ? '空对话已删除' : 'Agent 对话已移入回收站', 'ok');
   } catch (error) {
     setStatus(String(error), 'error');
   }
