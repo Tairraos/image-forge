@@ -213,8 +213,11 @@ pub(crate) fn agent_library(
     ];
     let mut values: Vec<String> = Vec::new();
     if query.is_empty() {
-        conditions.push("tasks.library_date LIKE ?".into());
-        values.push(format!("{}%", normalized_month(month)));
+        // 月份为空表示不过滤：图库默认显示全部月份
+        if !month.trim().is_empty() {
+            conditions.push("tasks.library_date LIKE ?".into());
+            values.push(format!("{}%", normalized_month(month)));
+        }
     } else {
         conditions.push("(tasks.prompt LIKE ? OR tasks.model LIKE ? OR tasks.provider_name LIKE ? OR tasks.id LIKE ?)".into());
         let pattern = format!("%{query}%");
@@ -974,6 +977,12 @@ mod tests {
         let search = agent_library(&root, "2026-07", "海岸").unwrap();
         assert_eq!(search.tasks.len(), 1);
         assert_eq!(search.tasks[0].id, "task-jul");
+
+        // 月份为空 = 全部月份
+        let all = agent_library(&root, "", "").unwrap();
+        assert_eq!(all.tasks.len(), 2);
+        assert_eq!(all.total_images, 2);
+        assert_eq!(all.months.len(), 2);
 
         let no_match = agent_library(&root, "2026-07", "不存在的关键词").unwrap();
         assert!(no_match.tasks.is_empty());

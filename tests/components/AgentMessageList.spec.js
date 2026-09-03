@@ -58,6 +58,36 @@ describe('AgentMessageList', () => {
     expect(wrapper.text()).toContain('很长的错误信息');
   });
 
+  it('工具失败时可通过详情按钮展开完整错误与结果', async () => {
+    const longError = '请求失败：'.repeat(30);
+    const wrapper = mount(AgentMessageList, {
+      props: {
+        messages: [
+          {
+            id: 'failed-tool',
+            role: 'tool',
+            content: '',
+            toolCall: {
+              name: 'create_image_tasks',
+              status: 'failed',
+              error: longError,
+              result: { code: 500 },
+            },
+          },
+        ],
+      },
+    });
+    // 默认折叠：超长错误只显示预览
+    expect(wrapper.text()).toContain('…');
+    expect(wrapper.find('[data-testid="tool-error-detail"]').exists()).toBe(false);
+    await wrapper.get('.agent-tool-detail-toggle').trigger('click');
+    const detail = wrapper.get('[data-testid="tool-error-detail"]');
+    expect(detail.text()).toContain(longError);
+    expect(detail.text()).toContain('"code": 500');
+    await wrapper.get('.agent-tool-detail-toggle').trigger('click');
+    expect(wrapper.find('[data-testid="tool-error-detail"]').exists()).toBe(false);
+  });
+
   it('提交交互问题', async () => {
     const questionMessage = {
       ...baseMessage,

@@ -232,7 +232,6 @@ import {
   formatFullDate,
   formatMonth,
   formatTime,
-  monthKey,
   previewItem,
   taskSource,
   taskSourceOptions,
@@ -253,7 +252,7 @@ const emit = defineEmits([
   'redraw-task',
 ]);
 
-const month = ref(monthKey(new Date()));
+const month = ref('');
 const query = ref('');
 const months = ref([]);
 const tasks = ref([]);
@@ -261,7 +260,6 @@ const loading = ref(false);
 const sourceFilter = ref('all');
 let queryTimer = 0;
 let requestId = 0;
-let monthInitialized = false;
 
 const sourceOptions = taskSourceOptions();
 const sourceLabel = computed(
@@ -274,14 +272,16 @@ const filteredTasks = computed(() =>
 );
 
 const searching = computed(() => query.value.trim() !== '');
-const monthLabel = computed(() => formatMonth(month.value));
-const monthOptions = computed(() =>
-  months.value.map((item) => ({
+const monthLabel = computed(() => (month.value ? formatMonth(month.value) : '全部月份'));
+const monthOptions = computed(() => [
+  { label: '全部月份', value: '' },
+  ...months.value.map((item) => ({
     label: `${formatMonth(item.date)}（${item.imageCount} 张）`,
     value: item.date,
-  }))
-);
+  })),
+]);
 const prevMonth = computed(() => {
+  if (!month.value) return '';
   const current = month.value;
   return (
     months.value
@@ -290,6 +290,7 @@ const prevMonth = computed(() => {
   );
 });
 const nextMonth = computed(() => {
+  if (!month.value) return '';
   const current = month.value;
   return (
     months.value
@@ -324,17 +325,6 @@ async function load() {
     if (current !== requestId) return;
     tasks.value = result.tasks || [];
     months.value = result.months || [];
-    // 默认月份没有图片时自动定位到最近有图片的月份，避免打开图库一片空白
-    if (!monthInitialized && !searching.value) {
-      monthInitialized = true;
-      if (!tasks.value.length && months.value.length) {
-        const currentMonth = monthKey(new Date());
-        if (!months.value.some((item) => item.date === currentMonth)) {
-          month.value = months.value[0].date;
-          return;
-        }
-      }
-    }
   } catch {
     if (current === requestId) tasks.value = [];
   } finally {

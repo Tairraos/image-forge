@@ -26,7 +26,26 @@
       <div v-if="message.toolCall" class="agent-tool-card" :data-status="message.toolCall.status">
         <strong>{{ message.toolCall.name }}</strong>
         <span>{{ toolStatus(message.toolCall) }}</span>
-        <small v-if="message.toolCall.error">{{ message.toolCall.error }}</small>
+        <template v-if="message.toolCall.error">
+          <small class="agent-tool-error">{{ toolErrorPreview(message.toolCall.error) }}</small>
+          <button
+            type="button"
+            class="agent-tool-detail-toggle"
+            @click="toggleToolDetail(message.id)"
+          >
+            {{ toolDetailExpanded(message.id) ? '收起详情' : '查看失败详情' }}
+          </button>
+          <div
+            v-if="toolDetailExpanded(message.id)"
+            class="agent-tool-error-detail"
+            data-testid="tool-error-detail"
+          >
+            <pre>{{ message.toolCall.error }}</pre>
+            <pre v-if="message.toolCall.result">{{
+              formatToolResult(message.toolCall.result)
+            }}</pre>
+          </div>
+        </template>
       </div>
       <div v-if="message.questions?.length" class="agent-question-card">
         <div class="agent-question-fields">
@@ -169,7 +188,38 @@ defineEmits([
 const listRef = ref(null);
 const markdown = new MarkdownIt({ html: false, breaks: true, linkify: true });
 const now = ref(Date.now());
+const expandedToolCalls = ref(new Set());
 let timer = 0;
+
+const TOOL_ERROR_PREVIEW_LIMIT = 120;
+
+function toggleToolDetail(id) {
+  const next = new Set(expandedToolCalls.value);
+  if (next.has(id)) {
+    next.delete(id);
+  } else {
+    next.add(id);
+  }
+  expandedToolCalls.value = next;
+}
+
+function toolDetailExpanded(id) {
+  return expandedToolCalls.value.has(id);
+}
+
+function toolErrorPreview(error) {
+  const text = String(error || '').trim();
+  if (text.length <= TOOL_ERROR_PREVIEW_LIMIT) return text;
+  return `${text.slice(0, TOOL_ERROR_PREVIEW_LIMIT)}…`;
+}
+
+function formatToolResult(result) {
+  try {
+    return JSON.stringify(result, null, 2);
+  } catch {
+    return String(result);
+  }
+}
 
 onMounted(() => {
   timer = window.setInterval(() => {

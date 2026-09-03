@@ -554,11 +554,41 @@ async function renameAgentConversation({ sessionId, title }) {
   }
 }
 
+// 乐观显示：发送后立刻把用户消息放到屏幕上，不等模型响应；
+// 本轮结束后 setAgentSession / selectAgentConversation 会用后端数据覆盖。
+function appendOptimisticUserMessage(content) {
+  const sessionId = currentAgentSessionId.value;
+  if (!sessionId || !content) return;
+  agentSessions.value = agentSessions.value.map((session) =>
+    session.id === sessionId
+      ? {
+          ...session,
+          messages: [
+            ...(session.messages || []),
+            {
+              id: `optimistic-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+              role: 'user',
+              status: 'user',
+              content,
+              attachments: [],
+              toolCall: null,
+              questions: [],
+              taskGroup: null,
+              error: '',
+              createdAt: new Date().toISOString(),
+            },
+          ],
+        }
+      : session
+  );
+}
+
 async function sendAgentConversationMessage(payload) {
   const content = typeof payload === 'string' ? payload : payload?.content || '';
   const drawThisTurn = typeof payload !== 'string' && Boolean(payload?.drawThisTurn);
   if (!currentAgentSessionId.value) await createAgentConversation();
   if (!currentAgentSessionId.value) return;
+  appendOptimisticUserMessage(content);
   if (drawThisTurn) {
     await createAgentDrawingTask(content);
     return;
