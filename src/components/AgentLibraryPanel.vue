@@ -139,8 +139,9 @@
 
       <div v-if="!dayGroups.length" class="image-library-empty">
         <Images :size="28" />
-        <strong>没有找到图片</strong>
-        <span>{{
+        <strong>{{ loadError ? '图片库加载失败' : '没有找到图片' }}</strong>
+        <span v-if="loadError" class="image-library-error">{{ loadError }}</span>
+        <span v-else>{{
           searching ? '换个关键词试试' : months.length ? '这个月还没有图片' : '还没有图片'
         }}</span>
       </div>
@@ -257,6 +258,7 @@ const query = ref('');
 const months = ref([]);
 const tasks = ref([]);
 const loading = ref(false);
+const loadError = ref('');
 const sourceFilter = ref('all');
 let queryTimer = 0;
 let requestId = 0;
@@ -325,8 +327,14 @@ async function load() {
     if (current !== requestId) return;
     tasks.value = result.tasks || [];
     months.value = result.months || [];
-  } catch {
-    if (current === requestId) tasks.value = [];
+    loadError.value = '';
+  } catch (error) {
+    console.error('图片库加载失败:', error);
+    if (current === requestId) {
+      tasks.value = [];
+      months.value = [];
+      loadError.value = String(error);
+    }
   } finally {
     if (current === requestId) loading.value = false;
   }

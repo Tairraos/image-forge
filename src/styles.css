@@ -4063,6 +4063,17 @@ button:disabled {
   color: var(--text);
 }
 
+.image-library-error {
+  max-width: 420px;
+  padding: 8px 12px;
+  border: 1px solid #e5b8a8;
+  border-radius: 6px;
+  background: #fdf3ef;
+  color: #c56a45;
+  font-size: 12px;
+  word-break: break-all;
+}
+
 .image-library-pagination {
   display: flex;
   justify-content: center;

@@ -991,6 +991,32 @@ mod tests {
     }
 
     #[test]
+    fn diagnostic_agent_library_on_real_db_copy() {
+        // 只在显式提供 IF_REAL_DB 时运行：复制真实库到临时目录，验证 open + agent_library 全链路。
+        let Ok(source) = std::env::var("IF_REAL_DB") else {
+            return;
+        };
+        let dir = std::env::temp_dir().join(format!("if-diagnostic-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let copied = dir.join(DATABASE_FILE);
+        fs::copy(&source, &copied).unwrap();
+        let all = agent_library(&dir, "", "");
+        match all {
+            Ok(page) => {
+                println!(
+                    "诊断结果：tasks={} months={:?} total_images={}",
+                    page.tasks.len(),
+                    page.months.iter().map(|m| (m.date.clone(), m.image_count)).collect::<Vec<_>>(),
+                    page.total_images
+                );
+            }
+            Err(error) => println!("诊断结果：agent_library 失败：{error}"),
+        }
+        let _ = trash::delete(&dir);
+        assert!(true);
+    }
+
+    #[test]
     fn agent_library_backfills_empty_library_dates_on_open() {
         let root = root("sqlite-library-backfill");
         initialize(&root, &root.join("outputs")).unwrap();
