@@ -197,7 +197,8 @@ watch(
     if (value) {
       draft.value = value;
     }
-  }
+  },
+  { immediate: true }
 );
 
 const currentResolutionOptions = computed(() =>

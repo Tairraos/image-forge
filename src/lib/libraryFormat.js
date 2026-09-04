@@ -23,6 +23,11 @@ export function taskSourceOptions() {
   ];
 }
 
+// 桌面端任务记录是 camelCase（referencePaths），Web 端 IndexedDB 是 snake_case（reference_paths）
+export function taskReferencePaths(task) {
+  return task?.referencePaths || task?.reference_paths || [];
+}
+
 export function taskTime(task) {
   return task.completedAt || task.updatedAt || task.createdAt || '';
 }

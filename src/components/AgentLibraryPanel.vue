@@ -10,131 +10,117 @@
           <strong>{{ group.imageCount }} 张</strong>
         </header>
 
-        <article v-for="task in group.tasks" :key="task.id" class="image-batch">
-          <header class="image-batch-head">
-            <div class="image-batch-actions">
+        <div class="image-day-grid">
+          <figure v-for="card in group.cards" :key="card.output.path" class="library-image-card">
+            <div class="library-image-frame">
               <button
                 type="button"
-                title="删除任务及图片"
-                aria-label="删除任务及图片"
-                @click="$emit('delete-task', task)"
+                class="library-image-preview"
+                @click="openPreview(card.output.path)"
               >
-                <Trash2 :size="16" />
+                <img
+                  loading="lazy"
+                  :src="fileUrl(card.output.path)"
+                  :alt="card.output.fileName || card.task.prompt"
+                />
               </button>
-            </div>
-          </header>
-
-          <div class="image-batch-grid">
-            <figure v-for="output in task.outputs" :key="output.path" class="library-image-card">
-              <div class="library-image-info">
-                <time>{{ formatTime(taskTime(task)) }}</time>
-                <span>{{ task.model || task.providerName || '' }}</span>
-                <span>{{ output.size || task.params?.size || '' }}</span>
-                <span v-if="(task.reference_paths || []).length"
-                  >{{ task.reference_paths.length }} 参考图</span
-                >
+              <div class="library-image-topbar">
+                <time>{{ formatTime(card.time) }}</time>
+                <span>{{ card.task.model || card.task.providerName || '' }}</span>
+                <span>{{ card.output.size || card.task.params?.size || '' }}</span>
               </div>
-              <div class="library-image-frame">
-                <button
-                  type="button"
-                  class="library-image-preview"
-                  @click="openPreview(output.path)"
-                >
+              <div class="library-image-footbar">
+                <div v-if="card.referencePaths.length" class="library-image-ref-thumbs">
                   <img
-                    loading="lazy"
-                    :src="fileUrl(output.path)"
-                    :alt="output.fileName || task.prompt"
+                    v-for="(refPath, ri) in card.referencePaths"
+                    :key="refPath"
+                    :src="fileUrl(refPath)"
+                    :alt="`参考图 ${ri + 1}`"
+                    class="library-image-ref-thumb"
                   />
-                </button>
-                <div class="library-image-overlay">
-                  <div class="library-image-ref-thumbs">
-                    <img
-                      v-for="(refPath, ri) in task.reference_paths || []"
-                      :key="refPath"
-                      :src="fileUrl(refPath)"
-                      :alt="`参考图 ${ri + 1}`"
-                      class="library-image-ref-thumb"
-                    />
-                  </div>
-                  <div class="library-image-actions">
-                    <n-tooltip trigger="hover" :delay="0">
-                      <template #trigger>
-                        <button
-                          type="button"
-                          aria-label="复制提示词"
-                          @click.stop="copyPrompt(task)"
-                        >
-                          <Copy :size="14" />
-                        </button>
-                      </template>
-                      复制提示词
-                    </n-tooltip>
-                    <n-tooltip trigger="hover" :delay="0">
-                      <template #trigger>
-                        <button
-                          type="button"
-                          aria-label="引用到 Agent"
-                          @click.stop="$emit('reference-to-agent', { task, output })"
-                        >
-                          <Link2 :size="14" />
-                        </button>
-                      </template>
-                      引用到 Agent
-                    </n-tooltip>
-                    <n-tooltip trigger="hover" :delay="0">
-                      <template #trigger>
-                        <button
-                          type="button"
-                          aria-label="添加到模板"
-                          @click.stop="$emit('add-to-template', { task, output })"
-                        >
-                          <BookmarkPlus :size="14" />
-                        </button>
-                      </template>
-                      添加到模板
-                    </n-tooltip>
-                    <n-tooltip trigger="hover" :delay="0">
-                      <template #trigger>
-                        <button
-                          type="button"
-                          aria-label="再来一张"
-                          @click.stop="$emit('redraw-task', { task, output })"
-                        >
-                          <RotateCcw :size="14" />
-                        </button>
-                      </template>
-                      再来一张
-                    </n-tooltip>
-                    <n-tooltip trigger="hover" :delay="0">
-                      <template #trigger>
-                        <button
-                          type="button"
-                          aria-label="下载图片"
-                          @click.stop="$emit('download-output', output)"
-                        >
-                          <Download :size="14" />
-                        </button>
-                      </template>
-                      下载
-                    </n-tooltip>
-                    <n-tooltip trigger="hover" :delay="0">
-                      <template #trigger>
-                        <button
-                          type="button"
-                          aria-label="在 Finder 中显示"
-                          @click.stop="$emit('reveal-output', output)"
-                        >
-                          <FolderOpen :size="14" />
-                        </button>
-                      </template>
-                      在 Finder 中显示
-                    </n-tooltip>
-                  </div>
+                </div>
+                <div class="library-image-actions">
+                  <n-tooltip trigger="hover" :delay="0">
+                    <template #trigger>
+                      <button
+                        type="button"
+                        aria-label="复制提示词"
+                        @click.stop="copyPrompt(card.task)"
+                      >
+                        <Copy :size="14" />
+                      </button>
+                    </template>
+                    复制提示词
+                  </n-tooltip>
+                  <n-tooltip trigger="hover" :delay="0">
+                    <template #trigger>
+                      <button
+                        type="button"
+                        aria-label="引用到 Agent"
+                        @click.stop="
+                          $emit('reference-to-agent', { task: card.task, output: card.output })
+                        "
+                      >
+                        <Link2 :size="14" />
+                      </button>
+                    </template>
+                    引用到 Agent
+                  </n-tooltip>
+                  <n-tooltip trigger="hover" :delay="0">
+                    <template #trigger>
+                      <button
+                        type="button"
+                        aria-label="添加到模板"
+                        @click.stop="
+                          $emit('add-to-template', { task: card.task, output: card.output })
+                        "
+                      >
+                        <BookmarkPlus :size="14" />
+                      </button>
+                    </template>
+                    添加到模板
+                  </n-tooltip>
+                  <n-tooltip trigger="hover" :delay="0">
+                    <template #trigger>
+                      <button
+                        type="button"
+                        aria-label="下载图片"
+                        @click.stop="$emit('download-output', card.output)"
+                      >
+                        <Download :size="14" />
+                      </button>
+                    </template>
+                    下载
+                  </n-tooltip>
+                  <n-tooltip trigger="hover" :delay="0">
+                    <template #trigger>
+                      <button
+                        type="button"
+                        aria-label="在 Finder 中显示"
+                        @click.stop="$emit('reveal-output', card.output)"
+                      >
+                        <FolderOpen :size="14" />
+                      </button>
+                    </template>
+                    在 Finder 中显示
+                  </n-tooltip>
+                  <n-tooltip trigger="hover" :delay="0">
+                    <template #trigger>
+                      <button
+                        type="button"
+                        aria-label="删除任务及图片"
+                        @click.stop="$emit('delete-task', card.task)"
+                      >
+                        <Trash2 :size="14" />
+                      </button>
+                    </template>
+                    删除任务及图片
+                  </n-tooltip>
                 </div>
               </div>
-            </figure>
-          </div>
-        </article>
+            </div>
+          </figure>
+        </div>
       </section>
 
       <div v-if="!dayGroups.length" class="image-library-empty">
@@ -221,7 +207,6 @@ import {
   FolderOpen,
   Images,
   Link2,
-  RotateCcw,
   Search,
   Trash2,
 } from '@lucide/vue';
@@ -234,6 +219,7 @@ import {
   formatMonth,
   formatTime,
   previewItem,
+  taskReferencePaths,
   taskSource,
   taskSourceOptions,
   taskTime,
@@ -250,7 +236,6 @@ const emit = defineEmits([
   'reveal-output',
   'reference-to-agent',
   'add-to-template',
-  'redraw-task',
 ]);
 
 const month = ref('');
@@ -314,7 +299,14 @@ const dayGroups = computed(() => {
   }
   return Array.from(groups, ([date, groupTasks]) => ({
     date,
-    tasks: groupTasks,
+    cards: groupTasks.flatMap((task) =>
+      task.outputs.map((output) => ({
+        task,
+        output,
+        time: taskTime(task),
+        referencePaths: taskReferencePaths(task),
+      }))
+    ),
     imageCount: groupTasks.reduce((count, task) => count + task.outputs.length, 0),
   }));
 });

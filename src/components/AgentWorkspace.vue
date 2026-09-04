@@ -117,7 +117,6 @@
         @reveal-output="$emit('reveal-output', $event)"
         @reference-to-agent="handleReferenceToAgent"
         @add-to-template="$emit('add-to-template', $event)"
-        @redraw-task="$emit('redraw-task', $event)"
       />
       <template v-else>
         <AgentMessageList
@@ -219,7 +218,6 @@ const emit = defineEmits([
   'update:resolution',
   'reference-to-agent',
   'add-to-template',
-  'redraw-task',
   'redraw-task-group',
 ]);
 

@@ -49,6 +49,17 @@ describe('AgentComposer', () => {
     expect(wrapper.text()).toContain('停止');
   });
 
+  it('挂载时已带 prefillPrompt 直接回填（图片库引用到 Agent 场景）', () => {
+    const wrapper = mount(AgentComposer, {
+      props: {
+        providerId: 'chat',
+        imageProviderId: 'image',
+        prefillPrompt: '一首诗的配图',
+      },
+    });
+    expect(wrapper.get('textarea').element.value).toBe('一首诗的配图');
+  });
+
   it('模板选择器：插入模板内容并上报 apply-template', async () => {
     const wrapper = mount(AgentComposer, {
       props: {

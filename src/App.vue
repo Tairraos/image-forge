@@ -71,7 +71,6 @@
         @update:resolution="form.resolution = $event"
         @reference-to-agent="handleLibraryReferenceToAgent"
         @add-to-template="handleLibraryAddToTemplate"
-        @redraw-task="handleRedrawTask"
         @redraw-task-group="handleRedrawTaskGroup"
       />
 
@@ -196,6 +195,7 @@ import RuntimeLogDialog from './components/dialogs/RuntimeLogDialog.vue';
 import TemplateEditorDialog from './components/dialogs/TemplateEditorDialog.vue';
 import DataTransferDialog from './components/dialogs/DataTransferDialog.vue';
 import { fileName } from './lib/formatters';
+import { taskReferencePaths } from './lib/libraryFormat';
 import { deepClone, defaultSettings, emptyTemplate, normalizeSettingsForUi } from './lib/models';
 import {
   clipboardHasImage,
@@ -723,8 +723,8 @@ function removeAgentAttachment(id) {
 }
 
 async function handleLibraryReferenceToAgent({ task }) {
-  // 添加生成此图时使用的所有参考图
-  const refPaths = task.reference_paths || [];
+  // 添加生成此图时使用的所有参考图（双端字段形态兼容）
+  const refPaths = taskReferencePaths(task);
   if (refPaths.length) {
     for (const path of refPaths) {
       try {
@@ -738,8 +738,8 @@ async function handleLibraryReferenceToAgent({ task }) {
             dataUrl: preview.dataUrl,
           });
         }
-      } catch {
-        // 参考图加载失败跳过
+      } catch (error) {
+        setStatus(`参考图加载失败：${error}`, 'error');
       }
     }
   }
@@ -762,8 +762,8 @@ async function handleLibraryAddToTemplate({ task }) {
   templateDraft.referencePaths = [];
   templateDraftReferences.value = [];
   templateDraftEffectImage.value = null;
-  // 添加生成此图时使用的所有参考图
-  const refPaths = task.reference_paths || [];
+  // 添加生成此图时使用的所有参考图（双端字段形态兼容）
+  const refPaths = taskReferencePaths(task);
   if (refPaths.length) {
     for (const path of refPaths) {
       try {
@@ -866,19 +866,6 @@ async function cancelAgentTaskGroup(group) {
     if (currentAgentSessionId.value) await selectAgentConversation(currentAgentSessionId.value);
     await refreshAgentTaskGroups();
     setStatus('Agent 任务组已取消', 'ok');
-  } catch (error) {
-    setStatus(String(error), 'error');
-  }
-}
-
-// 以原任务请求重新排队一个新任务（再来一张），原任务与图片保留。
-async function handleRedrawTask({ task }) {
-  if (!task?.id) return;
-  try {
-    await api.redrawTask(task.id);
-    await refreshQueueOnly();
-    agentLibraryVersion.value += 1;
-    setStatus('已按原参数重新排队', 'ok');
   } catch (error) {
     setStatus(String(error), 'error');
   }
