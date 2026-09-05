@@ -9,7 +9,7 @@
 1. 让一次绘图从提示词、参考图、模型参数到结果文件都可追踪。
 2. 让 Agent 能够理解任务并规划绘图，但不能绕过本地校验直接执行危险动作。
 3. 用统一队列承接绘画模式和 Agent 模式，避免两套生成状态互相漂移。
-4. 桌面版将所有配置数据存入 SQLite，`~/.image-forge/` 目录下只保留图片文件。
+4. 桌面版将所有配置数据存入 SQLite，`~/.image-forge/` 目录下只保留 SQLite 数据库和图片等资源文件。
 5. Web 版使用 IndexedDB + localStorage 存储数据，Vercel Blob 存储图片，部署时通过密码门控保护。
 6. 同一套 Vue 前端代码通过适配器层，自动切换 Tauri 或 Web 运行时。
 
@@ -53,8 +53,8 @@ flowchart LR
 ```text
 src/api/
   index.js           # 环境检测：window.__TAURI_INTERNALS__
-  adapter-tauri.js   # 31 个 invoke() 薄封装
-  adapter-web.js     # 31 个 Web 版函数实现
+  adapter-tauri.js   # 37 个导出：35 个 invoke() 薄封装 + 2 个 Web-only 事件 stub
+  adapter-web.js     # 37 个 Web 版函数实现
   db.js              # Dexie.js IndexedDB 数据库
   blob.js            # Vercel Blob 图片存储
   providers.js       # OpenAI/Gemini/Grok 生图 API（fetch）
@@ -72,7 +72,7 @@ const adapter = isTauri
   : await import("./adapter-web.js");
 ```
 
-- **Tauri 模式**：`adapter-tauri.js` 通过 `invoke()` 调用 31 个 Rust Tauri 命令，零逻辑，纯转发。
+- **Tauri 模式**：`adapter-tauri.js` 通过 `invoke()` 调用 35 个 Rust Tauri 命令，零逻辑，纯转发。事件订阅在桌面端走 Tauri 原生事件（`src/tauri.js` 的 `listenEvent`），`onAgentEvent` / `onQueueChange` 在 Tauri 端为 no-op stub。
 - **Web 模式**：`adapter-web.js` 用 `fetch()` 直调 API、IndexedDB 存数据、Web Crypto 做哈希去重，完整复刻 Rust 端行为。
 - App.vue 和所有组件通过 `import * as api from "./api/index.js"` 调用，不感知底层运行时。
 
@@ -85,7 +85,7 @@ const adapter = isTauri
 | `src/App.vue` | 启动加载、面板切换、轮询、API 调用、Agent 会话动作、直接绘画和全局弹窗。Web 版入口密码门控。 |
 | `src/components/AppShell.vue` | 页面骨架和全局插槽（工作区、底部状态栏、对话框）。 |
 | `src/components/AgentWorkspace.vue` | 功能栏（新对话/图片库/设置）、会话列表、消息列表、输入区和内嵌图片库。 |
-| `src/components/AgentLibraryPanel.vue` | 按月份浏览的内嵌图片库。hover 显示半透明 footer，含图片尺寸、5 个操作按钮（复制提示词、引用、添加模板、下载、定位）。图片固定 300×300。 |
+| `src/components/AgentLibraryPanel.vue` | 内嵌图片库：按月份导航，支持提示词搜索和按任务来源筛选。图片以 grid 网格自适应展示（4 列、窄屏 3 列，固定 1:1 比例）。hover / 键盘聚焦显示半透明浮层：顶部为时间、模型和图片尺寸，底部为参考图缩略图和 6 个操作按钮（复制提示词、引用到 Agent、添加到模板、下载、在 Finder 中显示、删除任务及图片）。 |
 | `src/components/AgentMessageList.vue` | Markdown 回复、Tool Call 状态、交互问题和任务组卡片。卡片不显示提示词，显示服务器反应状态 + 计时器 + 取消/重试按钮，完成后显示缩略图。 |
 | `src/components/AgentComposer.vue` | Agent 输入、参考图（粘贴/拖放添加）、比例/分辨率下拉选择、直接绘画开关、发送和停止。 |
 | `src/components/AppFooterBar.vue` | 底部状态栏、生图/对话模型选择和队列计数。 |
@@ -101,6 +101,13 @@ const adapter = isTauri
 | `src/components/dialogs/DataTransferDialog.vue` | 数据导出/导入：分类多选（API 配置/模板/对话/图片库），生成 ZIP 或导入合并。 |
 | `src/components/dialogs/BackupPanel.vue` | 备份/恢复入口：导出数据、导入数据按钮。 |
 | `src/components/dialogs/EffectImageViewer.vue` | 效果图查看器，支持 1:1 原图显示。 |
+| `src/components/dialogs/TemplateManagerDialog.vue` / `TemplateManagerPanel.vue` | 模板维护：搜索、新建、编辑、删除和排序模板。 |
+| `src/components/dialogs/ApiSourceDialog.vue` | 「API 源管理」弹窗外壳，包裹 `ApiSourcePanel`。 |
+| `src/components/dialogs/AboutDialog.vue` / `AboutPanel.vue` | 关于信息（版本、构建信息），面板内嵌于设计面板。 |
+| `src/components/dialogs/CleanupDialog.vue` | 清理孤岛文件：扫描未引用资源，确认后移入系统回收站。 |
+| `src/components/dialogs/ConfirmDialog.vue` | 通用确认弹窗（遮罩不可点击关闭）。 |
+| `src/components/dialogs/NoticeDialog.vue` | 通用提示弹窗。 |
+| `src/components/dialogs/RuntimeLogDialog.vue` | 运行日志查看弹窗。 |
 
 ### Agent 交互约束
 
@@ -191,6 +198,7 @@ sequenceDiagram
 | --- | --- | --- |
 | `create_image_tasks` | 创建单图或多图任务组。 | 计划、提示词、数量、模型和参考图策略由执行端校验。 |
 | `get_task_status` | 查询任务或任务组状态。 | 只读。 |
+| `list_templates` | 只读列出本机提示词模板（id、标题、内容摘要、参考图数量），供计划引用 `templateId`。 | 只读。 |
 
 Agent 不拥有终端、任意文件读写、任意网络请求、浏览器或数据库工具。
 
@@ -208,7 +216,7 @@ Agent 不拥有终端、任意文件读写、任意网络请求、浏览器或�
 }
 ```
 
-两种协议共享工具 schema、权限和错误处理。网络错误、解析错误或工具错误都会结束为可见状态，不让界面无限等待。Web 版 Agent 循环（`agent.js`）使用 `fetch()` + `ReadableStream` 流式解析 SSE 事件，支持非流式回退和 Envelope 降级。
+两种协议共享工具 schema、权限和错误处理。`assistant` 变体额外携带 `status`（`chat` / `needs_input` / `rejected` / `ready`）、`message`、`questions` 和 `plans` 字段，执行端按四态校验。网络错误、解析错误或工具错误都会结束为可见状态，不让界面无限等待。Web 版 Agent 循环（`agent.js`）使用 `fetch()` + `ReadableStream` 流式解析 SSE 事件，支持非流式回退和 Envelope 降级。
 
 ## 图片计划与任务组
 
@@ -222,12 +230,14 @@ Agent 不直接拼装内部 `GenerateRequest`，而是提交结构化图片计�
   "resolution": "standard",
   "ratio": "1:1",
   "quality": "high",
+  "promptFidelity": "original",
   "referencePolicy": "use",
-  "referenceIds": ["reference-id"]
+  "referenceIds": ["reference-id"],
+  "templateId": "template-id"
 }
 ```
 
-执行端检查提示词非空、模型类型正确、计划数量、参考图 ID、参考图策略和资源存在性。全部计划通过后才一次性写入任务组，避免多图任务只入队一半。任务会记录 `origin=agent`、`agentSessionId`、`taskGroupId` 和模型。
+必填字段：`title`、`prompt`、`resolution`（`standard` / `2k` / `3k` / `4k`）、`ratio`、`quality`（`auto` / `low` / `medium` / `high`）、`promptFidelity`（`original` / `strict` / `off`）、`referencePolicy`（`use` / `optional` / `none`）、`referenceIds`。可选字段：`providerId`（缺省用当前激活的生图模型）、`templateId`（套用模板填充提示词）。执行端检查提示词非空、模型类型正确、计划数量、参考图 ID、参考图策略和资源存在性。全部计划通过后才一次性写入任务组，避免多图任务只入队一半。任务会记录 `origin=agent`、`agentSessionId`、`taskGroupId` 和模型。
 
 ## 绘图队列与原子性
 
@@ -257,7 +267,7 @@ sequenceDiagram
 - `queue.waiting` 保持任务顺序，`images_concurrency` 控制每个生图 provider 的并发。
 - 任务失败可按设置自动重试一次；用户也可以手动刷新或重试。
 - 应用重启时，遗留的 `running` 任务恢复到可继续处理的状态。
-- Agent 多图任务使用 staged transaction：请求文件、历史记录和队列状态全部准备成功后再提交；提交失败会回滚。
+- Agent 多图任务使用 staged transaction：队列先写入 SQLite（保证任务一定会被调度尝试、失败可见），请求文件和历史记录在 `.staging/` 中准备后原子提交；提交或历史写入失败时回滚请求文件，已入队的任务会在执行时因缺少请求文件而可见地失败。
 
 ## 生图协议适配
 
@@ -277,11 +287,12 @@ sequenceDiagram
 
 ```text
 ~/.image-forge/
-  library.sqlite              # 全部结构化数据（6 张表）
+  library.sqlite              # 全部结构化数据（7 张表）
   requests/<task-id>.json     # 队列请求文件
   outputs/YYYY/MM/<timestamp>-<task-id>-01.png
   references/<sha256>.<ext>
-  export-<date>.zip           # 数据导出包
+  agent/sessions/             # 旧版会话 JSON，已迁移到 SQLite，仅遗留
+  export-<日期时间>.zip        # 数据导出包（YYYYMMDD-HHMMSS）
   .staging/                   # 事务暂存区
 ```
 
@@ -297,7 +308,7 @@ sequenceDiagram
 | `agent_sessions` | Agent 对话会话 | `agent/sessions/*.json` |
 | `app_queue` | 任务队列状态 | `queue.json` |
 
-首次启动时自动从旧 JSON 文件迁移到 SQLite（`PRAGMA user_version = 2`），旧 JSON 文件保留原位不删除。迁移后 `~/.image-forge/` 目录下只保留 `library.sqlite` 和图片文件。
+首次启动时自动从旧 JSON 文件迁移到 SQLite（`PRAGMA user_version = 2`），旧 JSON 文件保留原位不删除。迁移后 `~/.image-forge/` 目录下常驻 `library.sqlite`、`requests/`、`references/`、`outputs/`、`.staging/` 和导出 ZIP。
 
 ### Web 版
 
@@ -339,14 +350,14 @@ ImageForge-data-<date>.zip
 1. 按用户选择的分类（API 配置 / 模板 / 对话 / 图片库）读取对应数据
 2. 扫描所有引用文件路径（模板参考图、会话附件、任务输出图）
 3. 按 SHA-256 哈希去重，相同文件只存一份
-4. 打包为 ZIP，保存到 `~/.image-forge/export-<date>.zip`
+4. 打包为 ZIP，保存到 `~/.image-forge/export-<日期时间>.zip`
 
 ### 导入
 
 导入流程：
 1. 校验 ZIP 格式、manifest 版本、条目数量和大小限制
 2. 解析 manifest，读取各分类数据
-3. 合并到现有数据（不覆盖已有记录，按 ID 去重）
+3. 按分类合并到现有数据：API 设置整体覆盖；模板同 ID 时替换为新记录；会话按 ID 覆盖写入；任务按 ID 去重、跳过已有记录
 4. 写入 SQLite
 
 ### 前端入口
@@ -374,7 +385,7 @@ ImageForge-templates.zip
 - `imagesConcurrency`：队列并发上限兼容字段。
 - `activeImageProviderId`、`activeChatProviderId`：两个工作区的默认模型。
 
-旧版本的 `modelType=image` 或未知类型会按模型名和 Base URL 推断协议，并在读取设置时归一化。导出 API 源时不导出内部 ID；导入会生成新 ID，并对重复配置去重。API Key 会以明文存在导出文件中，导出文件必须保存在可信位置。
+旧版本的 `modelType=image` 或未知类型会按模型名和 Base URL 推断协议，并在读取设置时归一化。API 配置随数据包（`data_bundle`）整体导出导入，导入时整体覆盖当前设置。API Key 会以明文存在导出文件中，导出文件必须保存在可信位置。
 
 ## 窗口、资源协议与恢复
 

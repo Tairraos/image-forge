@@ -39,7 +39,7 @@ describe('适配器导出一致性', () => {
   const tauri = moduleExports('src/api/adapter-tauri.js');
   const web = moduleExports('src/api/adapter-web.js');
 
-  it('index.js 导出的函数数应与 adapter 导出对齐（41 个）', () => {
+  it('index.js 导出的函数数应与 adapter 导出对齐', () => {
     expect(expected.length).toBeGreaterThan(30);
   });
 

@@ -66,7 +66,7 @@ pnpm sync:web:serve
 # 4. 关闭同步页面，重新启动 Vite：pnpm dev
 ```
 
-同步内容包括：API 源设置、提示词模板、Agent 会话。
+同步内容包括：API 源设置、提示词模板、Agent 会话。同步脚本用 `better-sqlite3` 读取桌面版 SQLite；`pnpm-workspace.yaml` 中的 `allowBuilds` 已允许其安装时编译，无需额外配置。
 
 ### 生图 API 调用从哪里发出？
 
