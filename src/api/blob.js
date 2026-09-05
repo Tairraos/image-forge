@@ -5,13 +5,16 @@
 // API 参考：https://vercel.com/docs/storage/vercel-blob
 
 const BLOB_TOKEN = import.meta.env.VITE_BLOB_READ_WRITE_TOKEN || '';
+// .env 里常驻的占位符（如 vercel_blob_read_write_token_here）视为未配置，
+// 否则本地开发会被误判成 Blob 模式，上传与桌面数据合并全部失效
+const hasBlobToken = Boolean(BLOB_TOKEN) && !/_here$/i.test(BLOB_TOKEN);
 const BLOB_BASE = 'https://blob.vercel-storage.com';
 const DEV_DATA_ORIGIN = '/image-forge-data';
 const DEV_PORTS = new Set(['1421', String(import.meta.env.VITE_DEV_PORT || '')].filter(Boolean));
 
-/** 当前是否处于本地开发模式：未配置 Vercel token、且浏览器在 vite dev server 同源下 */
+/** 当前是否处于本地开发模式：未配置（有效的）Vercel token、且浏览器在 vite dev server 同源下 */
 export function isLocalDev() {
-  if (BLOB_TOKEN) return false;
+  if (hasBlobToken) return false;
   if (typeof window === 'undefined') return false;
   // 生产构建里没有 dev server 代理可用，直接走远端逻辑（此时通常 BLOB_TOKEN 必填）
   if (!DEV_PORTS.has(window.location?.port)) return false;
@@ -24,7 +27,7 @@ export function isLocalDev() {
  *  - 其他情况：把图片放进 localStorage 的元数据键（仅作极端回退，绝不存进 if_settings / if_templates）
  */
 export async function uploadImage(fileName, blob, relPath) {
-  if (BLOB_TOKEN) {
+  if (hasBlobToken) {
     const form = new FormData();
     form.append('file', blob, fileName);
     const res = await fetch(`${BLOB_BASE}/api/upload?filename=${encodeURIComponent(fileName)}`, {
@@ -75,7 +78,7 @@ export async function downloadImage(url) {
 /** 删除远端 / 本地图片：Vercel Blob 走 API；本地开发直接尝试删除文件 */
 export async function deleteImage(url) {
   if (!url) return;
-  if (BLOB_TOKEN && url.startsWith('https://')) {
+  if (hasBlobToken && url.startsWith('https://')) {
     const res = await fetch(`${BLOB_BASE}/api/delete`, {
       method: 'POST',
       headers: {

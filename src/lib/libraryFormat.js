@@ -43,10 +43,37 @@ export function taskTime(task) {
 export function previewItem(task, output) {
   return {
     ...output,
+    task,
     title: task.prompt || output.fileName || output.file_name || '生成图片',
     meta: [taskSourceLabel(task), output.size || task.params?.size, task.model]
       .filter(Boolean)
       .join(' · '),
+    prompt: task.prompt || '',
+    revisedPrompt: output.revisedPrompt || output.revised_prompt || '',
+    referencePaths: taskReferencePaths(task),
+    time: taskTime(task),
+    model: task.model || task.providerName || task.provider_name || '',
+    size: output.size || task.params?.size || '',
+  };
+}
+
+// 参考图进大图查看器时与主图共享同一任务上下文（提示词、操作按钮），
+// 改写提示词取首个输出里的值（参考图本身没有改写提示词）。
+export function referencePreviewItem(task, path, index, total) {
+  const firstOutput = (task.outputs || [])[0] || {};
+  return {
+    path,
+    task,
+    title: `参考图 ${index + 1}/${total}`,
+    meta: [taskSourceLabel(task), task.model || task.providerName || task.provider_name || '']
+      .filter(Boolean)
+      .join(' · '),
+    prompt: task.prompt || '',
+    revisedPrompt: firstOutput.revisedPrompt || firstOutput.revised_prompt || '',
+    referencePaths: taskReferencePaths(task),
+    time: taskTime(task),
+    model: task.model || task.providerName || task.provider_name || '',
+    size: '',
   };
 }
 

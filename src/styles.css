@@ -1881,70 +1881,177 @@ button:disabled {
 .effect-image-viewer-stage img {
   display: block;
   max-width: calc(100vw - 144px);
-  max-height: calc(100vh - 116px);
+  max-height: calc(100vh - 176px);
   border-radius: 8px;
   object-fit: contain;
   box-shadow: 0 24px 72px rgba(28, 20, 48, 0.34);
 }
 
-.effect-image-viewer-head {
+/* 顶部标题条：900×60，左半提示词，右半 info + 工具一上一下 */
+.viewer-title-bar {
   position: fixed;
-  z-index: 2;
+  z-index: 3;
   top: 18px;
-  right: 18px;
-  left: 18px;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto 36px;
-  align-items: center;
+  left: 50%;
+  display: flex;
+  align-items: stretch;
   gap: 14px;
-  min-height: 46px;
-  padding: 7px 8px 7px 14px;
+  width: 900px;
+  height: 60px;
+  padding: 8px 12px;
+  transform: translateX(-50%);
   border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 8px;
-  background: rgba(31, 25, 43, 0.9);
+  border-radius: 10px;
+  background: rgba(31, 25, 43, 0.92);
   color: #fff;
+  cursor: pointer;
   box-shadow: 0 12px 36px rgba(17, 12, 28, 0.22);
 }
 
-.effect-image-viewer-head > div {
-  display: grid;
-  min-width: 0;
+.viewer-title-bar.expanded {
+  border-color: rgba(255, 255, 255, 0.42);
 }
 
-.effect-image-viewer-head strong,
-.effect-image-viewer-head span {
+.viewer-title-prompts {
+  display: flex;
+  flex: 1 1 50%;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+}
+
+.viewer-prompt-row {
   overflow: hidden;
+  font-size: 12px;
+  line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.effect-image-viewer-head span {
-  color: rgba(255, 255, 255, 0.72);
-  font-size: 12px;
+.viewer-prompt-row.revised {
+  color: rgba(255, 255, 255, 0.66);
 }
 
-.effect-image-viewer-head button,
-.effect-image-viewer-nav {
+.viewer-title-side {
+  display: flex;
+  flex: 1 1 50%;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+}
+
+.viewer-title-info {
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.viewer-title-tools {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+}
+
+/* 标题条向下展开：上方提示词可滚动，底部按钮与 info 常驻 */
+.viewer-expand-panel {
+  position: fixed;
+  z-index: 3;
+  top: 88px;
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  width: 900px;
+  max-height: calc(100vh - 120px);
+  transform: translateX(-50%);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 10px;
+  background: rgba(31, 25, 43, 0.96);
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 12px 36px rgba(17, 12, 28, 0.22);
+}
+
+.viewer-expand-prompts {
+  flex: 1;
+  min-height: 0;
+  padding: 12px 16px;
+  overflow-y: auto;
+  cursor: default;
+}
+
+.viewer-expand-prompts section + section {
+  margin-top: 12px;
+}
+
+.viewer-expand-prompts h3 {
+  margin: 0 0 4px;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.viewer-expand-prompts p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.viewer-expand-footer {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  cursor: default;
+}
+
+.viewer-expand-footer .viewer-title-info {
+  flex: 1;
+  text-align: right;
+}
+
+/* 参考图放大叠层：盖在查看器上，点击任意位置关闭 */
+.viewer-ref-overlay {
+  position: fixed;
+  z-index: 4;
   display: grid;
   place-items: center;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 7px;
-  background: rgba(31, 25, 43, 0.84);
-  color: #fff;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(17, 12, 28, 0.86);
+  cursor: zoom-out;
 }
 
-.effect-image-viewer-head button {
-  width: 36px;
-  height: 32px;
+.viewer-ref-overlay img {
+  display: block;
+  max-width: calc(100vw - 144px);
+  max-height: calc(100vh - 144px);
+  border-radius: 8px;
+  object-fit: contain;
+  box-shadow: 0 24px 72px rgba(10, 7, 18, 0.5);
 }
 
 .effect-image-viewer-nav {
   position: fixed;
   z-index: 2;
   top: 50%;
+  display: grid;
+  place-items: center;
   width: 44px;
   height: 52px;
   transform: translateY(-50%);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 7px;
+  background: rgba(31, 25, 43, 0.84);
+  color: #fff;
 }
 
 .effect-image-viewer-nav.previous {
@@ -1955,7 +2062,6 @@ button:disabled {
   right: 20px;
 }
 
-.effect-image-viewer-head button:hover,
 .effect-image-viewer-nav:hover {
   border-color: rgba(255, 255, 255, 0.62);
   background: rgba(56, 45, 76, 0.94);
@@ -3992,12 +4098,27 @@ button:disabled {
 
 .library-image-ref-thumb {
   flex: none;
-  width: 26px;
-  height: 26px;
-  object-fit: cover;
-  border-radius: 4px;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 4px;
   background: rgba(255, 255, 255, 0.12);
+  cursor: zoom-in;
+  transition: border-color 140ms ease;
+}
+
+.library-image-ref-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.library-image-ref-thumb:hover {
+  border-color: rgba(255, 255, 255, 0.75);
 }
 
 .library-image-actions {
@@ -4009,8 +4130,9 @@ button:disabled {
 .library-image-actions button {
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 26px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
   border: 1px solid rgba(255, 255, 255, 0.3);
   border-radius: 5px;
   background: rgba(255, 255, 255, 0.12);
@@ -4189,10 +4311,17 @@ button:disabled {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .effect-image-viewer-head {
+  .viewer-title-bar,
+  .viewer-expand-panel {
+    width: calc(100vw - 16px);
+  }
+
+  .viewer-title-bar {
     top: 8px;
-    right: 8px;
-    left: 8px;
+  }
+
+  .viewer-expand-panel {
+    top: 76px;
   }
 
   .effect-image-viewer-nav.previous {

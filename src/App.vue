@@ -147,6 +147,11 @@
           :title="effectViewer.title"
           :items="effectViewer.items"
           :initial-index="effectViewer.index"
+          @download-output="downloadOutput"
+          @reveal-output="reveal($event.path)"
+          @delete-task="deleteTask"
+          @reference-to-agent="handleLibraryReferenceToAgent"
+          @add-to-template="handleLibraryAddToTemplate"
         />
 
         <CleanupDialog

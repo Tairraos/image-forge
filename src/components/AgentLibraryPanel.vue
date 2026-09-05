@@ -33,13 +33,16 @@
               </div>
               <div class="library-image-footbar">
                 <div v-if="card.referencePaths.length" class="library-image-ref-thumbs">
-                  <img
+                  <button
                     v-for="(refPath, ri) in card.referencePaths"
                     :key="refPath"
-                    :src="fileUrl(refPath)"
-                    :alt="`参考图 ${ri + 1}`"
+                    type="button"
                     class="library-image-ref-thumb"
-                  />
+                    :aria-label="`查看参考图 ${ri + 1}`"
+                    @click.stop="openReferencePreview(card, refPath)"
+                  >
+                    <img :src="fileUrl(refPath)" :alt="`参考图 ${ri + 1}`" loading="lazy" />
+                  </button>
                 </div>
                 <div class="library-image-actions">
                   <n-tooltip trigger="hover" :delay="0">
@@ -221,6 +224,7 @@ import {
   formatMonth,
   formatTime,
   previewItem,
+  referencePreviewItem,
   taskReferencePaths,
   taskSource,
   taskSourceOptions,
@@ -341,6 +345,20 @@ function goMonth(value) {
 function openPreview(path) {
   const index = visibleImages.value.findIndex((item) => item.path === path);
   emit('preview-images', { items: visibleImages.value, index: Math.max(0, index) });
+}
+
+// 点击参考图缩略图与点击主图一致：打开大图查看器，尽可能 1:1 显示参考图。
+function openReferencePreview(card, refPath) {
+  const items = card.referencePaths.map((path, index) =>
+    referencePreviewItem(card.task, path, index, card.referencePaths.length)
+  );
+  emit('preview-images', {
+    items,
+    index: Math.max(
+      0,
+      items.findIndex((item) => item.path === refPath)
+    ),
+  });
 }
 
 async function copyPrompt(task) {

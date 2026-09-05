@@ -86,4 +86,21 @@ describe('AgentLibraryPanel', () => {
       [{ task: taskWithRef, output: taskWithRef.outputs[0] }],
     ]);
   });
+
+  it('点击参考图缩略以参考图打开大图查看器', async () => {
+    const wrapper = mountPanel([taskWithRef]);
+    await flushPromises();
+    const card = wrapper.get('.library-image-card');
+    await card.get('.library-image-ref-thumb').trigger('click');
+
+    const emitted = wrapper.emitted('preview-images');
+    expect(emitted).toHaveLength(1);
+    const { items, index } = emitted[0][0];
+    expect(index).toBe(0);
+    expect(items).toHaveLength(1);
+    expect(items[0].path).toBe('/refs/a.png');
+    expect(items[0].title).toBe('参考图 1/1');
+    expect(items[0].prompt).toBe(taskWithRef.prompt);
+    expect(items[0].task).toEqual(taskWithRef);
+  });
 });
