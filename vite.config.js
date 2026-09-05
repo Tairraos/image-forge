@@ -1,6 +1,6 @@
 import vue from '@vitejs/plugin-vue';
 import { defineConfig, loadEnv } from 'vite';
-import { createReadStream, readFileSync, unlinkSync } from 'node:fs';
+import { existsSync, createReadStream, readFileSync, unlinkSync } from 'node:fs';
 import { mkdir, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, normalize, extname } from 'node:path';
@@ -21,6 +21,58 @@ function getMimeType(filePath) {
   return MIME_MAP[extname(filePath).toLowerCase()] || 'application/octet-stream';
 }
 
+/** 把 ~/.image-forge 下的绝对路径改写为 dev server 的 HTTP URL（与 convertFileSrc 同一规则） */
+function toDevUrl(path) {
+  if (!path) return path;
+  const idx = path.indexOf('/.image-forge/');
+  if (idx >= 0) {
+    return `/image-forge-data${path.slice(idx + '/.image-forge'.length)}`;
+  }
+  return path;
+}
+
+/** 把桌面版记录里的本地文件路径改写成 dev URL，让 Web 端图片/下载/引用直接可用 */
+function rewriteDesktopRecord(record) {
+  return {
+    ...record,
+    referencePaths: (record.referencePaths || []).map(toDevUrl),
+    outputs: (record.outputs || []).map((output) => ({ ...output, path: toDevUrl(output.path) })),
+  };
+}
+
+/** 只读桌面版 SQLite，返回有输出图的 completed 任务（结构同 Rust agent_library 的 tasks） */
+async function readDesktopLibraryTasks() {
+  const databasePath = join(IMAGE_FORGE_DIR, 'library.sqlite');
+  if (!existsSync(databasePath)) return [];
+  try {
+    const { default: Database } = await import('better-sqlite3');
+    const database = new Database(databasePath, { readonly: true });
+    try {
+      const rows = database
+        .prepare(
+          "SELECT record_json FROM tasks WHERE status = 'completed' AND EXISTS (SELECT 1 FROM task_outputs output WHERE output.task_id = tasks.id)"
+        )
+        .all();
+      return rows
+        .map((row) => {
+          try {
+            return JSON.parse(row.record_json);
+          } catch {
+            return null;
+          }
+        })
+        .filter(Boolean)
+        .filter((record) => Array.isArray(record.outputs) && record.outputs.length > 0)
+        .map(rewriteDesktopRecord);
+    } finally {
+      database.close();
+    }
+  } catch (error) {
+    console.warn('[image-forge-data] 读取桌面版图片库失败:', error?.message || error);
+    return [];
+  }
+}
+
 /** 开发时把 ~/.image-forge 目录下的文件通过 HTTP 提供给浏览器 */
 function serveImageForgeData() {
   return {
@@ -33,6 +85,13 @@ function serveImageForgeData() {
         if (!filePath.startsWith(IMAGE_FORGE_DIR)) {
           res.statusCode = 403;
           res.end('Forbidden');
+          return;
+        }
+        if (req.method === 'GET' && urlPath === '/__library') {
+          // 本地开发：Web 版图片库读取桌面版 ~/.image-forge/library.sqlite 的任务元数据
+          const tasks = await readDesktopLibraryTasks();
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ tasks }));
           return;
         }
         if (req.method === 'POST' || req.method === 'PUT') {

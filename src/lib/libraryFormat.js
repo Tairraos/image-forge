@@ -29,13 +29,21 @@ export function taskReferencePaths(task) {
 }
 
 export function taskTime(task) {
-  return task.completedAt || task.updatedAt || task.createdAt || '';
+  return (
+    task.completedAt ||
+    task.completed_at ||
+    task.updatedAt ||
+    task.updated_at ||
+    task.createdAt ||
+    task.created_at ||
+    ''
+  );
 }
 
 export function previewItem(task, output) {
   return {
     ...output,
-    title: task.prompt || output.fileName || '生成图片',
+    title: task.prompt || output.fileName || output.file_name || '生成图片',
     meta: [taskSourceLabel(task), output.size || task.params?.size, task.model]
       .filter(Boolean)
       .join(' · '),

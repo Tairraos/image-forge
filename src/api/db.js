@@ -55,74 +55,76 @@ export async function getAllTasks(limit) {
 
 // ── 图片库查询 ──
 
+/** 兼容桌面版（camelCase）与 Web 版（snake_case）两种记录形状的时间戳 */
+function recordTime(record) {
+  return record.completed_at || record.completedAt || record.created_at || record.createdAt || '';
+}
+
+function libraryDate(record) {
+  // 取日期部分 YYYY-MM-DD
+  const match = /^\d{4}-\d{2}-\d{2}/.exec(recordTime(record));
+  return match ? match[0] : '1970-01-01';
+}
+
+/** 全部有输出图的 completed 任务（解析后的记录，兼容两种字段形状） */
+export async function getCompletedLibraryRecords() {
+  const rows = await db.tasks.filter((row) => row.status === 'completed').toArray();
+  return rows
+    .map((row) => parseRecord(row.record_json))
+    .filter((record) => record.outputs?.length > 0);
+}
+
 /**
- * Agent 内嵌图片库查询。
- * 无关键词时按月份筛选，有关键词时跨月搜索。
- * 同时返回所有有图片的月份列表。
+ * 纯查询：对任意一组任务记录做图片库筛选与统计，桌面版/Web 版记录混用均可。
+ * month 为空表示不过滤（与桌面版 agent_library 一致，默认显示全部月份）；
+ * query 匹配 prompt / model / providerName / id，跨月搜索。
  */
-export async function queryAgentLibrary(month, query) {
-  const q = (query || '').trim();
-  const now = new Date();
-  const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  const targetMonth = month || defaultMonth;
+export function buildLibraryPage(records, month, query) {
+  const q = (query || '').trim().toLowerCase();
+  const targetMonth = (month || '').trim();
+  const withOutputs = records.filter((record) => record.outputs?.length > 0);
 
   let tasks;
   if (q) {
-    // 关键词搜索：匹配 prompt / model / id
-    const lower = q.toLowerCase();
-    const all = await db.tasks.filter((row) => row.status === 'completed').toArray();
-    tasks = all.filter((row) => {
-      const json = row.record_json || '';
-      const record = parseRecord(json);
-      // 有输出图才显示
-      if (!record.outputs?.length) return false;
-      return (
-        (record.prompt || '').toLowerCase().includes(lower) ||
-        (record.model || '').toLowerCase().includes(lower) ||
-        (record.id || '').toLowerCase().includes(lower)
-      );
-    });
+    tasks = withOutputs.filter((record) =>
+      [record.prompt, record.model, record.provider_name || record.providerName, record.id].some(
+        (value) =>
+          String(value || '')
+            .toLowerCase()
+            .includes(q)
+      )
+    );
+  } else if (targetMonth) {
+    tasks = withOutputs.filter((record) => libraryDate(record).startsWith(targetMonth));
   } else {
-    // 按月筛选
-    const prefix = targetMonth;
-    tasks = await db.tasks
-      .where('library_date')
-      .startsWith(prefix)
-      .filter((row) => row.status === 'completed')
-      .toArray();
-    tasks = tasks.filter((row) => {
-      const record = parseRecord(row.record_json);
-      return record.outputs?.length > 0;
-    });
+    tasks = [...withOutputs];
   }
 
-  // 按创建时间倒序
-  tasks.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+  tasks.sort((a, b) => String(recordTime(b)).localeCompare(String(recordTime(a))));
 
-  // 月份统计
-  const allCompleted = await db.tasks.filter((row) => row.status === 'completed').toArray();
   const monthMap = new Map();
-  for (const row of allCompleted) {
-    const record = parseRecord(row.record_json);
-    if (!record.outputs?.length) continue;
-    const m = (row.library_date || '').slice(0, 7);
-    if (!m) continue;
-    monthMap.set(m, (monthMap.get(m) || 0) + record.outputs.length);
+  for (const record of withOutputs) {
+    const monthKey = libraryDate(record).slice(0, 7);
+    if (!monthKey || monthKey === '1970-01') continue;
+    monthMap.set(monthKey, (monthMap.get(monthKey) || 0) + record.outputs.length);
   }
   const months = Array.from(monthMap, ([date, imageCount]) => ({ date, imageCount })).sort((a, b) =>
     b.date.localeCompare(a.date)
   );
 
-  const totalImages = tasks.reduce((sum, row) => {
-    const record = parseRecord(row.record_json);
-    return sum + (record.outputs?.length || 0);
-  }, 0);
-
   return {
-    tasks: tasks.map((row) => parseRecord(row.record_json)),
+    tasks,
     months,
-    total_images: totalImages,
+    total_images: tasks.reduce((sum, record) => sum + (record.outputs?.length || 0), 0),
   };
+}
+
+/**
+ * Agent 内嵌图片库查询（浏览器 IndexedDB 内的任务）。
+ * 本地开发时桌面版任务由 adapter-web 合并进来，见 agentLibrary。
+ */
+export async function queryAgentLibrary(month, query) {
+  return buildLibraryPage(await getCompletedLibraryRecords(), month, query);
 }
 
 // ── 批量操作 ──
@@ -145,13 +147,6 @@ function parseRecord(json) {
   } catch {
     return { id: '', outputs: [], prompt: '' };
   }
-}
-
-function libraryDate(record) {
-  const value = record.completed_at || record.created_at || '';
-  // 取日期部分 YYYY-MM-DD
-  const match = /^\d{4}-\d{2}-\d{2}/.exec(value);
-  return match ? match[0] : '1970-01-01';
 }
 
 function normalizedOrigin(record) {

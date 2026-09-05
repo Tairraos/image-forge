@@ -83,6 +83,10 @@ Web 版直接从浏览器调用 OpenAI/Gemini/Grok API（`src/api/providers.js`�
 1. 优先：Vercel Blob（需配置 `VITE_BLOB_READ_WRITE_TOKEN`）
 2. 本地开发：写入 `~/.image-forge/` 目录，通过 Vite dev server 的 `/image-forge-data/` 路径提供
 
+### 图片库能看到桌面版的图吗？
+
+能（仅本地开发）。`pnpm dev` 启动时，图片库会合并展示桌面版 `~/.image-forge/library.sqlite` 里的任务，图片直接通过 `/image-forge-data/` 提供，无需先跑同步工具；同一任务如果浏览器里也有（例如之前同步过），以桌面版记录为准。生产部署的 Web 版只显示浏览器内生成的任务。
+
 ## 项目结构
 
 ```

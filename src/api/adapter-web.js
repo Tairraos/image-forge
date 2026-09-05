@@ -4,7 +4,7 @@
 import * as db from './db.js';
 import * as queue from './queue.js';
 import * as agent from './agent.js';
-import { uploadImage } from './blob.js';
+import { uploadImage, isLocalDev } from './blob.js';
 
 // ── 本地存储键 ──
 const KEYS = {
@@ -120,7 +120,26 @@ export async function renameAgentSession(sessionId, title) {
 // ── 图片库 ──
 
 export async function agentLibrary(month, query) {
-  return db.queryAgentLibrary(month, query);
+  const localRecords = await db.getCompletedLibraryRecords();
+  let records = localRecords;
+  if (isLocalDev()) {
+    // 本地开发：合并展示桌面版 ~/.image-forge/library.sqlite 的任务（图片路径已被
+    // dev server 改写为 /image-forge-data/ URL），同一任务以桌面版记录为准。
+    try {
+      const res = await fetch('/image-forge-data/__library');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const remote = await res.json();
+      const seen = new Set();
+      records = [...(remote.tasks || []), ...localRecords].filter((task) => {
+        if (!task?.id || seen.has(task.id)) return false;
+        seen.add(task.id);
+        return true;
+      });
+    } catch (error) {
+      console.warn('读取 ~/.image-forge 图片库失败，仅显示浏览器内任务:', error);
+    }
+  }
+  return db.buildLibraryPage(records, month, query);
 }
 
 // ── 任务 ──

@@ -10,7 +10,7 @@ const DEV_DATA_ORIGIN = '/image-forge-data';
 const DEV_PORTS = new Set(['1421', String(import.meta.env.VITE_DEV_PORT || '')].filter(Boolean));
 
 /** 当前是否处于本地开发模式：未配置 Vercel token、且浏览器在 vite dev server 同源下 */
-function isLocalDev() {
+export function isLocalDev() {
   if (BLOB_TOKEN) return false;
   if (typeof window === 'undefined') return false;
   // 生产构建里没有 dev server 代理可用，直接走远端逻辑（此时通常 BLOB_TOKEN 必填）

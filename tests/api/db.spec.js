@@ -31,8 +31,15 @@ vi.mock('dexie', () => ({
 const { db } = await vi.importActual('../../src/api/db.js');
 Object.assign(db, mockDb);
 
-const { upsertTask, getTask, deleteTask, getAllTasks, queryAgentLibrary, replaceAllTasks } =
-  await import('../../src/api/db.js');
+const {
+  upsertTask,
+  getTask,
+  deleteTask,
+  getAllTasks,
+  queryAgentLibrary,
+  buildLibraryPage,
+  replaceAllTasks,
+} = await import('../../src/api/db.js');
 
 function makeRecord(overrides = {}) {
   return {
@@ -241,5 +248,66 @@ describe('replaceAllTasks', () => {
 
     expect(mockTasks.clear).toHaveBeenCalled();
     expect(mockTasks.put).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('buildLibraryPage（桌面/Web 记录混用）', () => {
+  // 桌面版 record_json：camelCase 任务字段 + camelCase outputs
+  const desktopRecord = {
+    id: 'desktop-1',
+    createdAt: '2026-07-10T08:00:00Z',
+    completedAt: '2026-07-10T08:05:00Z',
+    status: 'completed',
+    prompt: '桌面柴犬',
+    model: 'gpt-image-2',
+    providerName: 'OpenAI',
+    origin: 'agent',
+    agentSessionId: 'sess-1',
+    taskGroupId: 'tg-1',
+    referencePaths: ['/image-forge-data/references/abc.png'],
+    outputs: [
+      { path: '/image-forge-data/outputs/2026/07/a.png', fileName: 'a.png', size: '1024x1024' },
+    ],
+  };
+  const webRecord = makeRecord({
+    id: 'web-1',
+    prompt: '一只狗',
+    created_at: '2026-08-01T08:55:00.000Z',
+    completed_at: '2026-08-01T09:00:00.000Z',
+  });
+
+  it('月份为空时返回全部月份（与桌面版 agent_library 一致）', () => {
+    const page = buildLibraryPage([desktopRecord, webRecord], '', '');
+    expect(page.tasks.map((task) => task.id)).toEqual(['web-1', 'desktop-1']);
+    expect(page.months.map((month) => month.date)).toEqual(['2026-08', '2026-07']);
+    expect(page.total_images).toBe(2);
+  });
+
+  it('按月筛选同时兼容两种字段形状', () => {
+    expect(
+      buildLibraryPage([desktopRecord, webRecord], '2026-07', '').tasks.map((t) => t.id)
+    ).toEqual(['desktop-1']);
+    expect(
+      buildLibraryPage([desktopRecord, webRecord], '2026-08', '').tasks.map((t) => t.id)
+    ).toEqual(['web-1']);
+  });
+
+  it('搜索兼容 providerName（camelCase）与 prompt', () => {
+    expect(
+      buildLibraryPage([desktopRecord, webRecord], '', 'openai').tasks.map((task) => task.id)
+    ).toEqual(['desktop-1']);
+    expect(
+      buildLibraryPage([desktopRecord, webRecord], '', '狗').tasks.map((task) => task.id)
+    ).toEqual(['web-1']);
+  });
+
+  it('无日期记录不进入月份统计', () => {
+    const page = buildLibraryPage(
+      [{ ...webRecord, id: 'no-date', completed_at: '', created_at: '' }],
+      '',
+      ''
+    );
+    expect(page.tasks).toHaveLength(1);
+    expect(page.months).toEqual([]);
   });
 });

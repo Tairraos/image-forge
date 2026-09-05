@@ -326,6 +326,8 @@ sequenceDiagram
 
 Web 版开发时通过 Vite 插件共享 `~/.image-forge/` 下的图片文件。生产部署到 Vercel 后，图片通过 Vercel Blob 存储。
 
+本地开发时，Web 版图片库会**合并展示桌面版任务**：dev server 提供只读端点 `/image-forge-data/__library`（用 better-sqlite3 读取 `library.sqlite` 中有输出图的 completed 任务，并把记录里的 `~/.image-forge/` 绝对路径改写为 `/image-forge-data/` URL），`adapter-web.js` 在 `isLocalDev()` 时把它与浏览器 IndexedDB 的任务按 ID 合并（同一任务以桌面版记录为准）后统一筛选和统计。查询逻辑兼容桌面 camelCase 与 Web snake_case 两种记录形状。生产部署（非本地 dev）只读浏览器内任务。
+
 ### 双向同步
 
 `pnpm sync:web:serve` 启动本地 HTTP 服务，合并 SQLite 和浏览器 IndexedDB/localStorage 数据。以 `updated_at` 较新的记录为准，合并后写回两端。Web 开发时桌面版和浏览器共享同一套图片文件。

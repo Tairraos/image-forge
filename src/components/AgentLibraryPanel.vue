@@ -21,12 +21,14 @@
                 <img
                   loading="lazy"
                   :src="fileUrl(card.output.path)"
-                  :alt="card.output.fileName || card.task.prompt"
+                  :alt="card.output.fileName || card.output.file_name || card.task.prompt"
                 />
               </button>
               <div class="library-image-topbar">
                 <time>{{ formatTime(card.time) }}</time>
-                <span>{{ card.task.model || card.task.providerName || '' }}</span>
+                <span>{{
+                  card.task.model || card.task.providerName || card.task.provider_name || ''
+                }}</span>
                 <span>{{ card.output.size || card.task.params?.size || '' }}</span>
               </div>
               <div class="library-image-footbar">
