@@ -104,8 +104,8 @@
           :settings="settings"
           :templates="templates"
           :info="aboutInfo"
+          :stats="libraryStats"
           @save-api="saveApiSettings"
-          @view-template="viewTemplate"
           @edit-template="editTemplate"
           @delete-template="deletePromptTemplate"
           @create-template="newTemplate"
@@ -113,7 +113,7 @@
           @export-template="exportPromptTemplates"
           @move-template="movePromptTemplate"
           @show-template-effect="showTemplateEffect"
-          @show-logs="openRuntimeLogs"
+          @show-template-image="showTemplateImage"
           @cleanup="openCleanup"
           @export-data="openExportData"
           @import-data="openImportData"
@@ -163,8 +163,6 @@
           @confirm="confirmCleanup"
         />
 
-        <RuntimeLogDialog v-model:show="showRuntimeLogDialog" :logs="runtimeLogText" />
-
         <ConfirmDialog
           v-model:show="confirmation.visible"
           :title="confirmation.title"
@@ -196,7 +194,6 @@ import ConfirmDialog from './components/dialogs/ConfirmDialog.vue';
 import DesignDialog from './components/dialogs/DesignDialog.vue';
 import EffectImageViewer from './components/dialogs/EffectImageViewer.vue';
 import NoticeDialog from './components/dialogs/NoticeDialog.vue';
-import RuntimeLogDialog from './components/dialogs/RuntimeLogDialog.vue';
 import TemplateEditorDialog from './components/dialogs/TemplateEditorDialog.vue';
 import DataTransferDialog from './components/dialogs/DataTransferDialog.vue';
 import { fileName } from './lib/formatters';
@@ -271,7 +268,6 @@ const showTemplateEditor = ref(false);
 const showDataTransfer = ref(false);
 const dataTransferMode = ref('export');
 const showDesignDialog = ref(false);
-const showRuntimeLogDialog = ref(false);
 const showCleanupDialog = ref(false);
 const confirmation = reactive({
   visible: false,
@@ -293,7 +289,6 @@ const AGENT_TASK_GROUP_POLL_INTERVAL = 5000;
 const templateDraft = reactive(emptyTemplate());
 const templateEditorMode = ref('edit');
 const aboutInfo = ref({ version: '', buildTime: '' });
-const runtimeLogText = ref('');
 const cleanupCandidates = ref([]);
 const cleanupLoading = ref(false);
 const cleanupConfirming = ref(false);
@@ -372,6 +367,16 @@ const historyTimeline = computed(() => {
     taskTime(left).localeCompare(taskTime(right))
   );
 });
+
+// 「关于」页数据统计：图片张数、对话数、API 项数。
+const libraryStats = computed(() => ({
+  images: historyTimeline.value.reduce(
+    (sum, task) => sum + (Array.isArray(task.outputs) ? task.outputs.length : 0),
+    0
+  ),
+  sessions: agentSessions.value.length,
+  providers: Array.isArray(settings.value?.providers) ? settings.value.providers.length : 0,
+}));
 
 const currentAgentDisplayMessages = computed(() =>
   currentAgentMessages.value.map((message) => {
@@ -1358,14 +1363,14 @@ function newTemplate() {
   showTemplateEditor.value = true;
 }
 
-// 以只读模式查看模板，并在弹窗中高亮占位符。
-async function viewTemplate(template) {
-  Object.assign(templateDraft, deepClone(template));
-  const { restored } = await restoreReferencePreviews(template.referencePaths);
-  templateDraftReferences.value = restored;
-  templateDraftEffectImage.value = await restoreEffectImage(template.effectImagePath);
-  templateEditorMode.value = 'view';
-  showTemplateEditor.value = true;
+// 在大图查看器中打开模板参考图。
+function showTemplateImage({ path, title }) {
+  if (!path) return;
+  effectViewer.items = [];
+  effectViewer.index = 0;
+  effectViewer.path = path;
+  effectViewer.title = title || '图片';
+  effectViewer.show = true;
 }
 
 // 以编辑模式打开模板。
@@ -1543,15 +1548,6 @@ async function openDesign() {
       buildTime: '',
     };
   }
-}
-
-async function openRuntimeLogs() {
-  try {
-    runtimeLogText.value = await api.runtimeLogs();
-  } catch (error) {
-    runtimeLogText.value = `读取运行日志失败：${String(error)}`;
-  }
-  showRuntimeLogDialog.value = true;
 }
 
 async function openCleanup() {

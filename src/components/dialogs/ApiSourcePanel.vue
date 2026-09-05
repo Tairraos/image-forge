@@ -1,150 +1,210 @@
 <template>
-  <div class="api-manager split">
-    <section class="provider-editor-pane">
-      <template v-if="selectedProvider">
-        <n-form class="provider-form" label-placement="top" :show-feedback="false">
-          <n-form-item label="名称">
-            <n-input
-              v-model:value="selectedProvider.name"
-              placeholder="例如 OpenAI / Azure / 自建服务"
-            />
-          </n-form-item>
-          <n-form-item label="Base URL">
-            <n-input
-              v-model:value="selectedProvider.baseUrl"
-              placeholder="https://api.openai.com/v1"
-            />
-          </n-form-item>
-          <n-form-item label="API Key">
-            <n-input
-              v-model:value="selectedProvider.apiKey"
-              type="password"
-              show-password-on="click"
-              placeholder="sk-..."
-            />
-          </n-form-item>
-          <n-form-item label="代理地址">
-            <n-input
-              v-model:value="selectedProvider.proxyUrl"
-              placeholder="可选，例如 http://127.0.0.1:7890"
-            />
-          </n-form-item>
-          <n-form-item label="模型">
-            <div class="model-select-row">
-              <n-select
-                :value="selectedProvider.imageModel"
-                filterable
-                tag
-                :options="modelOptions"
-                placeholder="选择或输入模型 ID"
-                @update:value="updateSelectedModel"
-              />
-              <n-button secondary :loading="loadingModels" @click="fetchModels"> 获取 </n-button>
-            </div>
-          </n-form-item>
-          <!-- 绘图 API：可编辑模型类型；对话 API：只读展示「对话模型」 -->
-          <n-form-item label="模型类型">
-            <n-select
-              v-if="kind === 'image'"
-              :value="selectedProvider.modelType"
-              :options="imageModelTypeOptions"
-              placeholder="选择模型类型"
-              :consistent-menu-width="false"
-              @update:value="updateSelectedModelType"
-            />
-            <n-input v-else :value="chatModelTypeLabel" readonly disabled />
-          </n-form-item>
-          <n-form-item v-if="kind === 'chat'" label="视觉输入">
-            <n-checkbox v-model:checked="selectedProvider.chatVision">
-              对话模型支持图片理解（Agent 会把参考图一并发送）
-            </n-checkbox>
-          </n-form-item>
-          <p v-if="modelFetchMessage" class="model-fetch-message" :data-tone="modelFetchTone">
-            {{ modelFetchMessage }}
-          </p>
-        </n-form>
-      </template>
-      <p v-else class="provider-empty">还没有{{ kindLabel }}源，先新增一个。</p>
-
-      <div class="api-dialog-footer">
-        <div class="api-dialog-footer-actions" :class="{ 'paste-shake': pasteShake }">
-          <n-button size="small" @click="addProvider">+ 新增</n-button>
-          <n-button size="small" @click="pasteProvider">粘贴</n-button>
-          <n-button size="small" type="primary" @click="save">保存</n-button>
-          <n-button size="small" :disabled="!selectedProvider" @click="copyProvider">
-            <template #icon><Copy :size="15" /></template>
-            克隆
-          </n-button>
-        </div>
+  <div class="api-manager">
+    <header class="api-manager-head">
+      <div class="api-manager-title">
+        {{ kindLabel }}
+        <span class="api-manager-count">{{ visibleProviders.length }} 项</span>
+        <span v-if="listMessage" class="api-manager-message" :data-tone="listMessageTone">
+          {{ listMessage }}
+        </span>
       </div>
-    </section>
+      <div class="api-manager-actions">
+        <n-button size="small" secondary @click="pasteProvider">粘贴</n-button>
+        <n-button size="small" secondary :disabled="!expandedProvider" @click="cloneProvider">
+          <template #icon><Copy :size="14" /></template>
+          克隆
+        </n-button>
+        <n-button size="small" type="primary" @click="addProvider">+ 新增</n-button>
+      </div>
+    </header>
 
-    <div class="provider-split-line" aria-hidden="true"></div>
-
-    <section class="provider-list provider-list-vertical" aria-label="API 源列表">
-      <div class="provider-card-grid vertical" data-persistent-scrollbar>
-        <article
-          v-for="(provider, index) in visibleProviders"
-          :key="provider.id"
-          class="provider-card"
-          :class="[
-            { active: selectedId === provider.id, default: index === 0 },
-            providerTypeClass(provider.modelType),
-            { dragging: dragId === provider.id, 'drag-over': dragOverId === provider.id },
-          ]"
-          :style="dragOverId === provider.id ? { '--drag-h': `${dragHeight}px` } : undefined"
-          draggable="true"
-          @click="selectProvider(provider.id)"
-          @dragstart="onDragStart(provider.id, $event)"
-          @dragover.prevent="onDragOver(provider.id)"
-          @drop.prevent="onDrop(provider.id)"
-          @dragend="onDragEnd"
-        >
+    <div class="api-list" data-persistent-scrollbar>
+      <div
+        v-for="(provider, index) in visibleProviders"
+        :key="provider.id"
+        class="api-item"
+        :class="{
+          expanded: expandedId === provider.id,
+          'drag-over': dragOverId === provider.id,
+          dragging: dragId === provider.id,
+        }"
+        @dragover.prevent="onDragOver(provider.id)"
+        @drop.prevent="onDrop(provider.id)"
+      >
+        <div class="api-row" :class="{ active: expandedId === provider.id }">
           <button
             type="button"
-            class="provider-card-main"
-            @click.stop="selectProvider(provider.id)"
+            class="api-row-handle"
+            title="拖动调整顺序"
+            aria-label="拖动调整顺序"
+            draggable="true"
+            @dragstart="onDragStart(provider.id, $event)"
+            @dragend="onDragEnd"
           >
-            <strong :title="provider.name || '未命名 API 源'">
-              {{ provider.name || '未命名 API 源' }}
+            <AlignJustify :size="14" />
+          </button>
+          <button
+            type="button"
+            class="api-row-main"
+            :title="expandedId === provider.id && expandedMode === 'edit' ? '' : '点击查看详情'"
+            @click="toggleDetail(provider.id)"
+          >
+            <strong>
+              <span class="api-row-name" :title="provider.name || '未命名 API 源'">
+                {{ provider.name || '未命名 API 源' }}
+              </span>
+              <em v-if="index === 0" class="provider-default-badge">默认</em>
             </strong>
-            <span :title="provider.imageModel || '未设置模型'">
+            <span class="api-row-model" :title="provider.imageModel || '未设置模型'">
               {{ provider.imageModel || '未设置模型' }}
             </span>
-            <small>{{ maskedApiKey(provider.apiKey) }}</small>
-            <em v-if="index === 0" class="provider-default-badge">默认</em>
           </button>
-          <div class="provider-card-actions">
+          <div class="api-row-actions">
             <button
               type="button"
               title="上移"
+              aria-label="上移"
               :disabled="index === 0"
-              @click.stop="moveProvider(provider.id, -1)"
+              @click="moveProvider(provider.id, -1)"
             >
-              <ArrowUp :size="13" />
+              <ArrowUp :size="14" />
             </button>
             <button
               type="button"
               title="下移"
+              aria-label="下移"
               :disabled="index === visibleProviders.length - 1"
-              @click.stop="moveProvider(provider.id, 1)"
+              @click="moveProvider(provider.id, 1)"
             >
-              <ArrowDown :size="13" />
+              <ArrowDown :size="14" />
+            </button>
+            <button
+              v-if="expandedId === provider.id && expandedMode === 'edit'"
+              type="button"
+              title="保存"
+              aria-label="保存"
+              class="primary"
+              @click="saveEdits"
+            >
+              <Save :size="14" />
+            </button>
+            <button
+              v-else
+              type="button"
+              title="编辑"
+              aria-label="编辑"
+              @click="openEdit(provider.id)"
+            >
+              <Pencil :size="14" />
             </button>
             <button
               type="button"
               title="删除"
+              aria-label="删除"
               class="danger"
               :disabled="draft.providers.length <= 1"
-              @click.stop="deleteProvider(provider.id)"
+              @click="deleteProvider(provider.id)"
             >
-              <Trash2 :size="13" />
+              <Trash2 :size="14" />
             </button>
           </div>
-        </article>
-        <p v-if="!visibleProviders.length" class="provider-empty">暂无{{ kindLabel }}源</p>
+        </div>
+
+        <div v-if="expandedId === provider.id" class="api-drawer">
+          <!-- 只读详情 -->
+          <dl v-if="expandedMode !== 'edit'" class="api-drawer-readonly">
+            <div>
+              <dt>名称</dt>
+              <dd>{{ provider.name || '未命名 API 源' }}</dd>
+            </div>
+            <div>
+              <dt>Base URL</dt>
+              <dd>{{ provider.baseUrl || '未设置' }}</dd>
+            </div>
+            <div>
+              <dt>API Key</dt>
+              <dd>{{ maskedApiKey(provider.apiKey) }}</dd>
+            </div>
+            <div>
+              <dt>代理地址</dt>
+              <dd>{{ provider.proxyUrl || '未设置' }}</dd>
+            </div>
+            <div>
+              <dt>模型</dt>
+              <dd>{{ provider.imageModel || '未设置模型' }}</dd>
+            </div>
+            <div>
+              <dt>模型类型</dt>
+              <dd>{{ modelTypeLabel(provider.modelType) }}</dd>
+            </div>
+            <div v-if="kind === 'chat'">
+              <dt>视觉输入</dt>
+              <dd>{{ provider.chatVision ? '支持' : '不支持' }}</dd>
+            </div>
+          </dl>
+
+          <!-- 编辑表单 -->
+          <n-form v-else class="provider-form" label-placement="top" :show-feedback="false">
+            <n-form-item label="名称">
+              <n-input v-model:value="provider.name" placeholder="例如 OpenAI / Azure / 自建服务" />
+            </n-form-item>
+            <n-form-item label="Base URL">
+              <n-input v-model:value="provider.baseUrl" placeholder="https://api.openai.com/v1" />
+            </n-form-item>
+            <n-form-item label="API Key">
+              <n-input
+                v-model:value="provider.apiKey"
+                type="password"
+                show-password-on="click"
+                placeholder="sk-..."
+              />
+            </n-form-item>
+            <n-form-item label="代理地址">
+              <n-input
+                v-model:value="provider.proxyUrl"
+                placeholder="可选，例如 http://127.0.0.1:7890"
+              />
+            </n-form-item>
+            <n-form-item label="模型">
+              <div class="model-select-row">
+                <n-select
+                  :value="provider.imageModel"
+                  filterable
+                  tag
+                  :options="modelOptions"
+                  placeholder="选择或输入模型 ID"
+                  @update:value="updateSelectedModel"
+                />
+                <n-button secondary :loading="loadingModels" @click="fetchModels"> 获取 </n-button>
+              </div>
+            </n-form-item>
+            <!-- 绘图 API：可编辑模型类型；对话 API：只读展示「对话模型」 -->
+            <n-form-item label="模型类型">
+              <n-select
+                v-if="kind === 'image'"
+                :value="provider.modelType"
+                :options="imageModelTypeOptions"
+                placeholder="选择模型类型"
+                :consistent-menu-width="false"
+                @update:value="updateSelectedModelType"
+              />
+              <n-input v-else :value="chatModelTypeLabel" readonly disabled />
+            </n-form-item>
+            <n-form-item v-if="kind === 'chat'" label="视觉输入">
+              <n-checkbox v-model:checked="provider.chatVision">
+                对话模型支持图片理解（Agent 会把参考图一并发送）
+              </n-checkbox>
+            </n-form-item>
+            <p v-if="modelFetchMessage" class="model-fetch-message" :data-tone="modelFetchTone">
+              {{ modelFetchMessage }}
+            </p>
+          </n-form>
+        </div>
       </div>
-    </section>
+      <p v-if="!visibleProviders.length" class="provider-empty">
+        还没有{{ kindLabel }}源，点右上角「+ 新增」。
+      </p>
+    </div>
   </div>
 
   <ConfirmDialog
@@ -158,7 +218,7 @@
 
 <script setup>
 import { computed, reactive, ref, watch } from 'vue';
-import { ArrowDown, ArrowUp, Copy, Trash2 } from '@lucide/vue';
+import { AlignJustify, ArrowDown, ArrowUp, Copy, Pencil, Save, Trash2 } from '@lucide/vue';
 import ConfirmDialog from './ConfirmDialog.vue';
 import * as api from '../../api/index.js';
 import {
@@ -185,7 +245,10 @@ const props = defineProps({
 const emit = defineEmits(['close', 'save']);
 
 const draft = reactive(defaultSettings());
-const selectedId = ref('');
+/** 抽屉展开的 API 项 id；空串表示全部收起 */
+const expandedId = ref('');
+/** 抽屉模式：readonly 只读详情 / edit 编辑表单 */
+const expandedMode = ref('readonly');
 const providerModels = reactive({});
 const loadingModels = ref(false);
 const modelFetchMessage = ref('');
@@ -194,9 +257,9 @@ const showDeleteConfirmation = ref(false);
 const pendingDeleteProviderId = ref('');
 const dragId = ref('');
 const dragOverId = ref('');
-const dragHeight = ref(0);
-const pasteShake = ref(false);
-let pasteShakeTimer = 0;
+const listMessage = ref('');
+const listMessageTone = ref('idle');
+let listMessageTimer = 0;
 
 const kindLabel = computed(() => (props.kind === 'chat' ? '对话 API' : '绘图 API'));
 /** 绘图模型类型下拉：菜单显示 label，绑定 value（如 image-gpt） */
@@ -212,15 +275,12 @@ const visibleProviders = computed(() =>
   draft.providers.filter((provider) => matchesKind(provider.modelType))
 );
 
-const selectedProvider = computed(
-  () =>
-    visibleProviders.value.find((provider) => provider.id === selectedId.value) ||
-    visibleProviders.value[0] ||
-    null
+const expandedProvider = computed(
+  () => visibleProviders.value.find((provider) => provider.id === expandedId.value) || null
 );
 
 const modelOptions = computed(() => {
-  const provider = selectedProvider.value;
+  const provider = expandedProvider.value;
   const models = new Set(providerModels[provider?.id] || []);
   if (provider?.imageModel) models.add(provider.imageModel);
   return Array.from(models).map((model) => ({ label: model, value: model }));
@@ -239,12 +299,10 @@ watch(
       return;
     }
     Object.assign(draft, normalizeSettingsForUi(deepClone(props.settings)));
-    syncActiveFromOrder();
-    selectedId.value =
-      (props.kind === 'chat' ? draft.activeChatProviderId : draft.activeImageProviderId) ||
-      visibleProviders.value[0]?.id ||
-      '';
+    expandedId.value = '';
+    expandedMode.value = 'readonly';
     modelFetchMessage.value = '';
+    listMessage.value = '';
     dragId.value = '';
     dragOverId.value = '';
   },
@@ -255,9 +313,38 @@ function matchesKind(modelType) {
   return props.kind === 'chat' ? modelType === 'chat' : isImageModelType(modelType);
 }
 
-function selectProvider(id) {
-  selectedId.value = id;
+function modelTypeLabel(value) {
+  if (value === 'chat') return chatModelTypeLabel;
+  const normalized = normalizeModelType(value);
+  return (
+    IMAGE_MODEL_TYPE_OPTIONS.find((option) => option.value === normalized)?.label || normalized
+  );
+}
+
+function toggleDetail(id) {
+  // 编辑中的抽屉不响应标题点击，避免误触丢失编辑焦点。
+  if (expandedId.value === id && expandedMode.value === 'edit') return;
+  expandedId.value = expandedId.value === id ? '' : id;
+  expandedMode.value = 'readonly';
   modelFetchMessage.value = '';
+}
+
+function openEdit(id) {
+  expandedId.value = id;
+  expandedMode.value = 'edit';
+  modelFetchMessage.value = '';
+}
+
+function persistDraft() {
+  draft.providers = draft.providers.map((provider) => normalizeProviderForSave(provider));
+  syncActiveFromOrder();
+  emit('save', deepClone(draft));
+}
+
+function saveEdits() {
+  persistDraft();
+  expandedId.value = '';
+  expandedMode.value = 'readonly';
 }
 
 function addProvider() {
@@ -271,8 +358,8 @@ function addProvider() {
   provider.imagesConcurrency = 1;
   provider.notes = '';
   draft.providers.push(provider);
-  selectProvider(provider.id);
   syncActiveFromOrder();
+  openEdit(provider.id);
   return provider;
 }
 
@@ -297,14 +384,14 @@ async function pasteProvider() {
     // 桌面端走 Tauri 原生剪贴板，避免浏览器权限限制
     text = await api.readClipboardText();
   } catch {
-    shakePaste();
+    showListMessage('读取剪贴板失败', 'error');
     return;
   }
 
   // 智能解析：JSON 配置 或 自由文本（http(s)/sk-/名称/image 模型）
   const parsed = parseClipboardProvider(text);
   if (!parsed) {
-    shakePaste();
+    showListMessage('剪贴板中没有可识别的 API 配置', 'error');
     return;
   }
 
@@ -324,14 +411,13 @@ async function pasteProvider() {
     provider.modelType = recommendImageModelType(provider.imageModel, provider.baseUrl);
   }
 
-  selectProvider(provider.id);
   // 剪贴板已给出模型名则保留；否则拉取列表后自动选第一个
   await fetchModels({ autoSelectFirst: !provider.imageModel });
 }
 
 function updateSelectedModel(value) {
-  const provider = selectedProvider.value;
-  if (!provider) return;
+  const provider = expandedProvider.value;
+  if (!provider || expandedMode.value !== 'edit') return;
   provider.imageModel = String(value || '');
   // 切换模型时自动推荐类型；用户仍可通过「模型类型」下拉手动覆盖
   if (props.kind === 'image') {
@@ -343,23 +429,24 @@ function updateSelectedModel(value) {
 
 /** 绘图 API：用户手动选择模型类型（不再被其它逻辑强制改回，除非再次改模型名） */
 function updateSelectedModelType(value) {
-  const provider = selectedProvider.value;
-  if (!provider || props.kind !== 'image') return;
+  const provider = expandedProvider.value;
+  if (!provider || props.kind !== 'image' || expandedMode.value !== 'edit') return;
   provider.modelType = normalizeModelType(value, provider.imageModel, provider.baseUrl);
 }
 
-function copyProvider() {
-  const source = selectedProvider.value;
+function cloneProvider() {
+  const source = expandedProvider.value;
   if (!source) return;
   const provider = normalizeProviderForSave(deepClone(source));
   provider.id = createProviderId();
   provider.name = `${source.name || 'API 源'} 副本`;
   draft.providers.push(provider);
-  selectProvider(provider.id);
   syncActiveFromOrder();
+  persistDraft();
+  openEdit(provider.id);
 }
 
-function deleteProvider(id = selectedId.value) {
+function deleteProvider(id) {
   if (draft.providers.length <= 1) return;
   const index = draft.providers.findIndex((provider) => provider.id === id);
   if (index < 0) return;
@@ -374,9 +461,12 @@ function confirmDeleteProvider() {
   cancelDeleteProvider();
   if (index < 0 || draft.providers.length <= 1) return;
   draft.providers.splice(index, 1);
+  if (expandedId.value && !draft.providers.some((provider) => provider.id === expandedId.value)) {
+    expandedId.value = '';
+    expandedMode.value = 'readonly';
+  }
   syncActiveFromOrder();
-  const next = visibleProviders.value[0];
-  selectedId.value = next?.id || '';
+  persistDraft();
 }
 
 function cancelDeleteProvider() {
@@ -384,7 +474,7 @@ function cancelDeleteProvider() {
   pendingDeleteProviderId.value = '';
 }
 
-function moveProvider(id = selectedId.value, offset) {
+function moveProvider(id, offset) {
   const ids = visibleProviders.value.map((provider) => provider.id);
   const index = ids.indexOf(id);
   const nextIndex = index + offset;
@@ -393,14 +483,13 @@ function moveProvider(id = selectedId.value, offset) {
   const [item] = ordered.splice(index, 1);
   ordered.splice(nextIndex, 0, item);
   applyVisibleOrder(ordered);
-  selectedId.value = id;
   syncActiveFromOrder();
+  persistDraft();
 }
 
 function onDragStart(id, event) {
   dragId.value = id;
   dragOverId.value = '';
-  dragHeight.value = event?.currentTarget?.offsetHeight || 0;
   if (event?.dataTransfer) {
     event.dataTransfer.effectAllowed = 'move';
     event.dataTransfer.setData('text/plain', id);
@@ -428,8 +517,8 @@ function onDrop(id) {
   const [item] = ordered.splice(from, 1);
   ordered.splice(to, 0, item);
   applyVisibleOrder(ordered);
-  selectedId.value = item;
   syncActiveFromOrder();
+  persistDraft();
   onDragEnd();
 }
 
@@ -456,8 +545,8 @@ function syncActiveFromOrder() {
 }
 
 async function fetchModels({ autoSelectFirst = false } = {}) {
-  const provider = selectedProvider.value;
-  if (!provider) return;
+  const provider = expandedProvider.value;
+  if (!provider || expandedMode.value !== 'edit') return;
   loadingModels.value = true;
   modelFetchMessage.value = '';
   try {
@@ -476,21 +565,13 @@ async function fetchModels({ autoSelectFirst = false } = {}) {
   }
 }
 
-function shakePaste() {
-  pasteShake.value = false;
-  requestAnimationFrame(() => {
-    pasteShake.value = true;
-    window.clearTimeout(pasteShakeTimer);
-    pasteShakeTimer = window.setTimeout(() => {
-      pasteShake.value = false;
-    }, 420);
-  });
-}
-
-function save() {
-  draft.providers = draft.providers.map((provider) => normalizeProviderForSave(provider));
-  syncActiveFromOrder();
-  emit('save', deepClone(draft));
+function showListMessage(message, tone = 'idle') {
+  listMessage.value = message;
+  listMessageTone.value = tone;
+  window.clearTimeout(listMessageTimer);
+  listMessageTimer = window.setTimeout(() => {
+    listMessage.value = '';
+  }, 2600);
 }
 
 function normalizeProviderForSave(provider) {
@@ -507,10 +588,6 @@ function normalizeProviderForSave(provider) {
     imagesConcurrency: 1,
     notes: '',
   };
-}
-
-function providerTypeClass(value) {
-  return `provider-card--${normalizeModelType(value).replace('image-', '')}`;
 }
 
 function maskedApiKey(value) {

@@ -18,10 +18,47 @@
       </dl>
     </section>
 
-    <div class="dialog-actions">
-      <n-button size="small" secondary @click="emit('cleanup')">清理</n-button>
-      <n-button size="small" secondary @click="emit('show-logs')">日志</n-button>
-      <n-button size="small" @click="emit('close')">关闭</n-button>
+    <section class="about-stats" aria-label="数据统计">
+      <div class="about-stat">
+        <strong>{{ stats.images }}</strong>
+        <span>图片</span>
+      </div>
+      <div class="about-stat">
+        <strong>{{ stats.sessions }}</strong>
+        <span>对话</span>
+      </div>
+      <div class="about-stat">
+        <strong>{{ stats.providers }}</strong>
+        <span>API 项</span>
+      </div>
+    </section>
+
+    <p class="about-note">
+      备份会把对话、图片、图片库信息和 API 配置导出为 ZIP 文件，可勾选包含的内容；恢复时自动合并。
+    </p>
+
+    <div class="about-actions">
+      <n-button
+        class="about-action-btn"
+        size="large"
+        type="primary"
+        secondary
+        @click="emit('export-data')"
+      >
+        备份
+      </n-button>
+      <n-button
+        class="about-action-btn"
+        size="large"
+        type="primary"
+        secondary
+        @click="emit('import-data')"
+      >
+        恢复
+      </n-button>
+      <n-button class="about-action-btn" size="large" secondary @click="emit('cleanup')">
+        清理
+      </n-button>
     </div>
   </div>
 </template>
@@ -34,7 +71,11 @@ defineProps({
     type: Object,
     default: () => ({ version: '', buildTime: '' }),
   },
+  stats: {
+    type: Object,
+    default: () => ({ images: 0, sessions: 0, providers: 0 }),
+  },
 });
 
-const emit = defineEmits(['show-logs', 'cleanup', 'close']);
+const emit = defineEmits(['export-data', 'import-data', 'cleanup']);
 </script>

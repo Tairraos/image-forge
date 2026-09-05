@@ -48,13 +48,11 @@
             :settings="settings"
             :kind="tab === 'chat-api' ? 'chat' : 'image'"
             @save="emit('save-api', $event)"
-            @close="show = false"
           />
           <div v-else-if="tab === 'templates'" class="design-templates">
             <TemplateManagerPanel
               v-model:query="templateQuery"
               :templates="filteredTemplates"
-              @view="emit('view-template', $event)"
               @edit="emit('edit-template', $event)"
               @delete="emit('delete-template', $event)"
               @create="emit('create-template')"
@@ -62,21 +60,16 @@
               @export="emit('export-template')"
               @move="emit('move-template', $event)"
               @show-effect="emit('show-template-effect', $event)"
+              @show-image="emit('show-template-image', $event)"
             />
           </div>
-          <BackupPanel
-            v-else-if="tab === 'backup'"
-            :settings="settings"
-            :templates="templates"
-            @export-data="emit('export-data')"
-            @import-data="emit('import-data')"
-          />
           <AboutPanel
             v-else
             :info="info"
-            @show-logs="emit('show-logs')"
+            :stats="stats"
+            @export-data="emit('export-data')"
+            @import-data="emit('import-data')"
             @cleanup="emit('cleanup')"
-            @close="show = false"
           />
         </div>
       </section>
@@ -87,13 +80,11 @@
 <script setup>
 import { computed, ref } from 'vue';
 import aboutIcon from '../../assets/关于.svg?raw';
-import backupIcon from '../../assets/备份.svg?raw';
 import chatApiIcon from '../../assets/对话API.svg?raw';
 import imageApiIcon from '../../assets/绘图API.svg?raw';
 import templatesIcon from '../../assets/模板库.svg?raw';
 import AppIcon from '../snippets/AppIcon.vue';
 import AboutPanel from './AboutPanel.vue';
-import BackupPanel from './BackupPanel.vue';
 import ApiSourcePanel from './ApiSourcePanel.vue';
 import TemplateManagerPanel from './TemplateManagerPanel.vue';
 
@@ -103,11 +94,11 @@ const props = defineProps({
   settings: { type: Object, required: true },
   templates: { type: Array, default: () => [] },
   info: { type: Object, default: () => ({}) },
+  stats: { type: Object, default: () => ({ images: 0, sessions: 0, providers: 0 }) },
 });
 
 const emit = defineEmits([
   'save-api',
-  'view-template',
   'edit-template',
   'delete-template',
   'create-template',
@@ -117,7 +108,7 @@ const emit = defineEmits([
   'import-data',
   'move-template',
   'show-template-effect',
-  'show-logs',
+  'show-template-image',
   'cleanup',
 ]);
 
@@ -125,7 +116,6 @@ const menuItems = [
   { id: 'templates', label: '模板库', icon: templatesIcon },
   { id: 'chat-api', label: '对话API', icon: chatApiIcon },
   { id: 'image-api', label: '绘图API', icon: imageApiIcon },
-  { id: 'backup', label: '备份/恢复', icon: backupIcon },
   { id: 'about', label: '关于', icon: aboutIcon },
 ];
 
