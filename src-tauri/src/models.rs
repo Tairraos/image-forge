@@ -314,17 +314,6 @@ pub struct LibraryDayCount {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct LibraryPage {
-    pub tasks: Vec<TaskRecord>,
-    pub day_counts: Vec<LibraryDayCount>,
-    pub total_tasks: u64,
-    pub total_images: u64,
-    pub page: u32,
-    pub page_size: u32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct AgentLibraryPage {
     pub tasks: Vec<TaskRecord>,
     pub months: Vec<LibraryDayCount>,
@@ -588,8 +577,6 @@ pub struct PromptTemplate {
     pub tags: Vec<String>,
     #[serde(default)]
     pub favorite: bool,
-    #[serde(default)]
-    pub usage_count: u32,
     #[serde(default)]
     pub model_hint: String,
     #[serde(default = "utc_now")]

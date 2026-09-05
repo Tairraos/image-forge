@@ -90,7 +90,6 @@ export function emptyTemplate() {
     notes: '',
     tags: [],
     favorite: false,
-    usageCount: 0,
     modelHint: '',
     createdAt: '',
     updatedAt: '',

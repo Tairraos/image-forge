@@ -7,7 +7,7 @@ use std::{
 use chrono::{DateTime, Local};
 use rusqlite::{params, params_from_iter, Connection, Transaction};
 
-use crate::models::{AgentLibraryPage, LibraryDayCount, LibraryPage, TaskRecord};
+use crate::models::{AgentLibraryPage, LibraryDayCount, TaskRecord};
 
 const DATABASE_FILE: &str = "library.sqlite";
 const LEGACY_HISTORY_FILE: &str = "history.json";
@@ -97,105 +97,6 @@ pub(crate) fn upsert(data_dir: &Path, record: &TaskRecord) -> Result<(), String>
     let transaction = connection.transaction().map_err(db_error)?;
     upsert_in_transaction(&transaction, record)?;
     transaction.commit().map_err(db_error)
-}
-
-pub(crate) fn library_page(
-    data_dir: &Path,
-    month: &str,
-    date: &str,
-    query: &str,
-    origin: &str,
-    page: u32,
-    page_size: u32,
-) -> Result<LibraryPage, String> {
-    let connection = open(data_dir)?;
-    let page = page.max(1);
-    let page_size = page_size.clamp(1, 100);
-    let mut conditions = vec![
-        "tasks.status = 'completed'".to_string(),
-        "EXISTS (SELECT 1 FROM task_outputs output WHERE output.task_id = tasks.id)".to_string(),
-        "tasks.library_date LIKE ?".to_string(),
-    ];
-    let mut values = vec![format!("{}%", normalized_month(month))];
-    if !date.trim().is_empty() {
-        conditions.push("tasks.library_date = ?".into());
-        values.push(date.trim().to_string());
-    }
-    match origin {
-        "agent" => conditions.push("tasks.origin = 'agent'".into()),
-        "drawing" => conditions.push("tasks.origin <> 'agent'".into()),
-        _ => {}
-    }
-    if !query.trim().is_empty() {
-        conditions.push("(tasks.id LIKE ? OR tasks.prompt LIKE ? OR tasks.model LIKE ? OR tasks.provider_name LIKE ?)".into());
-        let pattern = format!("%{}%", query.trim());
-        values.extend([pattern.clone(), pattern.clone(), pattern.clone(), pattern]);
-    }
-    let where_clause = conditions.join(" AND ");
-
-    let total_tasks_sql = format!("SELECT COUNT(*) FROM tasks WHERE {where_clause}");
-    let total_tasks = connection
-        .query_row(&total_tasks_sql, params_from_iter(values.iter()), |row| {
-            row.get::<_, u64>(0)
-        })
-        .map_err(db_error)?;
-    let total_sql = format!(
-        "SELECT COUNT(output.path) FROM tasks JOIN task_outputs output ON output.task_id = tasks.id WHERE {where_clause}"
-    );
-    let total_images = connection
-        .query_row(&total_sql, params_from_iter(values.iter()), |row| {
-            row.get::<_, u64>(0)
-        })
-        .map_err(db_error)?;
-
-    let day_conditions = conditions
-        .iter()
-        .filter(|condition| condition.as_str() != "tasks.library_date = ?")
-        .cloned()
-        .collect::<Vec<_>>();
-    let mut day_values = values.clone();
-    if !date.trim().is_empty() {
-        day_values.remove(1);
-    }
-    let day_sql = format!(
-        "SELECT tasks.library_date, COUNT(output.path) FROM tasks JOIN task_outputs output ON output.task_id = tasks.id WHERE {} GROUP BY tasks.library_date ORDER BY tasks.library_date",
-        day_conditions.join(" AND ")
-    );
-    let mut day_statement = connection.prepare(&day_sql).map_err(db_error)?;
-    let day_counts = day_statement
-        .query_map(params_from_iter(day_values.iter()), |row| {
-            Ok(LibraryDayCount {
-                date: row.get(0)?,
-                image_count: row.get(1)?,
-            })
-        })
-        .map_err(db_error)?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(db_error)?;
-
-    let tasks_sql = format!(
-        "SELECT record_json FROM tasks WHERE {where_clause} ORDER BY created_at DESC LIMIT ? OFFSET ?"
-    );
-    let mut task_values = values;
-    task_values.push(page_size.to_string());
-    task_values.push(((page - 1) * page_size).to_string());
-    let mut task_statement = connection.prepare(&tasks_sql).map_err(db_error)?;
-    let tasks = task_statement
-        .query_map(params_from_iter(task_values.iter()), |row| {
-            row.get::<_, String>(0)
-        })
-        .map_err(db_error)?
-        .map(|value| value.map_err(db_error).and_then(parse_record))
-        .collect::<Result<Vec<_>, _>>()?;
-
-    Ok(LibraryPage {
-        tasks,
-        day_counts,
-        total_tasks,
-        total_images,
-        page,
-        page_size,
-    })
 }
 
 /// agent 视图内嵌图片库：无关键词时按月份列出图片，有关键词时跨月份搜索，
@@ -299,7 +200,9 @@ fn backfill_library_dates(connection: &Connection) -> Result<(), String> {
             .prepare("SELECT id, record_json FROM tasks WHERE library_date = ''")
             .map_err(db_error)?;
         let rows = statement
-            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
             .map_err(db_error)?
             .collect::<Result<Vec<_>, _>>()
             .map_err(db_error)?;
@@ -890,15 +793,15 @@ mod tests {
     }
 
     #[test]
-    fn stores_records_and_queries_a_month_page() {
+    fn stores_records_and_reads_by_id() {
         let root = root("sqlite-page");
         initialize(&root, &root.join("outputs")).unwrap();
-        let mut record = fallback_failed_record("task-1", "placeholder");
-        record.status = "completed".into();
-        record.prompt = "月光海岸".into();
-        record.created_at = "2026-07-20T08:00:00+08:00".into();
-        record.completed_at = Some(record.created_at.clone());
-        record.outputs.push(crate::models::OutputImage {
+        let mut task_record = fallback_failed_record("task-1", "placeholder");
+        task_record.status = "completed".into();
+        task_record.prompt = "月光海岸".into();
+        task_record.created_at = "2026-07-20T08:00:00+08:00".into();
+        task_record.completed_at = Some(task_record.created_at.clone());
+        task_record.outputs.push(crate::models::OutputImage {
             path: root
                 .join("outputs/2026/07/image.png")
                 .to_string_lossy()
@@ -912,12 +815,11 @@ mod tests {
             revised_prompt: String::new(),
             usage: serde_json::Value::Null,
         });
-        upsert(&root, &record).unwrap();
+        upsert(&root, &task_record).unwrap();
 
-        let page = library_page(&root, "2026-07", "", "月光", "all", 1, 40).unwrap();
-        assert_eq!(page.tasks.len(), 1);
-        assert_eq!(page.total_images, 1);
-        assert_eq!(page.day_counts[0].date, "2026-07-20");
+        let stored = record(&root, "task-1").unwrap().expect("记录应存在");
+        assert_eq!(stored.prompt, "月光海岸");
+        assert_eq!(stored.outputs.len(), 1);
         let _ = trash::delete(&root);
     }
 
@@ -1006,7 +908,10 @@ mod tests {
                 println!(
                     "诊断结果：tasks={} months={:?} total_images={}",
                     page.tasks.len(),
-                    page.months.iter().map(|m| (m.date.clone(), m.image_count)).collect::<Vec<_>>(),
+                    page.months
+                        .iter()
+                        .map(|m| (m.date.clone(), m.image_count))
+                        .collect::<Vec<_>>(),
                     page.total_images
                 );
             }

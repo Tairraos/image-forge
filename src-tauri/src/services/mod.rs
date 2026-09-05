@@ -6,7 +6,6 @@ pub(crate) mod clipboard;
 pub(crate) mod data_bundle;
 pub(crate) mod images;
 pub(crate) mod models;
-pub(crate) mod provider_bundle;
 pub(crate) mod queue;
 pub(crate) mod references;
 pub(crate) mod template_bundle;

@@ -14,8 +14,8 @@ use crate::{
     models::{
         AboutInfo, AgentAttachment, AgentImagePlan, AgentLibraryPage, AgentMessage,
         AgentProgressEvent, AgentSession, AgentTaskGroup, ApiProvider, AppState, CleanupCandidate,
-        GenerateRequest, LibraryPage, PromptTemplate, QueueSnapshot, ReferencePreview, Settings,
-        TaskRecord, TemplateFillEvent, TemplateImportResult,
+        GenerateRequest, PromptTemplate, QueueSnapshot, ReferencePreview, Settings, TaskRecord,
+        TemplateFillEvent, TemplateImportResult,
     },
     services::{
         agent::run_turn,
@@ -27,7 +27,6 @@ use crate::{
         chat::fill_template_response,
         data_bundle,
         images::reference_preview,
-        provider_bundle::{export_providers_json, read_providers_json},
         queue::{
             build_queue_snapshot, emit_queue_updated, ensure_queue_worker, recover_stale_running,
         },
@@ -39,7 +38,7 @@ use crate::{
     },
     state::{record_operation, runtime_logs_text, RuntimeState},
     store::{
-        enqueue_task, ensure_data_dir, next_template_id, normalize_request, normalize_settings,
+        ensure_data_dir, next_template_id, normalize_request, normalize_settings,
         normalize_template, params_from_request, provider_for_request, read_history, read_json,
         read_queue, read_recent_history, read_settings, read_templates,
         refresh_history_output_sizes, request_path, write_generation_batch, write_history,
@@ -745,7 +744,6 @@ fn explicit_confirmation(message: &str) -> bool {
         .any(|keyword| message.contains(keyword))
 }
 
-#[tauri::command]
 pub(crate) fn create_agent_image_tasks(
     app: AppHandle,
     session_id: String,
@@ -1242,21 +1240,6 @@ pub(crate) fn load_app_state(app: AppHandle) -> Result<AppState, String> {
 }
 
 #[tauri::command]
-/// 按月份、日期、来源和关键字分页读取图片库。
-pub(crate) fn library_page(
-    app: AppHandle,
-    month: String,
-    date: String,
-    query: String,
-    origin: String,
-    page: u32,
-    page_size: u32,
-) -> Result<LibraryPage, String> {
-    let data_dir = ensure_data_dir(&app)?;
-    history_db::library_page(&data_dir, &month, &date, &query, &origin, page, page_size)
-}
-
-#[tauri::command]
 /// 读取 agent 视图内嵌图片库：按月份列出图片，或跨月份搜索提示词，并返回有图片的月份列表。
 pub(crate) fn agent_library(
     app: AppHandle,
@@ -1281,62 +1264,10 @@ pub(crate) fn save_settings(
 }
 
 #[tauri::command]
-/// 将当前 API 源导出为可再次批量导入的 JSON 文件。
-pub(crate) fn export_api_providers(
-    _app: AppHandle,
-    destination: String,
-    providers: Vec<ApiProvider>,
-) -> Result<String, String> {
-    let params = format!("path={} provider_count={}", destination, providers.len());
-    let result = export_providers_json(Path::new(&destination), &providers);
-    record_result("导出 API 源文件", &params, None, &result);
-    result
-}
-
-#[tauri::command]
-/// 读取用户拖入导入框的 API 源 JSON 文件。
-pub(crate) fn read_api_providers_file(_app: AppHandle, path: String) -> Result<String, String> {
-    let params = format!("path={path}");
-    let result = read_providers_json(Path::new(&path));
-    record_result("读取 API 源文件", &params, None, &result);
-    result
-}
-
-#[tauri::command]
 /// 返回队列快照，供前端轮询刷新运行中和等待中的任务。
 pub(crate) fn queue_snapshot(app: AppHandle) -> Result<QueueSnapshot, String> {
     let data_dir = ensure_data_dir(&app)?;
     build_queue_snapshot(&app, &data_dir, read_history(&data_dir)?)
-}
-
-#[tauri::command]
-/// 创建新的生图任务：保存原始请求、写入历史、放入等待队列。
-pub(crate) fn enqueue_generation(
-    app: AppHandle,
-    request: GenerateRequest,
-) -> Result<TaskRecord, String> {
-    let data_dir = ensure_data_dir(&app)?;
-    let settings = read_settings(&data_dir)?;
-    let prepared = prepare_generation_batch(&data_dir, &settings, vec![request], None)?;
-    let mut records = commit_generation_batch(&data_dir, &prepared)?;
-    let _ = emit_queue_updated(&app, &data_dir);
-    ensure_queue_worker(&app);
-    records.pop().ok_or_else(|| "生图任务准备失败".into())
-}
-
-#[tauri::command]
-/// 批量创建生图任务。
-pub(crate) fn enqueue_generation_batch(
-    app: AppHandle,
-    requests: Vec<GenerateRequest>,
-) -> Result<Vec<TaskRecord>, String> {
-    let data_dir = ensure_data_dir(&app)?;
-    let settings = read_settings(&data_dir)?;
-    let prepared = prepare_generation_batch(&data_dir, &settings, requests, None)?;
-    let records = commit_generation_batch(&data_dir, &prepared)?;
-    let _ = emit_queue_updated(&app, &data_dir);
-    ensure_queue_worker(&app);
-    Ok(records)
 }
 
 struct PreparedGenerationTask {
@@ -1430,39 +1361,6 @@ fn task_record_from_request(
 }
 
 #[tauri::command]
-/// 使用已保存的原始请求重新排队失败或完成的历史任务。
-pub(crate) fn retry_task(app: AppHandle, task_id: String) -> Result<TaskRecord, String> {
-    let data_dir = ensure_data_dir(&app)?;
-    let request: GenerateRequest = read_json(&request_path(&data_dir, &task_id))?;
-    let mut history = read_history(&data_dir)?;
-    let record = history
-        .iter_mut()
-        .find(|item| item.id == task_id)
-        .ok_or("找不到任务")?;
-    if record.status == "running" || record.status == "queued" {
-        return Err("任务已经在队列中".into());
-    }
-    let settings = read_settings(&data_dir)?;
-    let provider = provider_for_request(&settings, request.provider_id.as_deref())?;
-    record.status = "queued".into();
-    record.updated_at = utc_now();
-    record.started_at = None;
-    record.completed_at = None;
-    record.error = None;
-    record.outputs.clear();
-    record.provider_id = provider.id;
-    record.provider_name = provider.name;
-    record.mode = "images".into();
-    record.model = provider.image_model;
-    let next = record.clone();
-    write_history(&data_dir, &history)?;
-    enqueue_task(&data_dir, &task_id)?;
-    ensure_queue_worker(&app);
-    let _ = emit_queue_updated(&app, &data_dir);
-    Ok(next)
-}
-
-#[tauri::command]
 /// 以原任务的请求参数重新创建一个新任务（再来一张），原任务与已生成图片保留。
 pub(crate) fn redraw_task(app: AppHandle, task_id: String) -> Result<TaskRecord, String> {
     let data_dir = ensure_data_dir(&app)?;
@@ -1491,8 +1389,7 @@ fn redraw_task_in_data_dir(data_dir: &Path, task_id: &str) -> Result<TaskRecord,
     } else {
         Some((session_id.as_str(), group_id.as_str()))
     };
-    let mut prepared =
-        prepare_generation_batch(data_dir, &settings, vec![request], agent_origin)?;
+    let mut prepared = prepare_generation_batch(data_dir, &settings, vec![request], agent_origin)?;
     if !origin.is_empty() && origin != "agent" {
         prepared[0].record.origin = origin;
     }
@@ -1619,7 +1516,6 @@ pub(crate) fn save_template(
     next.updated_at = utc_now();
     if let Some(index) = templates.iter().position(|item| item.id == next.id) {
         next.created_at = templates[index].created_at.clone();
-        next.usage_count = templates[index].usage_count;
         templates[index] = next;
     } else {
         templates.push(next);
@@ -1814,25 +1710,6 @@ fn swap_template_order(
 }
 
 #[tauri::command]
-/// 引用模板后增加使用次数，用于后续排序或维护参考。
-pub(crate) fn mark_template_used(
-    app: AppHandle,
-    template_id: String,
-) -> Result<Vec<PromptTemplate>, String> {
-    let data_dir = ensure_data_dir(&app)?;
-    let mut templates = read_templates(&data_dir)?;
-    if let Some(template) = templates
-        .iter_mut()
-        .find(|template| template.id == template_id)
-    {
-        template.usage_count = template.usage_count.saturating_add(1);
-        template.updated_at = utc_now();
-    }
-    write_templates_to_db(&data_dir, &templates)?;
-    Ok(templates)
-}
-
-#[tauri::command]
 /// 调用对话模型填充模板中的占位描述，返回完整提示词文本。
 pub(crate) async fn fill_prompt_template(
     app: AppHandle,
@@ -1971,15 +1848,6 @@ pub(crate) fn download_output(app: AppHandle, path: String) -> Result<String, St
 /// 读取系统剪贴板中的纯文本。
 pub(crate) fn read_clipboard_text() -> Result<String, String> {
     crate::services::clipboard::read_clipboard_text()
-}
-
-#[tauri::command]
-/// 将图片复制到系统剪贴板。
-pub(crate) fn copy_image_to_clipboard(path: String) -> Result<(), String> {
-    let params = format!("path={path}");
-    let result = crate::services::clipboard::copy_image_to_clipboard(Path::new(&path));
-    record_result("读取图片并写入剪贴板", &params, None, &result);
-    result
 }
 
 #[tauri::command]
@@ -2832,7 +2700,6 @@ mod tests {
             notes: String::new(),
             tags: Vec::new(),
             favorite: false,
-            usage_count: 0,
             model_hint: String::new(),
             created_at: String::new(),
             updated_at: String::new(),

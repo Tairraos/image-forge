@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::{
     history_db,
-    models::{AgentMessage, AgentSession, AgentTaskGroupSummary, AGENT_SCHEMA_VERSION},
+    models::{AgentMessage, AgentSession, AGENT_SCHEMA_VERSION},
     store::{
         agent_session_path, list_agent_sessions, read_agent_session, read_history,
         write_agent_session,
@@ -117,9 +117,10 @@ pub(crate) fn record_agent_task_result(
         }
     }
     let terminal = matches!(group_status.as_str(), "completed" | "failed");
-    let already_recorded = session.messages.iter().any(|message| {
-        message.status == "task_result" && message.content.contains(task_group_id)
-    });
+    let already_recorded = session
+        .messages
+        .iter()
+        .any(|message| message.status == "task_result" && message.content.contains(task_group_id));
     if terminal && !already_recorded {
         let succeeded = records
             .iter()
@@ -135,7 +136,10 @@ pub(crate) fn record_agent_task_result(
                 .flat_map(|record| record.outputs.iter().map(|output| output.path.clone()))
                 .collect::<Vec<_>>();
             if paths.is_empty() {
-                format!("[taskGroupId={task_group_id}] 绘图任务组已完成，共 {} 张", records.len())
+                format!(
+                    "[taskGroupId={task_group_id}] 绘图任务组已完成，共 {} 张",
+                    records.len()
+                )
             } else {
                 format!(
                     "[taskGroupId={task_group_id}] 绘图任务组已完成，共 {} 张：{}",
@@ -360,14 +364,6 @@ fn validate_legacy_session_id(value: &str) -> bool {
     Uuid::parse_str(value.trim()).is_ok()
 }
 
-fn validate_session_id(value: &str) -> Result<(), String> {
-    if validate_legacy_session_id(value) {
-        Ok(())
-    } else {
-        Err("Agent 会话 ID 无效".into())
-    }
-}
-
 fn title_from_message(content: &str) -> String {
     let title = content.lines().next().unwrap_or_default().trim();
     let shortened = title.chars().take(30).collect::<String>();
@@ -383,6 +379,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
+    use crate::models::AgentTaskGroupSummary;
 
     #[test]
     fn recover_sessions_marks_running_sessions_as_interrupted() {
@@ -436,7 +433,8 @@ mod tests {
     }
 
     #[test]
-    fn delete_session_removes_sqlite_row_and_recycles_legacy_file() {        let data_dir = temp_data_dir("delete-session");
+    fn delete_session_removes_sqlite_row_and_recycles_legacy_file() {
+        let data_dir = temp_data_dir("delete-session");
         let session = create_session(&data_dir, "chat-provider").unwrap();
         // 模拟 JSON 时代迁移遗留的会话文件
         let legacy_path = agent_session_path(&data_dir, &session.id);
@@ -548,7 +546,10 @@ mod tests {
             .iter()
             .find(|message| message.task_group.is_some())
             .unwrap();
-        assert_eq!(group_message.task_group.as_ref().unwrap().status, "completed");
+        assert_eq!(
+            group_message.task_group.as_ref().unwrap().status,
+            "completed"
+        );
         let result_message = saved
             .messages
             .iter()
@@ -571,7 +572,8 @@ mod tests {
     }
 
     #[test]
-    fn prepare_context_keeps_recent_messages_and_builds_summary() {        let data_dir = temp_data_dir("prepare-context");
+    fn prepare_context_keeps_recent_messages_and_builds_summary() {
+        let data_dir = temp_data_dir("prepare-context");
         let mut session = AgentSession {
             schema_version: AGENT_SCHEMA_VERSION,
             id: Uuid::new_v4().to_string(),

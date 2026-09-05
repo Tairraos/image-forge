@@ -1,5 +1,4 @@
 use std::{
-    borrow::Cow,
     io::Cursor,
     path::{Path, PathBuf},
 };
@@ -7,7 +6,7 @@ use std::{
 #[cfg(target_os = "macos")]
 use std::process::Command;
 
-use arboard::{Clipboard, ImageData};
+use arboard::Clipboard;
 use tauri::AppHandle;
 use url::Url;
 
@@ -22,23 +21,6 @@ pub(crate) fn read_clipboard_text() -> Result<String, String> {
     clipboard
         .get_text()
         .map_err(|error| format!("读取剪贴板文本失败: {error}"))
-}
-
-pub(crate) fn copy_image_to_clipboard(path: &Path) -> Result<(), String> {
-    if !path.is_file() {
-        return Err("找不到要复制的图片".into());
-    }
-    let image = image::open(path).map_err(|error| format!("读取图片失败: {error}"))?;
-    let rgba = image.to_rgba8();
-    let (width, height) = rgba.dimensions();
-    let mut clipboard = Clipboard::new().map_err(|error| format!("打开剪贴板失败: {error}"))?;
-    clipboard
-        .set_image(ImageData {
-            width: width as usize,
-            height: height as usize,
-            bytes: Cow::Owned(rgba.into_raw()),
-        })
-        .map_err(|error| format!("写入剪贴板失败: {error}"))
 }
 
 pub(crate) fn reference_from_clipboard(
