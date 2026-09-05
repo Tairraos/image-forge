@@ -2,6 +2,18 @@
 
 > 这是 Image Forge 的入口导航，给 Agent / Codex 快速定位。长期知识在 `docs/` 下，能自动检查的规则已转为脚本 / lint / 测试，不要在这里堆细节。
 
+<!-- CODEGRAPH_START -->
+
+## CodeGraph
+
+In repositories indexed by CodeGraph (a `.codegraph/` directory exists at the repo root), reach for it BEFORE grep/find or reading files when you need to understand or locate code:
+
+- **MCP tool** (when available): `codegraph_explore` answers most code questions in one call — the relevant symbols' verbatim source plus the call paths between them, including dynamic-dispatch hops grep can't follow. Name a file or symbol in the query to read its current line-numbered source. If it's listed but deferred, load it by name via tool search.
+- **Shell** (always works): `codegraph explore "<symbol names or question>"` prints the same output.
+
+If there is no `.codegraph/` directory, skip CodeGraph entirely — indexing is the user's decision.
+<!-- CODEGRAPH_END -->
+
 ## 项目是什么
 
 本地优先的 AI 图像生产工作台：Tauri 2 + Vue 3 桌面应用，同一套前端代码可编译为纯 Web 版（Vite + IndexedDB + Vercel Blob）。模型负责理解与规划，Rust 负责校验与执行，数据留在本机。
