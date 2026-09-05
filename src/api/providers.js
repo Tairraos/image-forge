@@ -95,16 +95,22 @@ async function parseOpenAIResponse(res, request) {
   const json = JSON.parse(body);
   const data = json.data || [];
   const usage = json.usage || null;
-  return data.map((item) => {
+  const results = [];
+  for (const item of data) {
     let bytes;
     if (item.b64_json) {
       bytes = Uint8Array.from(atob(item.b64_json), (c) => c.charCodeAt(0));
     } else if (item.url) {
-      throw new Error('OpenAI 返回了 URL 而非 base64，Web 版暂不支持 URL 下载');
+      // 部分中转网关只回图片 URL：主动下载成字节，行为对齐桌面版
+      const download = await fetch(item.url);
+      if (!download.ok) {
+        throw new Error(`下载生成图片失败: HTTP ${download.status} ${item.url}`);
+      }
+      bytes = new Uint8Array(await download.arrayBuffer());
     } else {
       throw new Error('OpenAI 未返回图像数据');
     }
-    return {
+    results.push({
       bytes,
       size: item.size || request.size || '',
       output_format: item.output_format || request.output_format || 'png',
@@ -112,8 +118,9 @@ async function parseOpenAIResponse(res, request) {
       background: item.background || '',
       quality: item.quality || request.quality || '',
       usage,
-    };
-  });
+    });
+  }
+  return results;
 }
 
 // ── Gemini Images API ──
