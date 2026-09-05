@@ -4,34 +4,15 @@
 import * as db from './db.js';
 import * as queue from './queue.js';
 import * as agent from './agent.js';
-import { uploadImage, isLocalDev } from './blob.js';
-
-// ── 本地存储键 ──
-const KEYS = {
-  settings: 'if_settings',
-  templates: 'if_templates',
-  agentSessions: 'if_agent_sessions',
-};
-
-function readJSON(key, fallback = null) {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function writeJSON(key, value) {
-  localStorage.setItem(key, JSON.stringify(value));
-}
+import { uploadImage } from './blob.js';
+import * as localStore from './localStore.js';
 
 // ── 应用状态 ──
 
 export async function loadAppState() {
-  const settings = readJSON(KEYS.settings) || { providers: [] };
+  const settings = (await localStore.readSettings()) || { providers: [] };
   const history = await db.getAllTasks();
-  const templates = readJSON(KEYS.templates) || [];
+  const templates = await localStore.readTemplates();
   // 恢复遗留的 running 任务
   await queue.recoverTasks();
   return {
@@ -56,8 +37,7 @@ export async function runtimeLogs() {
 // ── 设置 ──
 
 export async function saveSettings(settings) {
-  writeJSON(KEYS.settings, settings);
-  return settings;
+  return localStore.writeSettings(settings);
 }
 
 // ── Agent 会话 ──
@@ -68,16 +48,8 @@ function nextSessionId() {
   return `web-session-${++sessionIdCounter}`;
 }
 
-function readSessions() {
-  return readJSON(KEYS.agentSessions, []);
-}
-
-function writeSessions(sessions) {
-  writeJSON(KEYS.agentSessions, sessions);
-}
-
 export async function listAgentSessions() {
-  return readSessions();
+  return localStore.readSessions();
 }
 
 export async function createAgentSession(providerId) {
@@ -90,55 +62,34 @@ export async function createAgentSession(providerId) {
     modelProviderId: providerId || '',
     messages: [],
   };
-  const sessions = readSessions();
-  sessions.push(session);
-  writeSessions(sessions);
+  await localStore.writeSession(session);
   return session;
 }
 
 export async function getAgentSession(sessionId) {
-  const sessions = readSessions();
+  const sessions = await localStore.readSessions();
   return sessions.find((s) => s.id === sessionId) || null;
 }
 
 export async function deleteAgentSession(sessionId) {
-  const sessions = readSessions().filter((s) => s.id !== sessionId);
-  writeSessions(sessions);
+  await localStore.removeSession(sessionId);
 }
 
 export async function renameAgentSession(sessionId, title) {
-  const sessions = readSessions();
-  const session = sessions.find((s) => s.id === sessionId);
+  const session = await getAgentSession(sessionId);
   if (session) {
     session.title = title;
     session.updatedAt = new Date().toISOString();
+    await localStore.writeSession(session);
   }
-  writeSessions(sessions);
   return session || null;
 }
 
 // ── 图片库 ──
 
 export async function agentLibrary(month, query) {
-  const localRecords = await db.getCompletedLibraryRecords();
-  let records = localRecords;
-  if (isLocalDev()) {
-    // 本地开发：合并展示桌面版 ~/.image-forge/library.sqlite 的任务（图片路径已被
-    // dev server 改写为 /image-forge-data/ URL），同一任务以桌面版记录为准。
-    try {
-      const res = await fetch('/image-forge-data/__library');
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const remote = await res.json();
-      const seen = new Set();
-      records = [...(remote.tasks || []), ...localRecords].filter((task) => {
-        if (!task?.id || seen.has(task.id)) return false;
-        seen.add(task.id);
-        return true;
-      });
-    } catch (error) {
-      console.warn('读取 ~/.image-forge 图片库失败，仅显示浏览器内任务:', error);
-    }
-  }
+  // 本地开发时任务元数据在共享 SQLite 中，桌面版任务天然可见，无需合并。
+  const records = await db.getCompletedLibraryRecords();
   return db.buildLibraryPage(records, month, query);
 }
 
@@ -168,7 +119,7 @@ export function onQueueChange(callback) {
 // ── 生图（直接绘画模式） ──
 
 export async function createAgentDirectImageTask(sessionId, content, attachments, plan) {
-  const settings = readJSON(KEYS.settings) || { providers: [] };
+  const settings = (await localStore.readSettings()) || { providers: [] };
   const provider = (settings.providers || []).find((p) => p.id === plan.providerId);
   if (!provider) throw new Error('找不到生图 API 配置');
 
@@ -225,14 +176,13 @@ function emitAgentEvent(event, payload) {
 }
 
 export async function sendAgentMessage(sessionId, providerId, content, attachments) {
-  const settings = readJSON(KEYS.settings) || { providers: [] };
+  const settings = (await localStore.readSettings()) || { providers: [] };
   const provider =
     (settings.providers || []).find((p) => p.id === providerId && p.modelType === 'chat') ||
     (settings.providers || []).find((p) => p.modelType === 'chat');
   if (!provider) throw new Error('还没有配置对话模型');
 
-  const sessions = readSessions();
-  let session = sessions.find((s) => s.id === sessionId);
+  let session = (await localStore.readSessions()).find((s) => s.id === sessionId);
   if (!session) throw new Error('找不到 Agent 会话');
 
   // 添加用户消息
@@ -284,14 +234,14 @@ export async function sendAgentMessage(sessionId, providerId, content, attachmen
   }
 
   // 保存会话
-  const allSessions = readSessions();
+  const allSessions = await localStore.readSessions();
   const idx = allSessions.findIndex((s) => s.id === session.id);
   if (idx >= 0) {
     allSessions[idx] = session;
   } else {
     allSessions.push(session);
   }
-  writeSessions(allSessions);
+  await localStore.writeSession(session);
 
   return session;
 }
@@ -308,7 +258,7 @@ export async function fillPromptTemplate(sessionId, providerId, template) {
   void sessionId;
   const content = String(template || '').trim();
   if (!content) throw new Error('模板内容不能为空');
-  const settings = readJSON(KEYS.settings) || { providers: [] };
+  const settings = (await localStore.readSettings()) || { providers: [] };
   const provider =
     (settings.providers || []).find((p) => p.id === providerId && p.modelType === 'chat') ||
     (settings.providers || []).find((p) => p.modelType === 'chat');
@@ -359,7 +309,7 @@ export async function redrawTask(taskId) {
   const tasks = await db.getAllTasks();
   const source = tasks.find((t) => t.id === taskId);
   if (!source) throw new Error('找不到要重画的任务');
-  const settings = readJSON(KEYS.settings) || { providers: [] };
+  const settings = (await localStore.readSettings()) || { providers: [] };
   const provider =
     (settings.providers || []).find((p) => p.id === source.provider_id) ||
     (settings.providers || []).find((p) => p.modelType !== 'chat') ||
@@ -449,8 +399,8 @@ function blobToDataUrl(blob) {
 // ── 输出 ──
 
 export async function downloadOutput(path) {
-  // Web 版：触发浏览器下载
-  const res = await fetch(path);
+  // Web 版：触发浏览器下载（绝对磁盘路径先转 dev server URL）
+  const res = await fetch(toLocalFileUrl(path));
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -470,15 +420,14 @@ export async function revealPath() {
 // ── 模板 ──
 
 export async function saveTemplate(template) {
-  const templates = readJSON(KEYS.templates, []);
+  const templates = await localStore.readTemplates();
   const idx = templates.findIndex((t) => t.id === template.id);
   if (idx >= 0) {
     templates[idx] = template;
   } else {
     templates.push(template);
   }
-  writeJSON(KEYS.templates, templates);
-  return templates;
+  return localStore.writeTemplates(templates);
 }
 
 // ── 模板包（与桌面版 template_bundle.rs 同一格式契约，ZIP 可互相导入导出）──
@@ -585,7 +534,7 @@ function buildTemplatesMarkdown(templates, exportedAt) {
 // 导出模板包：manifest.json + ImageForge-templates.md + images/<sha256>.<ext>，
 // 与桌面版导出的 ZIP 结构完全一致。参考图按内容 SHA-256 去重。
 export async function exportTemplates(destination) {
-  const templates = readJSON(KEYS.templates, []);
+  const templates = await localStore.readTemplates();
   if (!templates.length) throw new Error('没有可导出的模板');
 
   const JSZip = (await import('jszip')).default;
@@ -598,7 +547,8 @@ export async function exportTemplates(destination) {
     if (!source) return '';
     const cached = archivePaths.get(source);
     if (cached !== undefined) return cached;
-    const res = await fetch(source);
+    // 共享 SQLite 后参考图路径是绝对磁盘路径，先转成 dev server 的 HTTP URL 再取字节
+    const res = await fetch(toLocalFileUrl(source));
     if (!res.ok) throw new Error(`找不到模板参考图：${source}`);
     const bytes = new Uint8Array(await res.arrayBuffer());
     const archivePath = `images/${await sha256(bytes)}.${extensionForMime(detectImageMime(source, bytes))}`;
@@ -761,8 +711,8 @@ function templateSignature(template) {
   ].join('\n');
 }
 
-function mergeImportedTemplates(bundleTemplates) {
-  const existing = readJSON(KEYS.templates, []);
+async function mergeImportedTemplates(bundleTemplates) {
+  const existing = await localStore.readTemplates();
   const signatures = new Set(existing.map(templateSignature));
   let importedCount = 0;
   let skippedCount = 0;
@@ -793,7 +743,7 @@ function mergeImportedTemplates(bundleTemplates) {
     next.id = `tpl-${Date.now()}-${importedCount}`;
     existing.push(next);
   }
-  writeJSON(KEYS.templates, existing);
+  await localStore.writeTemplates(existing);
   return { templates: existing, importedCount, skippedCount };
 }
 
@@ -874,9 +824,9 @@ export async function exportDataBundle(categories) {
   const zip = new JSZip();
   const now = new Date().toISOString();
 
-  const settings = categories.includes('settings') ? readJSON(KEYS.settings, null) : null;
-  const templates = categories.includes('templates') ? readJSON(KEYS.templates, []) : [];
-  const sessions = categories.includes('sessions') ? readJSON(KEYS.agentSessions, []) : [];
+  const settings = categories.includes('settings') ? await localStore.readSettings() : null;
+  const templates = categories.includes('templates') ? await localStore.readTemplates() : [];
+  const sessions = categories.includes('sessions') ? await localStore.readSessions() : [];
   let tasks = [];
   if (categories.includes('tasks')) {
     tasks = await db.getAllTasks();
@@ -978,13 +928,13 @@ export async function importDataBundle(file) {
 
   // 导入设置
   if (manifest.hasSettings && manifest.settings) {
-    writeJSON(KEYS.settings, manifest.settings);
+    await localStore.writeSettings(manifest.settings);
     result.settings = 1;
   }
 
   // 导入模板
   if (manifest.templates?.length) {
-    const existing = readJSON(KEYS.templates, []);
+    const existing = await localStore.readTemplates();
     const ids = new Set(existing.map((t) => t.id));
     for (const tpl of manifest.templates) {
       if (!ids.has(tpl.id)) {
@@ -992,21 +942,20 @@ export async function importDataBundle(file) {
         ids.add(tpl.id);
       }
     }
-    writeJSON(KEYS.templates, existing);
+    await localStore.writeTemplates(existing);
     result.templates = manifest.templates.length;
   }
 
   // 导入会话
   if (manifest.sessions?.length) {
-    const existing = readJSON(KEYS.agentSessions, []);
+    const existing = await localStore.readSessions();
     const ids = new Set(existing.map((s) => s.id));
     for (const s of manifest.sessions) {
       if (!ids.has(s.id)) {
-        existing.push(s);
+        await localStore.writeSession(s);
         ids.add(s.id);
       }
     }
-    writeJSON(KEYS.agentSessions, existing);
     result.sessions = manifest.sessions.length;
   }
 
@@ -1028,20 +977,18 @@ export async function importDataBundle(file) {
 }
 
 export async function deleteTemplate(templateId) {
-  const templates = readJSON(KEYS.templates, []).filter((t) => t.id !== templateId);
-  writeJSON(KEYS.templates, templates);
-  return templates;
+  const templates = (await localStore.readTemplates()).filter((t) => t.id !== templateId);
+  return localStore.writeTemplates(templates);
 }
 
 export async function moveTemplate(templateId, targetTemplateId) {
-  const templates = readJSON(KEYS.templates, []);
+  const templates = await localStore.readTemplates();
   const idxA = templates.findIndex((t) => t.id === templateId);
   const idxB = templates.findIndex((t) => t.id === targetTemplateId);
   if (idxA >= 0 && idxB >= 0) {
     [templates[idxA], templates[idxB]] = [templates[idxB], templates[idxA]];
   }
-  writeJSON(KEYS.templates, templates);
-  return templates;
+  return localStore.writeTemplates(templates);
 }
 
 // ── 清理 ──

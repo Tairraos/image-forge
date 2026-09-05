@@ -2,6 +2,7 @@
 // 单 worker 顺序处理任务，支持并发限制、取消和重试。
 
 import * as db from './db.js';
+import * as localStore from './localStore.js';
 import { executeGeneration } from './providers.js';
 import { uploadImage } from './blob.js';
 
@@ -213,7 +214,7 @@ async function recordAgentTaskResult(task) {
     if (!statuses.length) return;
     const groupStatus = summarizeGroupStatus(statuses);
 
-    const sessions = JSON.parse(localStorage.getItem('if_agent_sessions') || '[]');
+    const sessions = await localStore.readSessions();
     const session = sessions.find((s) => s.id === sessionId);
     if (!session) return;
     let changed = false;
@@ -253,11 +254,7 @@ async function recordAgentTaskResult(task) {
     }
     if (changed) {
       session.updatedAt = new Date().toISOString();
-      const idx = sessions.findIndex((s) => s.id === sessionId);
-      if (idx >= 0) {
-        sessions[idx] = session;
-        localStorage.setItem('if_agent_sessions', JSON.stringify(sessions));
-      }
+      await localStore.writeSession(session);
     }
   } catch {
     // 会话回写失败不影响生图流程
@@ -319,21 +316,16 @@ export function retryTaskGroup(taskGroupId) {
 // ── 辅助 ──
 
 async function loadProvider(providerId) {
-  const raw = localStorage.getItem('if_settings');
-  if (!raw) return null;
-  try {
-    const settings = JSON.parse(raw);
-    return (settings.providers || []).find((p) => p.id === providerId) || null;
-  } catch {
-    return null;
-  }
+  const settings = (await localStore.readSettings()) || {};
+  return (settings.providers || []).find((p) => p.id === providerId) || null;
 }
 
-// 恢复：应用启动时把遗留的 running 任务恢复为 queued
+// 恢复：应用启动时把遗留的 running 任务恢复为 queued。
+// 共享 SQLite 里也有桌面版的任务，只有 web-task- 前缀的归本浏览器恢复执行。
 export async function recoverTasks() {
   const all = await db.getAllTasks();
   for (const task of all) {
-    if (task.status === 'running') {
+    if (task.status === 'running' && String(task.id || '').startsWith('web-task-')) {
       task.status = 'queued';
       task.updated_at = new Date().toISOString();
       db.upsertTask(task).catch(() => {});

@@ -16,6 +16,7 @@ vi.mock('../../src/api/providers.js', () => ({
 
 // Mock blob 模块
 vi.mock('../../src/api/blob.js', () => ({
+  isLocalDev: () => false,
   uploadImage: vi.fn().mockResolvedValue('/image-forge-data/tasks/cat.png'),
 }));
 
@@ -340,6 +341,9 @@ describe('worker 执行流程', () => {
     });
 
     // 运行中取消：任务不中断，但 ID 进入 cancelSet
+    await vi.waitFor(() => {
+      expect(providersMock.executeGeneration).toHaveBeenCalledTimes(1);
+    });
     cancelTask(task.id);
     rejectGeneration(new Error('已取消'));
     await waitForIdle();
@@ -417,9 +421,9 @@ describe('recoverTasks 恢复遗留任务', () => {
     await waitForIdle();
   });
 
-  it('把遗留 running 任务恢复为 queued 并重新执行', async () => {
+  it('把遗留 running 任务恢复为 queued 并重新执行；桌面任务不归浏览器恢复', async () => {
     const legacyTask = {
-      id: 'legacy-1',
+      id: 'web-task-legacy-1',
       status: 'running',
       prompt: '遗留任务',
       provider_id: 'prov-1',
@@ -427,14 +431,25 @@ describe('recoverTasks 恢复遗留任务', () => {
       reference_paths: [],
       outputs: [],
     };
+    // 桌面版任务（UUID 形态）：共享 SQLite 里出现 running 时不允许浏览器抢跑
+    const desktopTask = {
+      id: '0f3d9a62-8a41-4c0e-9c1a-3f5b7d8e9a01',
+      status: 'running',
+      prompt: '桌面运行中',
+      provider_id: 'prov-1',
+      params: {},
+      reference_paths: [],
+      outputs: [],
+    };
     const doneTask = { id: 'done-1', status: 'completed', prompt: '已完成', outputs: [] };
-    dbMock.getAllTasks.mockResolvedValueOnce([legacyTask, doneTask]);
+    dbMock.getAllTasks.mockResolvedValueOnce([legacyTask, desktopTask, doneTask]);
 
     await recoverTasks();
 
     // 恢复后任务进入队列（worker 可能已开始执行）
     const snap = snapshot();
-    expect([...snap.waiting, ...snap.running].map((t) => t.id)).toContain('legacy-1');
+    expect([...snap.waiting, ...snap.running].map((t) => t.id)).toContain('web-task-legacy-1');
+    expect([...snap.waiting, ...snap.running].map((t) => t.id)).not.toContain(desktopTask.id);
     expect(snap.recent.map((t) => t.id)).toContain('done-1');
 
     await waitForIdle();

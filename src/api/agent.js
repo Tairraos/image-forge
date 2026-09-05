@@ -3,6 +3,7 @@
 
 import * as queue from './queue.js';
 import * as db from './db.js';
+import * as localStore from './localStore.js';
 
 const MAX_TOOL_ROUNDS = 8;
 const AGENT_SCHEMA_VERSION = 1;
@@ -18,10 +19,9 @@ ${context.trim()}`;
   return catalog ? `${base}\n\n${catalog}` : base;
 }
 
-function readTemplates() {
+async function readTemplates() {
   try {
-    const templates = JSON.parse(localStorage.getItem('if_templates') || '[]');
-    return Array.isArray(templates) ? templates : [];
+    return await localStore.readTemplates();
   } catch {
     return [];
   }
@@ -295,7 +295,7 @@ export async function runAgentTurn(provider, session, content, attachments, onEv
   const context = buildContext(session, attachments);
   const systemMsg = {
     role: 'system',
-    content: systemPrompt(context, templateCatalogText(readTemplates())),
+    content: systemPrompt(context, templateCatalogText(await readTemplates())),
   };
 
   // 构建消息列表；调用方（adapter-web）可能已把当前用户消息预写入会话，跳过避免重复
@@ -439,7 +439,7 @@ async function executeToolCall(name, args, session, attachments) {
 async function executeListTemplates() {
   let templates;
   try {
-    templates = JSON.parse(localStorage.getItem('if_templates') || '[]');
+    templates = await localStore.readTemplates();
   } catch {
     templates = [];
   }
@@ -467,9 +467,9 @@ async function executeCreateImageTasks(args, session, attachments) {
     return { value: null, error: '图片计划数量必须在 1 到 12 之间' };
   }
 
-  const settings = JSON.parse(localStorage.getItem('if_settings') || '{}');
+  const settings = (await localStore.readSettings()) || {};
   const providers = settings.providers || [];
-  const templates = readTemplates();
+  const templates = await readTemplates();
 
   // 构建 attachment id -> path 映射
   const attachmentMap = new Map();
@@ -794,7 +794,7 @@ function syntheticToolResult(call) {
   };
 }
 
-function finalizeSession(session, messages, result) {
+async function finalizeSession(session, messages, result) {
   // 把 assistant 消息持久化到 session（toolCalls 全量落盘，toolCall 保留首项兼容旧 UI）
   const now = new Date().toISOString();
   const assistantMsg = {
@@ -819,15 +819,8 @@ function finalizeSession(session, messages, result) {
   session.messages = [...(session.messages || []), assistantMsg];
   session.updatedAt = now;
 
-  // 保存到 localStorage
-  const sessions = JSON.parse(localStorage.getItem('if_agent_sessions') || '[]');
-  const idx = sessions.findIndex((s) => s.id === session.id);
-  if (idx >= 0) {
-    sessions[idx] = session;
-  } else {
-    sessions.push(session);
-  }
-  localStorage.setItem('if_agent_sessions', JSON.stringify(sessions));
+  // 持久化到共享存储（本地开发为 SQLite）
+  await localStore.writeSession(session);
 
   return session;
 }

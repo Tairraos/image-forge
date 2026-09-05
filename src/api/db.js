@@ -1,6 +1,9 @@
-// Web 版 IndexedDB 数据库层，对应桌面版的 SQLite history_db.rs。
-// 使用 Dexie.js 封装，兼容 IndexedDB 的异步查询。
+// Web 版任务数据层，对应桌面版的 SQLite history_db.rs。
+// - 本地开发（isLocalDev）：读写 dev server 的 /image-forge-data/__tasks，
+//   直接落到与桌面版共享的 ~/.image-forge/library.sqlite（record_json 为桌面端 camelCase 契约）。
+// - 远端/兜底：Dexie（IndexedDB），库名 ImageForge。
 import Dexie from 'dexie';
+import { isLocalDev } from './blob.js';
 
 class ImageForgeDB extends Dexie {
   constructor() {
@@ -15,10 +18,90 @@ class ImageForgeDB extends Dexie {
 
 const db = new ImageForgeDB();
 
+const DATA_ORIGIN = '/image-forge-data';
+
+// ── 记录形状转换（HTTP 后端与桌面端 camelCase 契约对接；Web 内部统一 snake_case）──
+
+const TASK_FIELD_MAP = {
+  createdAt: 'created_at',
+  updatedAt: 'updated_at',
+  startedAt: 'started_at',
+  completedAt: 'completed_at',
+  providerId: 'provider_id',
+  providerName: 'provider_name',
+  referencePaths: 'reference_paths',
+  taskGroupId: 'task_group_id',
+  agentSessionId: 'agent_session_id',
+  agentPlan: 'agent_plan',
+};
+
+const OUTPUT_FIELD_MAP = {
+  fileName: 'file_name',
+  mimeType: 'mime_type',
+  outputFormat: 'output_format',
+  revisedPrompt: 'revised_prompt',
+};
+
+function toSnakeTaskRecord(record) {
+  if (!record || typeof record !== 'object') return record;
+  const task = { ...record };
+  for (const [camel, snake] of Object.entries(TASK_FIELD_MAP)) {
+    if (camel in task && !(snake in task)) task[snake] = task[camel];
+  }
+  if (task.params && typeof task.params === 'object') {
+    const params = { ...task.params };
+    for (const key of Object.keys(params)) {
+      const snake = key.replace(/[A-Z]/g, (char) => `_${char.toLowerCase()}`);
+      if (snake !== key && !(snake in params)) params[snake] = params[key];
+    }
+    task.params = params;
+  }
+  if (Array.isArray(task.outputs)) {
+    task.outputs = task.outputs.map((output) => {
+      const item = { ...output };
+      for (const [camel, snake] of Object.entries(OUTPUT_FIELD_MAP)) {
+        if (camel in item && !(snake in item)) item[snake] = item[camel];
+      }
+      return item;
+    });
+  }
+  return task;
+}
+
+async function requestJson(url, options) {
+  const res = await fetch(url, ...(options ? [options] : []));
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`任务数据请求失败: HTTP ${res.status} ${text}`);
+  }
+  if (res.status === 204) return null;
+  return res.json();
+}
+
+async function upsertTaskViaHttp(record) {
+  await requestJson(`${DATA_ORIGIN}/__tasks`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(record),
+  });
+}
+
+async function getAllTasksViaHttp(limit) {
+  const data = await requestJson(`${DATA_ORIGIN}/__tasks${limit ? `?limit=${limit}` : ''}`);
+  return (Array.isArray(data?.tasks) ? data.tasks : []).map(toSnakeTaskRecord);
+}
+
+async function deleteTaskViaHttp(id) {
+  await requestJson(`${DATA_ORIGIN}/__tasks/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
 // ── 任务 CRUD ──
 
 /** 插入或更新一条任务记录 */
 export async function upsertTask(record) {
+  if (isLocalDev()) {
+    return upsertTaskViaHttp(record);
+  }
   const now = new Date().toISOString();
   const row = {
     id: record.id,
@@ -36,17 +119,26 @@ export async function upsertTask(record) {
 
 /** 按 ID 获取单条任务 */
 export async function getTask(id) {
+  if (isLocalDev()) {
+    return (await getAllTasksViaHttp()).find((record) => record.id === id) || null;
+  }
   const row = await db.tasks.get(id);
   return row ? parseRecord(row.record_json) : null;
 }
 
 /** 删除任务 */
 export async function deleteTask(id) {
+  if (isLocalDev()) {
+    return deleteTaskViaHttp(id);
+  }
   await db.tasks.delete(id);
 }
 
 /** 获取所有任务（按时间倒序） */
 export async function getAllTasks(limit) {
+  if (isLocalDev()) {
+    return getAllTasksViaHttp(limit);
+  }
   let collection = db.tasks.orderBy('created_at').reverse();
   if (limit) collection = collection.limit(limit);
   const rows = await collection.toArray();
@@ -68,6 +160,11 @@ function libraryDate(record) {
 
 /** 全部有输出图的 completed 任务（解析后的记录，兼容两种字段形状） */
 export async function getCompletedLibraryRecords() {
+  if (isLocalDev()) {
+    return (await getAllTasksViaHttp()).filter(
+      (record) => record.status === 'completed' && record.outputs?.length > 0
+    );
+  }
   const rows = await db.tasks.filter((row) => row.status === 'completed').toArray();
   return rows
     .map((row) => parseRecord(row.record_json))
@@ -121,7 +218,7 @@ export function buildLibraryPage(records, month, query) {
 
 /**
  * Agent 内嵌图片库查询（浏览器 IndexedDB 内的任务）。
- * 本地开发时桌面版任务由 adapter-web 合并进来，见 agentLibrary。
+ * 本地开发时任务直接来自共享 SQLite，桌面任务天然可见。
  */
 export async function queryAgentLibrary(month, query) {
   return buildLibraryPage(await getCompletedLibraryRecords(), month, query);
@@ -129,8 +226,14 @@ export async function queryAgentLibrary(month, query) {
 
 // ── 批量操作 ──
 
-/** 批量替换全部任务 */
+/** 批量替换全部任务。共享 SQLite 模式下只做逐条合并（绝不清空桌面任务）。 */
 export async function replaceAllTasks(records) {
+  if (isLocalDev()) {
+    for (const record of records) {
+      await upsertTaskViaHttp(record);
+    }
+    return;
+  }
   await db.transaction('rw', db.tasks, async () => {
     await db.tasks.clear();
     for (const record of records) {

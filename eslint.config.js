@@ -29,7 +29,7 @@ export default [
   prettier,
 
   {
-    files: ['src/**/*.{js,vue}', 'tests/**/*.js', 'vite.config.js'],
+    files: ['src/**/*.{js,vue}', 'tests/**/*.js', 'vite.config.js', 'dev-server/**/*.mjs'],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'module',

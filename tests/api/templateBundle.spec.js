@@ -4,7 +4,7 @@ import { webcrypto } from 'node:crypto';
 import JSZip from 'jszip';
 
 const { uploadImageMock } = vi.hoisted(() => ({ uploadImageMock: vi.fn() }));
-vi.mock('../../src/api/blob.js', () => ({ uploadImage: uploadImageMock }));
+vi.mock('../../src/api/blob.js', () => ({ uploadImage: uploadImageMock, isLocalDev: () => false }));
 
 import { exportTemplates, importTemplates } from '../../src/api/adapter-web.js';
 

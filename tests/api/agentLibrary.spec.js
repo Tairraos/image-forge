@@ -1,4 +1,4 @@
-// agentLibrary.spec.js — Web 版图片库在本地开发下合并桌面版 ~/.image-forge 数据
+// agentLibrary.spec.js — Web 版图片库：本地开发直接读共享 SQLite（桌面任务天然可见）
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { isLocalDevMock, fetchMock } = vi.hoisted(() => ({
@@ -45,7 +45,7 @@ Object.assign(db, { tasks: mockTasks });
 
 const { agentLibrary } = await import('../../src/api/adapter-web.js');
 
-// 桌面版记录（record_json 解析后，camelCase；路径已被 dev server 改写为 /image-forge-data）
+// 共享 SQLite 里的桌面版记录（camelCase；输出为绝对磁盘路径）
 const desktopTask = {
   id: 'dt-1',
   createdAt: '2026-07-10T08:00:00Z',
@@ -57,8 +57,8 @@ const desktopTask = {
   origin: 'agent',
   agentSessionId: 'sess-1',
   taskGroupId: 'tg-1',
-  referencePaths: ['/image-forge-data/references/abc.png'],
-  outputs: [{ path: '/image-forge-data/outputs/2026/07/a-1.png', fileName: 'a-1.png' }],
+  referencePaths: ['/Users/xiaole/.image-forge/references/abc.png'],
+  outputs: [{ path: '/Users/xiaole/.image-forge/outputs/2026/07/a-1.png', fileName: 'a-1.png' }],
 };
 
 const webTask = {
@@ -89,30 +89,29 @@ beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
 });
 
-describe('agentLibrary（本地开发合并桌面版数据）', () => {
-  it('dev 模式合并桌面任务，同一任务以桌面版记录为准', async () => {
+describe('agentLibrary（共享 SQLite 数据源）', () => {
+  it('dev 模式直接读共享任务端点，桌面与 Web 任务统一返回', async () => {
     isLocalDevMock.mockReturnValue(true);
     fetchMock.mockResolvedValue({
       ok: true,
-      json: async () => ({ tasks: [desktopTask] }),
+      json: async () => ({ tasks: [webTask, desktopTask] }),
     });
-    mockTasks.filter.mockReturnValue(
-      completedRows([webTask, { ...desktopTask, prompt: '旧同步副本' }])
-    );
 
     const result = await agentLibrary('', '');
 
-    expect(fetchMock).toHaveBeenCalledWith('/image-forge-data/__library');
+    expect(fetchMock).toHaveBeenCalledWith('/image-forge-data/__tasks');
     expect(result.tasks.map((task) => task.id)).toEqual(['web-1', 'dt-1']);
     const desktop = result.tasks.find((task) => task.id === 'dt-1');
     expect(desktop.prompt).toBe('桌面柴犬');
     expect(result.months.map((month) => month.date)).toEqual(['2026-08', '2026-07']);
   });
 
-  it('dev 模式按月筛选合并结果', async () => {
+  it('dev 模式按月筛选', async () => {
     isLocalDevMock.mockReturnValue(true);
-    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ tasks: [desktopTask] }) });
-    mockTasks.filter.mockReturnValue(completedRows([webTask]));
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ tasks: [webTask, desktopTask] }),
+    });
 
     const result = await agentLibrary('2026-07', '');
 
@@ -131,16 +130,10 @@ describe('agentLibrary（本地开发合并桌面版数据）', () => {
     expect(result.tasks.map((task) => task.id)).toEqual(['web-1']);
   });
 
-  it('dev 端点失败时回退浏览器内任务', async () => {
+  it('dev 端点失败时直接抛错（dev server 即应用服务器，不做静默降级）', async () => {
     isLocalDevMock.mockReturnValue(true);
-    fetchMock.mockResolvedValue({ ok: false, status: 500 });
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    mockTasks.filter.mockReturnValue(completedRows([webTask]));
+    fetchMock.mockResolvedValue({ ok: false, status: 500, text: async () => 'server error' });
 
-    const result = await agentLibrary('', '');
-
-    expect(result.tasks.map((task) => task.id)).toEqual(['web-1']);
-    expect(warnSpy).toHaveBeenCalled();
-    warnSpy.mockRestore();
+    await expect(agentLibrary('', '')).rejects.toThrow('HTTP 500');
   });
 });

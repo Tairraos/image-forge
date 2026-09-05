@@ -145,13 +145,21 @@ describe('OpenAI 协议（image-gpt）', () => {
     );
   });
 
-  it('返回 URL 而非 base64 时报错', async () => {
+  it('返回 URL 而非 base64 时下载图片字节', async () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse({ data: [{ url: 'https://cdn.example.com/a.png' }] })
     );
-    await expect(executeGeneration(openAIProvider, { prompt: 'x' })).rejects.toThrow(
-      'OpenAI 返回了 URL 而非 base64'
-    );
+    // 第二次 fetch 是图片下载：返回 PNG 字节
+    const pngBytes = Uint8Array.from([0x89, 0x50, 0x4e, 0x47]);
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      arrayBuffer: async () => pngBytes.buffer,
+    });
+    const results = await executeGeneration(openAIProvider, { prompt: 'x' });
+    expect(results).toHaveLength(1);
+    expect(Array.from(results[0].bytes)).toEqual(Array.from(pngBytes));
+    expect(fetchMock).toHaveBeenLastCalledWith('https://cdn.example.com/a.png');
   });
 
   it('条目既无 b64_json 也无 url 时报错', async () => {
