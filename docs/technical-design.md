@@ -373,7 +373,9 @@ ImageForge-templates.zip
   images/<sha256>.<ext>
 ```
 
-导出始终包含全部模板；导入校验 manifest、路径和图片 SHA-256，重复模板跳过并重新分配本地 ID。没有新 manifest 时，会尽力兼容旧版 Markdown ZIP。导入限制压缩包、条目、解压后总大小和单图大小，避免把归档导入变成资源耗尽入口。
+导出始终包含全部模板；导入校验 manifest、路径和图片 SHA-256，重复模板按「标题 + 内容 + 参考图集合 + 效果图」签名跳过并重新分配本地 ID。没有新 manifest 时，会尽力兼容旧版 Markdown ZIP。导入限制压缩包、条目、解压后总大小和单图大小，避免把归档导入变成资源耗尽入口。
+
+Web 版（`adapter-web.js`）导出/导入与桌面版使用**完全相同的 ZIP 结构**：同一 manifest 格式标识（`format: image-forge-template-bundle` / `version: 1`）、同一 `images/<sha256>.<ext>` 内容寻址和 Markdown 文件，导出的包可跨平台互相导入。图片在 Web 端按内容 SHA-256 转存到共享参考图资源库（本地开发写 `~/.image-forge/references/`，生产写 Vercel Blob），绝不进 localStorage。Web 版额外兼容旧版 Web 导出包（无 `format` 字段的历史 manifest）。
 
 ## 模型与设置
 

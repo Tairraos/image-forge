@@ -426,50 +426,6 @@ function blobToDataUrl(blob) {
   });
 }
 
-/**
- * 把任意形态的图片路径规整为可持久化到 localStorage 的 URL：
- *  - data URL：把图片字节写进 ~/.image-forge/<relPath>/，返回 dev 代理 URL
- *  - blob: URL：读取后转 data URL，再走上面那条路
- *  - 已是 http(s) 或 /image-forge-data 路径：原样返回
- */
-async function normalizeImagePath(path, relPath) {
-  if (!path) return '';
-  if (path.startsWith('data:')) {
-    return dataUrlToStoredPath(path, relPath);
-  }
-  if (path.startsWith('blob:')) {
-    try {
-      const res = await fetch(path);
-      const blob = await res.blob();
-      const dataUrl = await blobToDataUrl(blob);
-      return dataUrlToStoredPath(dataUrl, relPath);
-    } catch {
-      return '';
-    }
-  }
-  return path;
-}
-
-async function dataUrlToStoredPath(dataUrl, relPath) {
-  const match = /^data:([^;,]+)(;base64)?,(.*)$/.exec(dataUrl);
-  if (!match) return '';
-  const mime = match[1] || 'image/png';
-  const isBase64 = !!match[2];
-  const payload = match[3] || '';
-  const bytes = isBase64
-    ? Uint8Array.from(atob(payload), (c) => c.charCodeAt(0))
-    : new TextEncoder().encode(decodeURIComponent(payload));
-  const ext = mime.split('/')[1] || 'png';
-  const fileName = `${Date.now()}-${Math.random().toString(16).slice(2, 8)}.${ext}`;
-  const blob = new Blob([bytes], { type: mime });
-  try {
-    return await uploadImage(fileName, blob, relPath);
-  } catch {
-    // 极端兜底：把 data URL 留在字段里，至少不丢失数据
-    return dataUrl;
-  }
-}
-
 // ── 输出 ──
 
 export async function downloadOutput(path) {
@@ -505,6 +461,109 @@ export async function saveTemplate(template) {
   return templates;
 }
 
+// ── 模板包（与桌面版 template_bundle.rs 同一格式契约，ZIP 可互相导入导出）──
+
+const BUNDLE_FORMAT = 'image-forge-template-bundle';
+const BUNDLE_VERSION = 1;
+const BUNDLE_MANIFEST_NAME = 'manifest.json';
+const BUNDLE_MARKDOWN_NAME = 'ImageForge-templates.md';
+const BUNDLE_MAX_ARCHIVE_BYTES = 256 * 1024 * 1024;
+const BUNDLE_MAX_ENTRY_COUNT = 2000;
+const BUNDLE_MAX_READ_BYTES = 1024 * 1024 * 1024;
+const BUNDLE_MAX_MANIFEST_BYTES = 10 * 1024 * 1024;
+const BUNDLE_MAX_MARKDOWN_BYTES = 20 * 1024 * 1024;
+const BUNDLE_MAX_IMAGE_BYTES = 100 * 1024 * 1024;
+const BUNDLE_MAX_TEMPLATE_COUNT = 10000;
+const BUNDLE_MAX_REFERENCES_PER_TEMPLATE = 64;
+
+function bytesStartWith(bytes, prefix) {
+  if (bytes.length < prefix.length) return false;
+  return prefix.every((value, index) => bytes[index] === value);
+}
+
+// 与桌面版 utils::image_mime_type 相同的字节嗅探规则
+function detectImageMime(path, bytes) {
+  let mime = '';
+  if (bytesStartWith(bytes, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) {
+    mime = 'image/png';
+  } else if (bytesStartWith(bytes, [0xff, 0xd8, 0xff])) {
+    mime = 'image/jpeg';
+  } else if (
+    bytesStartWith(bytes, [0x52, 0x49, 0x46, 0x46]) &&
+    bytes.length > 12 &&
+    bytesStartWith(bytes.slice(8, 12), [0x57, 0x45, 0x42, 0x50])
+  ) {
+    mime = 'image/webp';
+  } else if (
+    bytesStartWith(bytes, [0x47, 0x49, 0x46, 0x38, 0x37, 0x61]) ||
+    bytesStartWith(bytes, [0x47, 0x49, 0x46, 0x38, 0x39, 0x61])
+  ) {
+    mime = 'image/gif';
+  }
+  if (!mime) {
+    const ext = path.split('.').pop()?.toLowerCase() || '';
+    const guessed = {
+      jpg: 'image/jpeg',
+      jpeg: 'image/jpeg',
+      png: 'image/png',
+      webp: 'image/webp',
+      gif: 'image/gif',
+    }[ext];
+    mime = guessed || '';
+  }
+  if (!mime.startsWith('image/')) throw new Error('只支持图像文件');
+  return mime;
+}
+
+// 与桌面版 extension_for_mime 相同的扩展名映射
+function extensionForMime(mime) {
+  if (mime === 'image/jpeg') return 'jpg';
+  if (mime === 'image/webp') return 'webp';
+  if (mime === 'image/gif') return 'gif';
+  return 'png';
+}
+
+function validateBundleImagePath(value) {
+  const unsafe = !value.startsWith('images/') || value.includes('\\');
+  const segments = value.split('/');
+  if (unsafe || segments.some((segment) => !segment || segment === '.' || segment === '..')) {
+    throw new Error(`模板包包含不安全的参考图路径：${value}`);
+  }
+}
+
+function validateBundleTemplates(templates) {
+  if (!templates.length) throw new Error('模板包中没有模板');
+  if (templates.length > BUNDLE_MAX_TEMPLATE_COUNT) throw new Error('模板包中的模板数量过多');
+  for (const template of templates) {
+    if (!String(template.content || '').trim()) throw new Error('模板包包含空提示词');
+    if (template.references.length > BUNDLE_MAX_REFERENCES_PER_TEMPLATE) {
+      throw new Error('单个模板的参考图数量超过 64 张');
+    }
+    for (const reference of template.references) validateBundleImagePath(reference);
+    if (template.effectImage) validateBundleImagePath(template.effectImage);
+  }
+}
+
+// 与桌面版 build_templates_markdown 同一结构，供人工检视模板内容
+function buildTemplatesMarkdown(templates, exportedAt) {
+  let markdown = `# Image Forge 提示词模板\n\n> 导出时间：${exportedAt}\n> 模板数量：${templates.length}\n\n`;
+  for (const template of templates) {
+    markdown += `---\n\n## 模板 ${template.sourceId} · ${template.title}\n\n${template.content}\n\n`;
+    if (template.references.length) {
+      markdown += '### 参考图\n\n';
+      template.references.forEach((archivePath, index) => {
+        markdown += `![模板 ${template.sourceId} 参考图 ${index + 1}](${archivePath})\n\n`;
+      });
+    }
+    if (template.effectImage) {
+      markdown += `### 效果图\n\n![模板 ${template.sourceId} 效果图](${template.effectImage})\n\n`;
+    }
+  }
+  return markdown;
+}
+
+// 导出模板包：manifest.json + ImageForge-templates.md + images/<sha256>.<ext>，
+// 与桌面版导出的 ZIP 结构完全一致。参考图按内容 SHA-256 去重。
 export async function exportTemplates(destination) {
   const templates = readJSON(KEYS.templates, []);
   if (!templates.length) throw new Error('没有可导出的模板');
@@ -512,60 +571,213 @@ export async function exportTemplates(destination) {
   const JSZip = (await import('jszip')).default;
   const zip = new JSZip();
 
-  // manifest.json
-  const manifest = {
-    version: 1,
-    exportedAt: new Date().toISOString(),
-    templates: templates.map((t) => ({
-      id: t.id,
-      title: t.title,
-      content: t.content || '',
-      referencePaths: t.referencePaths || [],
-      effectImagePath: t.effectImagePath || '',
-    })),
+  const archivePaths = new Map();
+  const uniqueImages = new Map();
+  const collectImage = async (rawPath) => {
+    const source = String(rawPath || '').trim();
+    if (!source) return '';
+    const cached = archivePaths.get(source);
+    if (cached !== undefined) return cached;
+    const res = await fetch(source);
+    if (!res.ok) throw new Error(`找不到模板参考图：${source}`);
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    const archivePath = `images/${await sha256(bytes)}.${extensionForMime(detectImageMime(source, bytes))}`;
+    archivePaths.set(source, archivePath);
+    if (!uniqueImages.has(archivePath)) uniqueImages.set(archivePath, bytes);
+    return archivePath;
   };
-  zip.file('manifest.json', JSON.stringify(manifest, null, 2));
 
-  // 添加参考图
-  for (const tpl of templates) {
-    for (const refPath of tpl.referencePaths || []) {
-      try {
-        const res = await fetch(refPath);
-        if (res.ok) {
-          const blob = await res.blob();
-          const fileName = refPath.split('/').pop() || 'image.png';
-          zip.file(`images/${fileName}`, blob);
-        }
-      } catch {
-        // 跳过不可用的参考图
-      }
+  const bundleTemplates = [];
+  for (const template of templates) {
+    const references = [];
+    for (const rawPath of template.referencePaths || []) {
+      const archivePath = await collectImage(rawPath);
+      if (archivePath && !references.includes(archivePath)) references.push(archivePath);
     }
-    if (tpl.effectImagePath) {
-      try {
-        const res = await fetch(tpl.effectImagePath);
-        if (res.ok) {
-          const blob = await res.blob();
-          const fileName = tpl.effectImagePath.split('/').pop() || 'effect.png';
-          zip.file(`images/${fileName}`, blob);
-        }
-      } catch {
-        // 跳过
-      }
-    }
+    bundleTemplates.push({
+      sourceId: String(template.id || ''),
+      title: template.title || '',
+      content: template.content || '',
+      references,
+      effectImage: await collectImage(template.effectImagePath),
+    });
+  }
+  validateBundleTemplates(bundleTemplates);
+
+  const manifest = {
+    format: BUNDLE_FORMAT,
+    version: BUNDLE_VERSION,
+    exportedAt: new Date().toISOString(),
+    templates: bundleTemplates,
+  };
+  zip.file(BUNDLE_MANIFEST_NAME, JSON.stringify(manifest, null, 2));
+  zip.file(BUNDLE_MARKDOWN_NAME, buildTemplatesMarkdown(bundleTemplates, manifest.exportedAt));
+  for (const [archivePath, bytes] of uniqueImages) {
+    zip.file(archivePath, bytes);
   }
 
-  const blob = await zip.generateAsync({ type: 'blob' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'ImageForge-templates.zip';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
+  const zipBlob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+  const url = URL.createObjectURL(zipBlob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = 'ImageForge-templates.zip';
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
   URL.revokeObjectURL(url);
   return destination || 'ImageForge-templates.zip';
 }
 
+async function readBundleEntry(zip, name, maxBytes) {
+  const entry = zip.file(name);
+  if (!entry) throw new Error(`模板包缺少文件：${name}`);
+  const bytes = new Uint8Array(await entry.async('arraybuffer'));
+  if (bytes.length > maxBytes) throw new Error(`模板包文件超过大小限制：${name}`);
+  return bytes;
+}
+
+// 旧版 Markdown ZIP（无 manifest）与桌面版 parse_legacy_markdown 同一解析规则
+function parseLegacyMarkdown(markdown) {
+  const marker = '\n---\n\n## 模板 ';
+  const referenceMarker = '\n\n### 参考图\n\n';
+  const templates = [];
+  for (const section of markdown.split(marker).slice(1)) {
+    const splitIndex = section.indexOf('\n\n');
+    if (splitIndex < 0) throw new Error('旧版模板 Markdown 结构无效');
+    const sourceId = section.slice(0, splitIndex).trim();
+    const body = section.slice(splitIndex + 2);
+    const referenceIndex = body.lastIndexOf(referenceMarker);
+    const content = referenceIndex < 0 ? body : body.slice(0, referenceIndex);
+    const referenceText =
+      referenceIndex < 0 ? '' : body.slice(referenceIndex + referenceMarker.length);
+    const references = referenceText
+      .split('\n')
+      .map((line) => {
+        const trimmed = line.trim();
+        const start = trimmed.lastIndexOf('](');
+        if (start < 0 || !trimmed.endsWith(')')) return '';
+        return trimmed.slice(start + 2, -1);
+      })
+      .filter(Boolean);
+    templates.push({ sourceId, title: '', content: content.trim(), references, effectImage: '' });
+  }
+  return templates;
+}
+
+// 旧版 Web 导出包没有 format 标识，参考图按原路径名在 images/ 里尽力找回
+function mapLegacyWebImages(zip, bundleTemplates, rawTemplates) {
+  const resolveImage = (path) => {
+    if (!path) return '';
+    const base = String(path).split(/[\\/]/).pop() || '';
+    return base && zip.file(`images/${base}`) ? `images/${base}` : '';
+  };
+  for (let index = 0; index < bundleTemplates.length; index += 1) {
+    const raw = rawTemplates[index] || {};
+    bundleTemplates[index].references = [
+      ...new Set((raw.referencePaths || []).map(resolveImage).filter(Boolean)),
+    ];
+    bundleTemplates[index].effectImage = resolveImage(raw.effectImagePath);
+  }
+}
+
+// 图片按内容 SHA-256 转存到共享参考图资源库（与桌面版 persist_reference_bytes 同一寻址规则），
+// 带 manifest 的包会校验文件名哈希与内容一致
+async function persistBundleImages(zip, templates, requireHashNames) {
+  const wanted = new Set();
+  for (const template of templates) {
+    for (const path of [...template.references, template.effectImage]) {
+      if (path) wanted.add(path);
+    }
+  }
+  const persisted = new Map();
+  let totalBytes = 0;
+  for (const archivePath of wanted) {
+    const bytes = await readBundleEntry(zip, archivePath, BUNDLE_MAX_IMAGE_BYTES);
+    totalBytes += bytes.length;
+    if (totalBytes > BUNDLE_MAX_READ_BYTES) throw new Error('模板包解压后超过 1 GB，无法导入');
+    const mime = detectImageMime(archivePath, bytes);
+    const hash = await sha256(bytes);
+    if (requireHashNames) {
+      const stem = archivePath.slice('images/'.length).split('.')[0] || '';
+      if (stem !== hash) throw new Error(`参考图完整性校验失败：${archivePath}`);
+    }
+    const fileName = `${hash}.${extensionForMime(mime)}`;
+    try {
+      persisted.set(
+        archivePath,
+        await uploadImage(fileName, new Blob([bytes], { type: mime }), 'references')
+      );
+    } catch (error) {
+      throw new Error(`保存模板参考图失败（${archivePath}）: ${error?.message || error}`, {
+        cause: error,
+      });
+    }
+  }
+  for (const template of templates) {
+    template.referencePaths = template.references.map((path) => {
+      const stored = persisted.get(path);
+      if (!stored) throw new Error(`模板包缺少参考图：${path}`);
+      return stored;
+    });
+    if (template.effectImage) {
+      const stored = persisted.get(template.effectImage);
+      if (!stored) throw new Error(`模板包缺少效果图：${template.effectImage}`);
+      template.effectImagePath = stored;
+    } else {
+      template.effectImagePath = '';
+    }
+  }
+}
+
+// 与桌面 merge_imported_templates 相同：按 (标题, 内容, 参考图集合, 效果图) 签名去重，
+// 重复模板跳过，新模板重新分配本地 ID 和时间戳
+function templateSignature(template) {
+  const references = [...new Set(template.referencePaths)].sort();
+  return [
+    template.title.trim(),
+    template.content.trim(),
+    JSON.stringify(references),
+    template.effectImagePath.trim(),
+  ].join('\n');
+}
+
+function mergeImportedTemplates(bundleTemplates) {
+  const existing = readJSON(KEYS.templates, []);
+  const signatures = new Set(existing.map(templateSignature));
+  let importedCount = 0;
+  let skippedCount = 0;
+  const now = new Date().toISOString();
+  for (const template of bundleTemplates) {
+    const next = {
+      id: '',
+      title: (template.title || '').trim(),
+      shortTitle: '',
+      category: '常用',
+      content: (template.content || '').trim(),
+      referencePaths: template.referencePaths,
+      effectImagePath: (template.effectImagePath || '').trim(),
+      notes: '',
+      tags: [],
+      favorite: false,
+      modelHint: '',
+      createdAt: now,
+      updatedAt: now,
+    };
+    const signature = templateSignature(next);
+    if (signatures.has(signature)) {
+      skippedCount += 1;
+      continue;
+    }
+    signatures.add(signature);
+    importedCount += 1;
+    next.id = `tpl-${Date.now()}-${importedCount}`;
+    existing.push(next);
+  }
+  writeJSON(KEYS.templates, existing);
+  return { templates: existing, importedCount, skippedCount };
+}
+
+// 导入模板包：解析与桌面版同构的 manifest（兼容旧版 Markdown 包和旧版 Web 导出包）
 export async function importTemplates(archivePath) {
   // Web 版：archivePath 可能是 File 对象或 Blob URL
   let blob;
@@ -576,52 +788,65 @@ export async function importTemplates(archivePath) {
     if (!res.ok) throw new Error(`读取模板包失败: ${res.status}`);
     blob = await res.blob();
   }
+  if (blob.size > BUNDLE_MAX_ARCHIVE_BYTES) throw new Error('模板包超过 256 MB，无法导入');
 
   const JSZip = (await import('jszip')).default;
   const zip = await JSZip.loadAsync(blob);
 
-  const manifestFile = zip.file('manifest.json');
-  if (!manifestFile) throw new Error('模板包缺少 manifest.json');
+  let entryCount = 0;
+  zip.forEach((relativePath, entry) => {
+    if (!entry.dir) entryCount += 1;
+  });
+  if (entryCount > BUNDLE_MAX_ENTRY_COUNT) throw new Error('模板包文件数量过多');
 
-  const manifest = JSON.parse(await manifestFile.async('text'));
-  const incoming = manifest.templates || [];
-  const existing = readJSON(KEYS.templates, []);
-
-  let imported = 0;
-  let skipped = 0;
-  const existingIds = new Set(existing.map((t) => t.id));
-
-  for (const tpl of incoming) {
-    if (existingIds.has(tpl.id)) {
-      skipped++;
-      continue;
-    }
-    // 把 data URL 形态的图片字节转写到 ~/.image-forge（本地开发）或 Vercel Blob，
-    // 避免把图片 base64 持久化进 localStorage 的 if_templates
-    const referencePaths = await Promise.all(
-      (tpl.referencePaths || []).map((p) => normalizeImagePath(p, 'template-references'))
+  let bundleTemplates;
+  let requireHashNames;
+  if (zip.file(BUNDLE_MANIFEST_NAME)) {
+    const manifestBytes = await readBundleEntry(
+      zip,
+      BUNDLE_MANIFEST_NAME,
+      BUNDLE_MAX_MANIFEST_BYTES
     );
-    const effectImagePath = await normalizeImagePath(tpl.effectImagePath || '', 'template-effects');
-    existing.push({
-      id: tpl.id || `tpl-${Date.now()}-${imported}`,
-      title: tpl.title || '',
-      shortTitle: '',
-      category: '常用',
-      content: tpl.content || tpl.prompt || '',
-      referencePaths: referencePaths.filter(Boolean),
-      effectImagePath: effectImagePath || '',
-      notes: '',
-      tags: [],
-      favorite: false,
-      modelHint: '',
-      createdAt: tpl.createdAt || new Date().toISOString(),
-      updatedAt: tpl.updatedAt || new Date().toISOString(),
-    });
-    imported++;
+    let manifest;
+    try {
+      manifest = JSON.parse(new TextDecoder().decode(manifestBytes));
+    } catch {
+      throw new Error('模板包 manifest.json 无效');
+    }
+    if (manifest && manifest.format === BUNDLE_FORMAT) {
+      if (manifest.version !== BUNDLE_VERSION) {
+        throw new Error(`不支持模板包版本 ${manifest.version}，当前支持版本 ${BUNDLE_VERSION}`);
+      }
+      bundleTemplates = manifest.templates || [];
+      requireHashNames = true;
+    } else if (manifest && Array.isArray(manifest.templates)) {
+      bundleTemplates = manifest.templates.map((tpl) => ({
+        sourceId: String(tpl.id || ''),
+        title: tpl.title || '',
+        content: tpl.content || tpl.prompt || '',
+        references: [],
+        effectImage: '',
+      }));
+      mapLegacyWebImages(zip, bundleTemplates, manifest.templates);
+      requireHashNames = false;
+    } else {
+      throw new Error('不是 Image Forge 模板包');
+    }
+  } else if (zip.file(BUNDLE_MARKDOWN_NAME)) {
+    const markdownBytes = await readBundleEntry(
+      zip,
+      BUNDLE_MARKDOWN_NAME,
+      BUNDLE_MAX_MARKDOWN_BYTES
+    );
+    bundleTemplates = parseLegacyMarkdown(new TextDecoder().decode(markdownBytes));
+    requireHashNames = false;
+  } else {
+    throw new Error('模板包缺少 manifest.json 或 ImageForge-templates.md');
   }
 
-  writeJSON(KEYS.templates, existing);
-  return { templates: existing, importedCount: imported, skippedCount: skipped };
+  validateBundleTemplates(bundleTemplates);
+  await persistBundleImages(zip, bundleTemplates, requireHashNames);
+  return mergeImportedTemplates(bundleTemplates);
 }
 
 export async function exportDataBundle(categories) {

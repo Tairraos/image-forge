@@ -1425,12 +1425,18 @@ async function handleTemplateDraftPaste(event) {
 }
 
 // 让用户选择保存位置，并导出包含 Markdown 和参考图资源的模板 ZIP。
+// Web 版没有保存对话框，直接生成与桌面版同构的 ZIP 并触发浏览器下载。
 async function exportPromptTemplates() {
   if (!templates.value.length) {
     setStatus('没有可导出的模板', 'error');
     return;
   }
   try {
+    if (isWeb) {
+      const savedName = await api.exportTemplates('ImageForge-templates.zip');
+      setStatus(`模板已导出：${fileName(savedName)}`, 'ok');
+      return;
+    }
     const destination = await saveDialog({
       defaultPath: 'ImageForge-templates.zip',
       filters: [{ name: 'ZIP 压缩包', extensions: ['zip'] }],
@@ -1443,14 +1449,30 @@ async function exportPromptTemplates() {
   }
 }
 
+// Web 版用浏览器文件选择器挑 ZIP；桌面版走系统文件对话框。
+function pickWebTemplateArchive() {
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.zip';
+    input.onchange = () => resolve(input.files && input.files.length ? input.files[0] : null);
+    input.click();
+  });
+}
+
 // 从 Image Forge 模板包导入提示词和参考图，重复模板由后端自动跳过。
 async function importPromptTemplates() {
   try {
-    const selected = await openDialog({
-      multiple: false,
-      filters: [{ name: 'Image Forge 模板包', extensions: ['zip'] }],
-    });
-    const archivePath = Array.isArray(selected) ? selected[0] : selected;
+    let archivePath = null;
+    if (isWeb) {
+      archivePath = await pickWebTemplateArchive();
+    } else {
+      const selected = await openDialog({
+        multiple: false,
+        filters: [{ name: 'Image Forge 模板包', extensions: ['zip'] }],
+      });
+      archivePath = Array.isArray(selected) ? selected[0] : selected;
+    }
     if (!archivePath) return;
     const result = await api.importTemplates(archivePath);
     templates.value = result.templates || [];
