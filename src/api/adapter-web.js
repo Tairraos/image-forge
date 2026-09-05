@@ -278,7 +278,8 @@ export async function sendAgentMessage(sessionId, providerId, content, attachmen
     emitAgentEvent('agent-task-group', {
       ...lastMsg.taskGroup,
       sessionId,
-      tasks: lastMsg.taskGroup.taskIds?.length || 0,
+      // 与桌面版事件保持一致：tasks 是任务 id 数组（App.vue 读取 group.tasks.length）
+      tasks: lastMsg.taskGroup.taskIds || [],
     });
   }
 
