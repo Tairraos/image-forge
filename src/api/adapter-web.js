@@ -519,10 +519,9 @@ export async function exportTemplates(destination) {
     templates: templates.map((t) => ({
       id: t.id,
       title: t.title,
-      prompt: t.prompt,
+      content: t.content || '',
       referencePaths: t.referencePaths || [],
       effectImagePath: t.effectImagePath || '',
-      usageCount: t.usageCount || 0,
     })),
   };
   zip.file('manifest.json', JSON.stringify(manifest, null, 2));
@@ -606,10 +605,17 @@ export async function importTemplates(archivePath) {
     existing.push({
       id: tpl.id || `tpl-${Date.now()}-${imported}`,
       title: tpl.title || '',
-      prompt: tpl.prompt || '',
+      shortTitle: '',
+      category: '常用',
+      content: tpl.content || tpl.prompt || '',
       referencePaths: referencePaths.filter(Boolean),
       effectImagePath: effectImagePath || '',
-      usageCount: tpl.usageCount || 0,
+      notes: '',
+      tags: [],
+      favorite: false,
+      modelHint: '',
+      createdAt: tpl.createdAt || new Date().toISOString(),
+      updatedAt: tpl.updatedAt || new Date().toISOString(),
     });
     imported++;
   }
