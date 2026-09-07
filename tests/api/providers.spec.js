@@ -159,7 +159,9 @@ describe('OpenAI 协议（image-gpt）', () => {
     const results = await executeGeneration(openAIProvider, { prompt: 'x' });
     expect(results).toHaveLength(1);
     expect(Array.from(results[0].bytes)).toEqual(Array.from(pngBytes));
-    expect(fetchMock).toHaveBeenLastCalledWith('https://cdn.example.com/a.png');
+    expect(fetchMock).toHaveBeenLastCalledWith('https://cdn.example.com/a.png', {
+      signal: undefined,
+    });
   });
 
   it('条目既无 b64_json 也无 url 时报错', async () => {
@@ -317,6 +319,67 @@ describe('Grok 协议（image-grok）', () => {
 });
 
 describe('协议分发', () => {
+  it('按比例和分辨率计算尺寸，保留明确指定的尺寸', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ data: [{ b64_json: base64Of(pngBytes) }] }));
+    await executeGeneration(openAIProvider, { prompt: 'x', ratio: '16:9', resolution: '2k' });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).size).toBe('2048x1152');
+    await executeGeneration(openAIProvider, { prompt: 'x', size: '1536x1024' });
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).size).toBe('1536x1024');
+  });
+
+  it.each([openAIProvider, grokProvider])(
+    '空图像响应不能当作成功：$modelType',
+    async (provider) => {
+      fetchMock.mockResolvedValueOnce(jsonResponse({ data: [] }));
+      await expect(executeGeneration(provider, { prompt: 'x' })).rejects.toThrow('未返回图像数据');
+    }
+  );
+
+  it.each([openAIProvider, geminiProvider, grokProvider])(
+    '取消信号贯穿参考图读取和生图请求：$modelType',
+    async (provider) => {
+      const controller = new AbortController();
+      fetchMock.mockResolvedValueOnce(imageSourceResponse()).mockImplementationOnce((_, init) => {
+        return new Promise((_, reject) => {
+          init.signal.addEventListener('abort', () => reject(init.signal.reason), { once: true });
+        });
+      });
+      const pending = executeGeneration(
+        provider,
+        { prompt: 'x', reference_paths: ['/Users/example/.image-forge/references/ref.png'] },
+        controller.signal
+      );
+      const rejected = expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+      expect(fetchMock.mock.calls[0][0]).toBe('/image-forge-data/references/ref.png');
+      expect(fetchMock.mock.calls.every(([, init]) => init.signal === controller.signal)).toBe(
+        true
+      );
+      controller.abort();
+      await rejected;
+    }
+  );
+
+  it('结果下载也可以取消，已取消的任务不会再发请求', async () => {
+    const controller = new AbortController();
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ data: [{ url: 'https://example.com/out.png' }] })
+    );
+    fetchMock.mockImplementationOnce((_, init) => {
+      expect(init.signal).toBe(controller.signal);
+      controller.abort();
+      return Promise.reject(init.signal.reason);
+    });
+    await expect(
+      executeGeneration(openAIProvider, { prompt: 'x' }, controller.signal)
+    ).rejects.toMatchObject({ name: 'AbortError' });
+    fetchMock.mockClear();
+    await expect(
+      executeGeneration(openAIProvider, { prompt: 'x' }, controller.signal)
+    ).rejects.toMatchObject({ name: 'AbortError' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('未知 modelType 默认走 OpenAI 协议', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ data: [{ b64_json: base64Of(pngBytes) }] }));
     await executeGeneration({ baseUrl: 'https://p.com/v1', apiKey: 'k' }, { prompt: 'x' });

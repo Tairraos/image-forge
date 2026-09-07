@@ -4,6 +4,7 @@
 import * as queue from './queue.js';
 import * as db from './db.js';
 import * as localStore from './localStore.js';
+import { taskGroupStatus } from '../lib/libraryFormat.js';
 
 const MAX_TOOL_ROUNDS = 8;
 const AGENT_SCHEMA_VERSION = 1;
@@ -11,7 +12,7 @@ const AGENT_SCHEMA_VERSION = 1;
 // ── 系统提示词 ──
 
 function systemPrompt(context, templateCatalog = '') {
-  const base = `你是 Image Forge 本地绘画助手。普通聊天直接回答；需要绘图时必须调用 create_image_tasks。用户点名使用模板时，先用 list_templates 查询模板，再把模板 id 填入 plan.templateId，并把模板内容按用户意图填充为完整提示词；模板自带的参考图会由执行端自动并入任务。禁止声称执行终端、脚本、任意文件读写、任意 HTTP、浏览器、数据库或插件。缺少绘图信息时返回 schemaVersion=1 的 assistant envelope，status=needs_input 并在 questions 中提出最多 3 个问题；无法完成时返回 status=rejected 和原因；信息完整时返回 status=ready 及逐图 plans，或调用 create_image_tasks。每个 plan 必须明确 resolution、ratio、quality、promptFidelity、referencePolicy 和 referenceIds；referencePolicy=optional 时如果 referenceIds 为空，默认沿用当前附图。参考图只有 ID 和元数据；不支持视觉的模型不能假装看到了图片内容。
+  const base = `你是 Image Forge 本地绘画助手。普通聊天直接回答；需要绘图时必须调用 create_image_tasks。用户点名使用模板时，先用 list_templates 查询模板，再把模板 id 填入 plan.templateId，并把模板内容按用户意图填充为完整提示词；模板自带的参考图会由执行端自动并入任务。禁止声称执行终端、脚本、任意文件读写、任意 HTTP、浏览器、数据库或插件。缺少绘图信息时返回 schemaVersion=1 的 assistant envelope，status=needs_input 并在 questions 中提出最多 3 个问题；无法完成时返回 status=rejected 和原因；信息完整时返回 status=ready 及逐图 plans，或调用 create_image_tasks。每个 plan 必须明确 resolution、ratio、quality、promptFidelity、referencePolicy 和 referenceIds；referencePolicy=optional 时如果 referenceIds 为空，默认沿用当前附图。仅当消息包含图像输入且模型支持视觉时，才能描述参考图内容；只有 ID 和元数据时不能假装看到了图片。
 
 当前会话上下文：
 ${context.trim()}`;
@@ -132,7 +133,7 @@ const TOOLS = [
  * @param {Function} onDelta - 文本增量回调
  * @returns {Promise<{text: string, toolCalls: Array}>}
  */
-async function chatCompletion(provider, messages, onDelta) {
+async function chatCompletion(provider, messages, onDelta, signal) {
   const baseUrl = (provider.baseUrl || '').replace(/\/+$/, '');
   const apiKey = (provider.apiKey || '').trim();
   const model = provider.imageModel || 'gpt-4o';
@@ -147,6 +148,7 @@ async function chatCompletion(provider, messages, onDelta) {
   };
 
   const res = await fetch(`${baseUrl}/chat/completions`, {
+    signal,
     method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -171,13 +173,13 @@ async function chatCompletion(provider, messages, onDelta) {
     throw new Error(`Agent 请求失败: HTTP ${res.status} ${msg}`);
   }
 
-  return parseSSEStream(res, onDelta);
+  return parseSSEStream(res, onDelta, signal);
 }
 
 /**
  * 非流式回退：用于不支持 tools 的模型。
  */
-async function chatCompletionNonStream(provider, messages) {
+async function chatCompletionNonStream(provider, messages, signal) {
   const baseUrl = (provider.baseUrl || '').replace(/\/+$/, '');
   const apiKey = (provider.apiKey || '').trim();
   const model = provider.imageModel || 'gpt-4o';
@@ -190,6 +192,7 @@ async function chatCompletionNonStream(provider, messages) {
   };
 
   const res = await fetch(`${baseUrl}/chat/completions`, {
+    signal,
     method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -220,29 +223,42 @@ async function chatCompletionNonStream(provider, messages) {
 
 // ── SSE 流解析 ──
 
-async function parseSSEStream(res, onDelta) {
+async function parseSSEStream(res, onDelta, signal) {
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
   let fullText = '';
   const toolCallAccum = new Map(); // index -> { id, name, arguments }
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+  let finished = false;
+  try {
+    while (!finished) {
+      signal?.throwIfAborted();
+      const { done, value } = await reader.read();
+      signal?.throwIfAborted();
+      buffer += done ? decoder.decode() : decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      if (done) {
+        if (buffer.trim()) lines.push(buffer);
+        finished = true;
+      }
 
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || !trimmed.startsWith('data:')) continue;
-      const data = trimmed.slice(5).trim();
-      if (data === '[DONE]') continue;
-
-      try {
-        const chunk = JSON.parse(data);
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || !trimmed.startsWith('data:')) continue;
+        const data = trimmed.slice(5).trim();
+        if (data === '[DONE]') {
+          finished = true;
+          break;
+        }
+        let chunk;
+        try {
+          chunk = JSON.parse(data);
+        } catch {
+          continue;
+        }
+        if (chunk.error) throw new Error(chunk.error.message || 'Agent 流式响应失败');
         const delta = chunk.choices?.[0]?.delta;
         if (!delta) continue;
 
@@ -268,9 +284,13 @@ async function parseSSEStream(res, onDelta) {
           if (tc.function?.name) acc.name += tc.function.name;
           if (tc.function?.arguments) acc.arguments += tc.function.arguments;
         }
-      } catch {
-        // 忽略解析错误的行
       }
+    }
+  } finally {
+    try {
+      await reader.cancel?.();
+    } finally {
+      reader.releaseLock?.();
     }
   }
 
@@ -288,9 +308,10 @@ async function parseSSEStream(res, onDelta) {
  * @param {string} content - 用户消息
  * @param {Array} attachments - 附件列表
  * @param {Function} onEvent - 事件回调 ({ phase, chunk, message, toolName, sessionId })
+ * @param {AbortSignal} [signal] - 停止当前对话轮次
  * @returns {Promise<Object>} 更新后的 session
  */
-export async function runAgentTurn(provider, session, content, attachments, onEvent) {
+export async function runAgentTurn(provider, session, content, attachments, onEvent, signal) {
   // 构建上下文
   const context = buildContext(session, attachments);
   const systemMsg = {
@@ -314,118 +335,137 @@ export async function runAgentTurn(provider, session, content, attachments, onEv
 
   let completedToolCalls = [];
   let fallbackMode = false;
+  let streamedText = '';
 
-  for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-    let response;
+  try {
+    for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+      signal?.throwIfAborted();
+      let response;
 
-    if (fallbackMode) {
-      // 非流式回退
-      const nonStream = await chatCompletionNonStream(provider, messages);
-      const envelope = parseEnvelope(nonStream.text);
-      if (envelope) {
-        const result = handleEnvelope(envelope, completedToolCalls);
-        if (result) return finalizeSession(session, messages, result);
-      }
-      response = nonStream;
-    } else {
-      try {
-        response = await chatCompletion(provider, messages, (event) => {
-          onEvent({ ...event, sessionId: session.id });
-        });
-      } catch (error) {
-        if (error.message?.startsWith('AGENT_TOOLS_UNSUPPORTED:')) {
-          fallbackMode = true;
-          continue;
+      if (fallbackMode) {
+        // 非流式回退
+        const nonStream = await chatCompletionNonStream(provider, messages, signal);
+        const envelope = parseEnvelope(nonStream.text);
+        if (envelope) {
+          const result = handleEnvelope(envelope, completedToolCalls);
+          if (result) return finalizeSession(session, messages, result);
         }
-        throw error;
-      }
-    }
-
-    // 检查是否看起来像 JSON envelope（非 tools 模式下）
-    if (!response.toolCalls.length && looksLikeEnvelope(response.text)) {
-      const envelope = parseEnvelope(response.text);
-      if (envelope) {
-        const result = handleEnvelope(envelope, completedToolCalls);
-        if (result) return finalizeSession(session, messages, result);
-      }
-    }
-
-    // 无工具调用 = 纯文本回复
-    if (!response.toolCalls.length) {
-      return finalizeSession(session, messages, {
-        text: response.text,
-        status: 'chat',
-        questions: [],
-        toolCalls: completedToolCalls,
-      });
-    }
-
-    // 执行工具调用
-    const assistantMsg = {
-      role: 'assistant',
-      content: response.text || null,
-      tool_calls: response.toolCalls.map((tc) => ({
-        id: tc.id,
-        type: 'function',
-        function: { name: tc.name, arguments: tc.arguments },
-      })),
-    };
-    messages.push(assistantMsg);
-
-    for (const tc of response.toolCalls) {
-      onEvent({
-        phase: 'tool_start',
-        message: `正在执行 ${tc.name}`,
-        toolName: tc.name,
-        sessionId: session.id,
-      });
-
-      let args;
-      try {
-        args = JSON.parse(tc.arguments);
-      } catch {
-        args = {};
+        response = nonStream;
+      } else {
+        try {
+          response = await chatCompletion(
+            provider,
+            messages,
+            (event) => {
+              streamedText += event.chunk || '';
+              onEvent({ ...event, sessionId: session.id });
+            },
+            signal
+          );
+        } catch (error) {
+          if (error.message?.startsWith('AGENT_TOOLS_UNSUPPORTED:')) {
+            fallbackMode = true;
+            continue;
+          }
+          throw error;
+        }
       }
 
-      const result = await executeToolCall(tc.name, args, session, attachments);
+      // 检查是否看起来像 JSON envelope（非 tools 模式下）
+      if (!response.toolCalls.length && looksLikeEnvelope(response.text)) {
+        const envelope = parseEnvelope(response.text);
+        if (envelope) {
+          const result = handleEnvelope(envelope, completedToolCalls);
+          if (result) return finalizeSession(session, messages, result);
+        }
+      }
 
-      const toolResult = {
-        role: 'tool',
-        tool_call_id: tc.id,
-        name: tc.name,
-        content: JSON.stringify({ result: result.value, error: result.error }),
+      // 无工具调用 = 纯文本回复
+      if (!response.toolCalls.length) {
+        return finalizeSession(session, messages, {
+          text: response.text,
+          status: 'chat',
+          questions: [],
+          toolCalls: completedToolCalls,
+        });
+      }
+
+      // 执行工具调用
+      const assistantMsg = {
+        role: 'assistant',
+        content: response.text || null,
+        tool_calls: response.toolCalls.map((tc) => ({
+          id: tc.id,
+          type: 'function',
+          function: { name: tc.name, arguments: tc.arguments },
+        })),
       };
-      messages.push(toolResult);
+      messages.push(assistantMsg);
 
-      completedToolCalls.push({
-        schemaVersion: AGENT_SCHEMA_VERSION,
-        id: tc.id,
-        name: tc.name,
-        arguments: args,
-        result: result.value,
-        error: result.error || null,
-        status: result.error ? 'failed' : 'completed',
-        createdAt: new Date().toISOString(),
-        completedAt: new Date().toISOString(),
-      });
+      for (const tc of response.toolCalls) {
+        signal?.throwIfAborted();
+        onEvent({
+          phase: 'tool_start',
+          message: `正在执行 ${tc.name}`,
+          toolName: tc.name,
+          sessionId: session.id,
+        });
 
-      onEvent({
-        phase: 'tool_result',
-        message: result.error || '工具执行完成',
-        toolName: tc.name,
-        sessionId: session.id,
-      });
+        let args;
+        try {
+          args = JSON.parse(tc.arguments);
+        } catch {
+          args = {};
+        }
+
+        const result = await executeToolCall(tc.name, args, session, attachments, signal);
+
+        const toolResult = {
+          role: 'tool',
+          tool_call_id: tc.id,
+          name: tc.name,
+          content: JSON.stringify({ result: result.value, error: result.error }),
+        };
+        messages.push(toolResult);
+
+        completedToolCalls.push({
+          schemaVersion: AGENT_SCHEMA_VERSION,
+          id: tc.id,
+          name: tc.name,
+          arguments: args,
+          result: result.value,
+          error: result.error || null,
+          status: result.error ? 'failed' : 'completed',
+          createdAt: new Date().toISOString(),
+          completedAt: new Date().toISOString(),
+        });
+
+        onEvent({
+          phase: 'tool_result',
+          message: result.error || '工具执行完成',
+          toolName: tc.name,
+          sessionId: session.id,
+        });
+      }
     }
-  }
 
-  throw new Error('Agent Tool Call 超过最大循环次数，已停止本轮');
+    throw new Error('Agent Tool Call 超过最大循环次数，已停止本轮');
+  } catch (error) {
+    if (!signal?.aborted) throw error;
+    return finalizeSession(session, messages, {
+      text: streamedText,
+      status: 'cancelled',
+      questions: [],
+      toolCalls: completedToolCalls,
+    });
+  }
 }
 
 // ── 工具执行 ──
 
-async function executeToolCall(name, args, session, attachments) {
+async function executeToolCall(name, args, session, attachments, signal) {
   if (name === 'create_image_tasks') {
-    return executeCreateImageTasks(args, session, attachments);
+    return executeCreateImageTasks(args, session, attachments, signal);
   }
   if (name === 'get_task_status') {
     return executeGetTaskStatus(args);
@@ -461,9 +501,9 @@ async function executeListTemplates() {
   };
 }
 
-async function executeCreateImageTasks(args, session, attachments) {
+async function executeCreateImageTasks(args, session, attachments, signal) {
   const plans = args.plans || [];
-  if (!plans.length || plans.length > 12) {
+  if (!Array.isArray(plans) || !plans.length || plans.length > 12) {
     return { value: null, error: '图片计划数量必须在 1 到 12 之间' };
   }
 
@@ -482,11 +522,15 @@ async function executeCreateImageTasks(args, session, attachments) {
     attachmentMap.set(att.id, att.path);
   }
 
-  const taskGroupId = `web-tg-${Date.now()}`;
+  const taskGroupId = `web-tg-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
   const taskIds = [];
   const titles = [];
+  const prepared = [];
 
   for (const plan of plans) {
+    if (!plan || typeof plan.prompt !== 'string' || !plan.prompt.trim()) {
+      return { value: null, error: '每张图片都需要非空提示词' };
+    }
     const policy = ['use', 'optional', 'none'].includes(plan.referencePolicy)
       ? plan.referencePolicy
       : 'optional';
@@ -497,7 +541,13 @@ async function executeCreateImageTasks(args, session, attachments) {
 
     let refPaths = [];
     if (policy !== 'none') {
-      refPaths = (plan.referenceIds || []).map((id) => attachmentMap.get(id) || '').filter(Boolean);
+      const ids = plan.referenceIds || [];
+      if (!Array.isArray(ids) || ids.some((id) => !attachmentMap.get(id))) {
+        return { value: null, error: '参考图 ID 不属于当前对话，请使用已提供的参考图 ID' };
+      }
+      refPaths = ids.length
+        ? ids.map((id) => attachmentMap.get(id))
+        : (attachments || []).map((attachment) => attachment.path).filter(Boolean);
     }
 
     const templateId = (plan.templateId || '').trim();
@@ -513,10 +563,9 @@ async function executeCreateImageTasks(args, session, attachments) {
       }
     }
 
-    const provider =
-      providers.find((p) => p.id === plan.providerId) ||
-      providers.find((p) => p.modelType !== 'chat') ||
-      providers[0];
+    const provider = plan.providerId
+      ? providers.find((p) => p.id === plan.providerId && p.modelType !== 'chat')
+      : providers.find((p) => p.modelType !== 'chat');
 
     if (!provider) {
       return { value: null, error: '没有可用的生图 API 配置' };
@@ -526,30 +575,42 @@ async function executeCreateImageTasks(args, session, attachments) {
       origin: 'agent',
       agent_session_id: session.id,
       task_group_id: taskGroupId,
-      prompt: plan.prompt || '',
+      prompt: plan.prompt.trim(),
       model: provider.imageModel || '',
       ratio: plan.ratio || '1:1',
       resolution: plan.resolution || 'standard',
       count: 1,
       output_format: 'png',
       quality: plan.quality || 'auto',
-      reference_paths: refPaths,
+      reference_paths: [...new Set(refPaths)],
     };
-
-    const task = queue.enqueueTask(request, provider);
-    taskIds.push(task.id);
-    titles.push(plan.title || '图片');
+    prepared.push({ request, provider, title: plan.title || '图片' });
+  }
+  // 全部校验通过后才开始入队，后面的错误计划不会让前面的图片意外生成。
+  let enqueueError = '';
+  for (const { request, provider, title } of prepared) {
+    if (signal?.aborted) break;
+    try {
+      const task = await queue.enqueueTask(request, provider);
+      taskIds.push(task.id);
+      titles.push(title);
+    } catch (error) {
+      enqueueError = `已创建 ${taskIds.length} 个任务，其余任务入队失败：${error.message || error}`;
+      break;
+    }
   }
 
   return {
-    value: {
-      taskGroupId,
-      taskIds,
-      titles,
-      status: 'queued',
-      message: `已创建 ${taskIds.length} 个绘图任务`,
-    },
-    error: '',
+    value: taskIds.length
+      ? {
+          taskGroupId,
+          taskIds,
+          titles,
+          status: 'queued',
+          message: `已创建 ${taskIds.length} 个绘图任务`,
+        }
+      : null,
+    error: enqueueError,
   };
 }
 
@@ -557,7 +618,9 @@ async function executeGetTaskStatus(args) {
   const taskGroupId = args.taskGroupId || '';
   const taskId = args.taskId || '';
   const all = await db.getAllTasks();
-  const tasks = all.filter((t) => t.task_group_id === taskGroupId || t.id === taskId);
+  const tasks = all.filter(
+    (t) => (taskGroupId && t.task_group_id === taskGroupId) || (taskId && t.id === taskId)
+  );
   return {
     value: {
       tasks: tasks.map((t) => ({
@@ -797,32 +860,50 @@ function syntheticToolResult(call) {
 async function finalizeSession(session, messages, result) {
   // 把 assistant 消息持久化到 session（toolCalls 全量落盘，toolCall 保留首项兼容旧 UI）
   const now = new Date().toISOString();
+  const groups = result.toolCalls
+    .map((call) => call.result)
+    .filter((value) => value?.taskGroupId && value.taskIds?.length)
+    .map((value) => ({
+      id: value.taskGroupId,
+      status: value.status || 'queued',
+      taskIds: value.taskIds,
+      titles: value.titles || [],
+    }));
   const assistantMsg = {
-    id: `web-msg-${Date.now()}`,
+    id: `web-msg-${Date.now()}-assistant`,
     role: 'assistant',
+    status: result.status || 'chat',
     content: result.text || '',
     createdAt: now,
-    taskGroup:
-      result.toolCalls.length > 0
-        ? {
-            id: result.toolCalls[0]?.result?.taskGroupId || `web-tg-${Date.now()}`,
-            status: 'queued',
-            taskIds: result.toolCalls.flatMap((tc) => tc.result?.taskIds || []),
-            titles: result.toolCalls.flatMap((tc) => tc.result?.titles || []),
-          }
-        : null,
+    taskGroup: groups[0] || null,
     toolCall: result.toolCalls.length > 0 ? result.toolCalls[0] : null,
     toolCalls: result.toolCalls,
     questions: result.questions || [],
   };
 
-  session.messages = [...(session.messages || []), assistantMsg];
-  session.updatedAt = now;
-
-  // 持久化到共享存储（本地开发为 SQLite）
-  await localStore.writeSession(session);
-
-  return session;
+  // 排队期间可能已有图片结果回写，从最新会话追加，避免用开头的快照覆盖结果。
+  return localStore.updateSession(session.id, async (current) => {
+    const latest = current || session;
+    const records = groups.length ? await db.getAllTasks() : [];
+    for (const group of groups) {
+      const tasks = records.filter((task) => task.task_group_id === group.id);
+      if (tasks.length) group.status = taskGroupStatus(tasks);
+    }
+    latest.messages = [
+      ...(latest.messages || []),
+      assistantMsg,
+      ...groups.slice(1).map((group) => ({
+        id: `web-msg-${group.id}`,
+        role: 'tool',
+        status: 'task_group',
+        content: '',
+        taskGroup: group,
+        createdAt: now,
+      })),
+    ];
+    latest.updatedAt = now;
+    return latest;
+  });
 }
 
 export { AGENT_SCHEMA_VERSION, TOOLS };

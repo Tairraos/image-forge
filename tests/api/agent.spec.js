@@ -176,6 +176,72 @@ describe('纯文本回复', () => {
 });
 
 describe('工具调用循环', () => {
+  it('先检查全部计划，后面的无效参考图不会导致前面的图片提前入队', async () => {
+    const plans = [imagePlan, { ...imagePlan, referencePolicy: 'use', referenceIds: ['missing'] }];
+    fetchMock.mockResolvedValueOnce(
+      sseResponse(toolCallChunks('validate', 'create_image_tasks', JSON.stringify({ plans })))
+    );
+    fetchMock.mockResolvedValueOnce(
+      sseResponse([textChunk('请重新添加参考图'), 'data: [DONE]\n\n'])
+    );
+    const session = await runAgentTurn(chatProvider, newSession('validate'), '绘画', [], () => {});
+    expect(enqueueTask).not.toHaveBeenCalled();
+    expect(session.messages.at(-1).toolCall.error).toContain('参考图 ID');
+    expect(session.messages.at(-1).taskGroup).toBeNull();
+  });
+
+  it('optional 没有指定 ID 时沿用本轮附图', async () => {
+    fetchMock.mockResolvedValueOnce(
+      sseResponse(
+        toolCallChunks(
+          'optional',
+          'create_image_tasks',
+          JSON.stringify({ plans: [{ ...imagePlan, referencePolicy: 'optional' }] })
+        )
+      )
+    );
+    fetchMock.mockResolvedValueOnce(sseResponse([textChunk('已入队'), 'data: [DONE]\n\n']));
+    await runAgentTurn(
+      chatProvider,
+      newSession('optional'),
+      '按参考图绘画',
+      [{ id: 'ref', path: '/reference.png' }],
+      () => {}
+    );
+    expect(enqueueTask.mock.calls[0][0].reference_paths).toEqual(['/reference.png']);
+  });
+
+  it('停止后保留已创建任务的卡片，后续计划不会继续入队', async () => {
+    const controller = new AbortController();
+    enqueueTask.mockImplementationOnce(async () => {
+      controller.abort();
+      return { id: 'first-task' };
+    });
+    fetchMock.mockResolvedValueOnce(
+      sseResponse(
+        toolCallChunks(
+          'cancel-plans',
+          'create_image_tasks',
+          JSON.stringify({ plans: [imagePlan, imagePlan] })
+        )
+      )
+    );
+    const session = await runAgentTurn(
+      chatProvider,
+      newSession('cancel-plans'),
+      '两张图',
+      [],
+      () => {},
+      controller.signal
+    );
+    expect(enqueueTask).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(session.messages.at(-1)).toMatchObject({
+      status: 'cancelled',
+      taskGroup: { taskIds: ['first-task'] },
+    });
+  });
+
   it('create_image_tasks 入队任务并在会话中记录任务组', async () => {
     const plans = [
       {
@@ -387,6 +453,56 @@ describe('工具调用循环', () => {
   });
 });
 
+describe('流式回复的结束与取消', () => {
+  it('收到 DONE 就结束读取，保留没有末尾换行的最后一帧', async () => {
+    const read = vi.fn().mockResolvedValueOnce({
+      done: false,
+      value: new TextEncoder().encode(textChunk('完整内容') + 'data: [DONE]\n\n'),
+    });
+    fetchMock.mockResolvedValueOnce({ ok: true, body: { getReader: () => ({ read }) } });
+    const session = await runAgentTurn(chatProvider, newSession('done'), '你好', [], () => {});
+    expect(session.messages.at(-1).content).toBe('完整内容');
+    expect(read).toHaveBeenCalledTimes(1);
+    fetchMock.mockResolvedValueOnce(sseResponse([textChunk('最后一帧').trimEnd()]));
+    const ended = await runAgentTurn(chatProvider, newSession('last-frame'), '你好', [], () => {});
+    expect(ended.messages.at(-1).content).toBe('最后一帧');
+  });
+
+  it('停止流式请求后保留已生成文字，状态为已停止', async () => {
+    const controller = new AbortController();
+    const events = [];
+    fetchMock.mockImplementationOnce(async (_, init) => {
+      expect(init.signal).toBe(controller.signal);
+      return {
+        ok: true,
+        body: new ReadableStream({
+          start(stream) {
+            stream.enqueue(new TextEncoder().encode(textChunk('已经写下的内容')));
+            init.signal.addEventListener('abort', () => stream.error(init.signal.reason), {
+              once: true,
+            });
+          },
+        }),
+      };
+    });
+    const pending = runAgentTurn(
+      chatProvider,
+      newSession('stop-stream'),
+      '你好',
+      [],
+      (event) => events.push(event),
+      controller.signal
+    );
+    await vi.waitFor(() => expect(events.some((event) => event.phase === 'delta')).toBe(true));
+    controller.abort();
+    const session = await pending;
+    expect(session.messages.at(-1)).toMatchObject({
+      status: 'cancelled',
+      content: '已经写下的内容',
+    });
+  });
+});
+
 describe('Envelope 降级与非流式回退', () => {
   it('识别 needs_input envelope 并记录问题', async () => {
     const envelope = {
@@ -516,6 +632,38 @@ describe('多轮对话历史重建', () => {
     expect(lastMsg.toolCalls).toHaveLength(1);
     expect(lastMsg.toolCall.id).toBe(lastMsg.toolCalls[0].id);
   });
+
+  it('图片先完成时，回复保留结果摘要和最新标题，并恢复任务组终态', async () => {
+    const original = newSession('sess-fast-image');
+    localStorage.setItem('if_agent_sessions', JSON.stringify([original]));
+    enqueueTask.mockImplementationOnce(async (request) => {
+      const current = JSON.parse(localStorage.getItem('if_agent_sessions'))[0];
+      current.title = '最新会话标题';
+      current.messages.push({
+        id: 'fast-result',
+        role: 'tool',
+        status: 'task_result',
+        content: `[taskGroupId=${request.task_group_id}] 绘图任务组已完成，共 1 张`,
+      });
+      localStorage.setItem('if_agent_sessions', JSON.stringify([current]));
+      getAllTasks.mockResolvedValueOnce([
+        { id: 'fast-task', task_group_id: request.task_group_id, status: 'completed' },
+      ]);
+      return { id: 'fast-task' };
+    });
+    fetchMock
+      .mockResolvedValueOnce(
+        sseResponse(
+          toolCallChunks('call-fast', 'create_image_tasks', JSON.stringify({ plans: [imagePlan] }))
+        )
+      )
+      .mockResolvedValueOnce(sseResponse([textChunk('图片已生成'), 'data: [DONE]\n\n']));
+    const result = await runAgentTurn(chatProvider, original, '画一只柴犬', [], () => {});
+    expect(result.title).toBe('最新会话标题');
+    expect(result.messages.filter((message) => message.id === 'fast-result')).toHaveLength(1);
+    expect(result.messages.at(-1).taskGroup.status).toBe('completed');
+    expect(JSON.parse(localStorage.getItem('if_agent_sessions'))[0]).toEqual(result);
+  });
 });
 
 describe('导出契约', () => {
@@ -546,7 +694,14 @@ describe('导出契约', () => {
     );
     fetchMock.mockResolvedValueOnce(sseResponse([textChunk('已列出'), 'data: [DONE]\n\n']));
 
-    await runAgentTurn(chatProvider, newSession('sess-tpl'), '有哪些模板', [], () => {});
+    const session = await runAgentTurn(
+      chatProvider,
+      newSession('sess-tpl'),
+      '有哪些模板',
+      [],
+      () => {}
+    );
+    expect(session.messages.at(-1).taskGroup).toBeNull();
 
     const secondPayload = JSON.parse(fetchMock.mock.calls[1][1].body);
     const toolMsg = secondPayload.messages.find((m) => m.role === 'tool');

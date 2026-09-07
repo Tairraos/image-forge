@@ -1,6 +1,9 @@
 // Web 版生图 API 调用层，对应桌面版 images.rs。
 // 支持 OpenAI / Gemini / Grok 三家协议，统一返回 { bytes, size, format } 结构。
 
+import { sizeForPreset } from '../lib/options.js';
+import { convertFileSrc } from '../tauri';
+
 const IMAGE_SIZE_MAP = {
   standard: '1K',
   '2k': '2K',
@@ -12,30 +15,38 @@ const IMAGE_SIZE_MAP = {
  * 统一入口：根据 provider.modelType 分发到对应 API。
  * @param {Object} provider - API 配置 { baseUrl, apiKey, imageModel, modelType }
  * @param {Object} request - 生图请求参数
+ * @param {AbortSignal} [signal] - 取消当前任务的请求、参考图读取及结果下载
  * @returns {Promise<Array<{bytes: Uint8Array, size: string, output_format: string, revised_prompt: string}>>}
  */
-export async function executeGeneration(provider, request) {
+export async function executeGeneration(provider, request, signal) {
+  signal?.throwIfAborted();
+  const resolution = String(request.resolution || 'standard').toLowerCase();
+  request = {
+    ...request,
+    resolution,
+    size: request.size || sizeForPreset(resolution, request.ratio),
+  };
   const type = provider.modelType || '';
-  if (type === 'image-gemini') return callGemini(provider, request);
-  if (type === 'image-grok') return callGrok(provider, request);
-  return callOpenAI(provider, request);
+  if (type === 'image-gemini') return callGemini(provider, request, signal);
+  if (type === 'image-grok') return callGrok(provider, request, signal);
+  return callOpenAI(provider, request, signal);
 }
 
 // ── OpenAI Images API ──
 
-async function callOpenAI(provider, request) {
+async function callOpenAI(provider, request, signal) {
   const baseUrl = (provider.baseUrl || '').replace(/\/+$/, '');
   const apiKey = (provider.apiKey || '').trim();
   const model = provider.imageModel || 'gpt-image-2';
 
   const refs = request.reference_paths || [];
   if (refs.length > 0) {
-    return callOpenAIEdit(baseUrl, apiKey, model, request, refs);
+    return callOpenAIEdit(baseUrl, apiKey, model, request, refs, signal);
   }
-  return callOpenAIGenerate(baseUrl, apiKey, model, request);
+  return callOpenAIGenerate(baseUrl, apiKey, model, request, signal);
 }
 
-async function callOpenAIGenerate(baseUrl, apiKey, model, request) {
+async function callOpenAIGenerate(baseUrl, apiKey, model, request, signal) {
   const payload = {
     model,
     prompt: request.prompt || '',
@@ -47,6 +58,7 @@ async function callOpenAIGenerate(baseUrl, apiKey, model, request) {
   if (request.background) payload.background = request.background;
 
   const res = await fetch(`${baseUrl}/images/generations`, {
+    signal,
     method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -55,10 +67,10 @@ async function callOpenAIGenerate(baseUrl, apiKey, model, request) {
     },
     body: JSON.stringify(payload),
   });
-  return parseOpenAIResponse(res, request);
+  return parseOpenAIResponse(res, request, signal);
 }
 
-async function callOpenAIEdit(baseUrl, apiKey, model, request, refs) {
+async function callOpenAIEdit(baseUrl, apiKey, model, request, refs, signal) {
   // 参考图编辑使用 multipart/form-data
   const form = new FormData();
   form.append('model', model);
@@ -67,21 +79,23 @@ async function callOpenAIEdit(baseUrl, apiKey, model, request, refs) {
   form.append('output_format', request.output_format || 'png');
   if (request.size) form.append('size', request.size);
   if (request.quality) form.append('quality', request.quality);
+  if (request.background) form.append('background', request.background);
 
   for (const refPath of refs) {
-    const blob = await urlToBlob(refPath);
+    const blob = await urlToBlob(refPath, signal);
     form.append('image', blob, 'reference.png');
   }
 
   const res = await fetch(`${baseUrl}/images/edits`, {
+    signal,
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
     body: form,
   });
-  return parseOpenAIResponse(res, request);
+  return parseOpenAIResponse(res, request, signal);
 }
 
-async function parseOpenAIResponse(res, request) {
+async function parseOpenAIResponse(res, request, signal) {
   const body = await res.text();
   if (!res.ok) {
     let msg = body;
@@ -94,6 +108,7 @@ async function parseOpenAIResponse(res, request) {
   }
   const json = JSON.parse(body);
   const data = json.data || [];
+  if (!Array.isArray(data) || !data.length) throw new Error('生图服务未返回图像数据');
   const usage = json.usage || null;
   const results = [];
   for (const item of data) {
@@ -102,7 +117,7 @@ async function parseOpenAIResponse(res, request) {
       bytes = Uint8Array.from(atob(item.b64_json), (c) => c.charCodeAt(0));
     } else if (item.url) {
       // 部分中转网关只回图片 URL：主动下载成字节，行为对齐桌面版
-      const download = await fetch(item.url);
+      const download = await fetch(item.url, { signal });
       if (!download.ok) {
         throw new Error(`下载生成图片失败: HTTP ${download.status} ${item.url}`);
       }
@@ -110,6 +125,7 @@ async function parseOpenAIResponse(res, request) {
     } else {
       throw new Error('OpenAI 未返回图像数据');
     }
+    if (!bytes.length) throw new Error('生图服务返回了空图片');
     results.push({
       bytes,
       size: item.size || request.size || '',
@@ -125,7 +141,7 @@ async function parseOpenAIResponse(res, request) {
 
 // ── Gemini Images API ──
 
-async function callGemini(provider, request) {
+async function callGemini(provider, request, signal) {
   const baseUrl = (provider.baseUrl || 'https://generativelanguage.googleapis.com/v1beta').replace(
     /\/+$/,
     ''
@@ -136,7 +152,7 @@ async function callGemini(provider, request) {
   const parts = [{ text: request.prompt || '' }];
   const refs = request.reference_paths || [];
   for (const refPath of refs.slice(0, 14)) {
-    const dataUrl = await urlToDataUrl(refPath);
+    const dataUrl = await urlToDataUrl(refPath, signal);
     const [mimeType, data] = splitDataUrl(dataUrl);
     parts.push({ inlineData: { mimeType, data } });
   }
@@ -153,6 +169,7 @@ async function callGemini(provider, request) {
   };
 
   const res = await fetch(`${baseUrl}/models/${model}:generateContent`, {
+    signal,
     method: 'POST',
     headers: {
       'x-goog-api-key': apiKey,
@@ -200,7 +217,7 @@ async function parseGeminiResponse(res, request) {
 
 // ── Grok Images API ──
 
-async function callGrok(provider, request) {
+async function callGrok(provider, request, signal) {
   const baseUrl = (provider.baseUrl || 'https://api.x.ai/v1').replace(/\/+$/, '');
   const apiKey = (provider.apiKey || '').trim();
   const model = provider.imageModel || 'grok-imagine-image-quality';
@@ -218,7 +235,7 @@ async function callGrok(provider, request) {
   let url = `${baseUrl}/images/generations`;
   if (refs.length > 0) {
     url = `${baseUrl}/images/edits`;
-    const dataUrls = await Promise.all(refs.slice(0, 5).map(urlToDataUrl));
+    const dataUrls = await Promise.all(refs.slice(0, 5).map((url) => urlToDataUrl(url, signal)));
     if (dataUrls.length === 1) {
       payload.image = { url: dataUrls[0], type: 'image_url' };
     } else {
@@ -227,6 +244,7 @@ async function callGrok(provider, request) {
   }
 
   const res = await fetch(url, {
+    signal,
     method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -235,19 +253,19 @@ async function callGrok(provider, request) {
     },
     body: JSON.stringify(payload),
   });
-  return parseOpenAIResponse(res, request);
+  return parseOpenAIResponse(res, request, signal);
 }
 
 // ── 工具函数 ──
 
-async function urlToBlob(url) {
-  const res = await fetch(url);
+async function urlToBlob(url, signal) {
+  const res = await fetch(convertFileSrc(url), { signal });
   if (!res.ok) throw new Error(`读取图片失败: ${res.status}`);
   return res.blob();
 }
 
-async function urlToDataUrl(url) {
-  const blob = await urlToBlob(url);
+async function urlToDataUrl(url, signal) {
+  const blob = await urlToBlob(url, signal);
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result);

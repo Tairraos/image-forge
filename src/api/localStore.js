@@ -113,6 +113,24 @@ export async function writeSession(session) {
   return session;
 }
 
+const sessionUpdates = new Map();
+
+// ponytail: 串行化本页的会话读改写；跨窗口并发需由存储端提供事务。
+export function updateSession(sessionId, update) {
+  const pending = (sessionUpdates.get(sessionId) || Promise.resolve())
+    .catch(() => {})
+    .then(async () => {
+      const session = (await readSessions()).find((item) => item.id === sessionId) || null;
+      const updated = await update(session);
+      return updated ? writeSession(updated) : null;
+    })
+    .finally(() => {
+      if (sessionUpdates.get(sessionId) === pending) sessionUpdates.delete(sessionId);
+    });
+  sessionUpdates.set(sessionId, pending);
+  return pending;
+}
+
 export async function removeSession(sessionId) {
   if (isLocalDev()) {
     await requestJson(`${DATA_ORIGIN}/__sessions/${encodeURIComponent(sessionId)}`, {

@@ -1,7 +1,63 @@
 // 图片库相关的任务与日期格式化工具，供独立图片库与 agent 内嵌图片库共用。
 export function taskSource(task) {
   if (task.origin === 'agent-direct') return 'direct';
-  return task.origin === 'agent' || task.agentSessionId || task.taskGroupId ? 'agent' : 'drawing';
+  return task.origin === 'agent' ||
+    task.agentSessionId ||
+    task.agent_session_id ||
+    task.taskGroupId ||
+    task.task_group_id
+    ? 'agent'
+    : 'drawing';
+}
+
+export function taskGroupStatus(tasks, fallback = 'missing') {
+  const statuses = tasks.map((task) => task.status).filter(Boolean);
+  if (!statuses.length) return fallback;
+  if (statuses.includes('cancelling')) return 'cancelling';
+  if (statuses.includes('running')) return 'running';
+  if (statuses.includes('queued')) return 'queued';
+  if (statuses.every((status) => status === 'completed')) return 'completed';
+  if (statuses.includes('failed')) return 'failed';
+  if (statuses.includes('cancelled')) return 'cancelled';
+  return 'missing';
+}
+
+export function agentMessagesForDisplay(messages, history) {
+  const announcedGroups = new Set(messages.map((message) => message.taskGroup?.id).filter(Boolean));
+  return messages.flatMap((message) => {
+    const resultGroupId =
+      message.status === 'task_result'
+        ? /^\[taskGroupId=([^\]]+)\]/.exec(message.content || '')?.[1]
+        : '';
+    if (resultGroupId && announcedGroups.has(resultGroupId)) return [];
+    // 旧版直接绘画只留下结果摘要时，也用任务卡片展示已保存的图片。
+    const group =
+      message.taskGroup || (resultGroupId ? { id: resultGroupId, status: 'missing' } : null);
+    if (!group?.id) return [message];
+    const taskIds = new Set(group.taskIds || []);
+    const tasks = history.filter(
+      (task) => taskIds.has(task.id) || (task.taskGroupId || task.task_group_id) === group.id
+    );
+    return [
+      {
+        ...message,
+        content: resultGroupId ? '' : message.content,
+        taskGroup: {
+          ...group,
+          taskIds: tasks.length ? tasks.map((task) => task.id) : group.taskIds || [],
+          status: taskGroupStatus(tasks, group.status),
+          images: tasks.flatMap((task) =>
+            (task.outputs || []).map((output) => previewItem(task, output))
+          ),
+          errors: [...new Set(tasks.map((task) => task.error).filter(Boolean))],
+          progress: {
+            total: tasks.length || taskIds.size,
+            completed: tasks.filter((task) => task.status === 'completed').length,
+          },
+        },
+      },
+    ];
+  });
 }
 
 const TASK_SOURCE_LABELS = {

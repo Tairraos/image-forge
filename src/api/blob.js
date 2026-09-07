@@ -26,11 +26,12 @@ export function isLocalDev() {
  *  - 本地开发：写入 ~/.image-forge/<relPath>，返回可被 vite 代理读取的 HTTP URL
  *  - 其他情况：把图片放进 localStorage 的元数据键（仅作极端回退，绝不存进 if_settings / if_templates）
  */
-export async function uploadImage(fileName, blob, relPath) {
+export async function uploadImage(fileName, blob, relPath, signal) {
   if (hasBlobToken) {
     const form = new FormData();
     form.append('file', blob, fileName);
     const res = await fetch(`${BLOB_BASE}/api/upload?filename=${encodeURIComponent(fileName)}`, {
+      signal,
       method: 'POST',
       headers: { Authorization: `Bearer ${BLOB_TOKEN}` },
       body: form,
@@ -43,18 +44,19 @@ export async function uploadImage(fileName, blob, relPath) {
     return data.url;
   }
   if (isLocalDev()) {
-    return uploadToLocalFs(fileName, blob, relPath);
+    return uploadToLocalFs(fileName, blob, relPath, signal);
   }
   throw new Error('Web 版未配置 VITE_BLOB_READ_WRITE_TOKEN，且当前不在本地开发环境，无法上传图片');
 }
 
 /** 把图片写入本地 ~/.image-forge 目录，返回可被 vite 代理的 URL */
-async function uploadToLocalFs(fileName, blob, relPath) {
+async function uploadToLocalFs(fileName, blob, relPath, signal) {
   const safeName = sanitizeFileName(fileName || `image-${Date.now()}.png`);
   // 强制以 ~/.image-forge 为根，禁止越界
   const subPath = sanitizeRelPath(relPath) || 'tasks/uploads';
   const encoded = `${subPath}/${safeName}`.split('/').map(encodeURIComponent).join('/');
   const res = await fetch(`${DEV_DATA_ORIGIN}/${encoded}`, {
+    signal,
     method: 'POST',
     headers: { 'Content-Type': blob.type || 'application/octet-stream' },
     body: blob,

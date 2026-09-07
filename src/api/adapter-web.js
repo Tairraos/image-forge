@@ -6,6 +6,8 @@ import * as queue from './queue.js';
 import * as agent from './agent.js';
 import { uploadImage } from './blob.js';
 import * as localStore from './localStore.js';
+import { sizeForPreset } from '../lib/options.js';
+import { version as appVersion } from '../../package.json';
 
 // ── 应用状态 ──
 
@@ -25,7 +27,7 @@ export async function loadAppState() {
 
 export async function aboutInfo() {
   return {
-    version: import.meta.env.VITE_APP_VERSION || '1.0.0-web',
+    version: appVersion,
     buildTime: '',
   };
 }
@@ -76,13 +78,12 @@ export async function deleteAgentSession(sessionId) {
 }
 
 export async function renameAgentSession(sessionId, title) {
-  const session = await getAgentSession(sessionId);
-  if (session) {
+  return localStore.updateSession(sessionId, (session) => {
+    if (!session) return null;
     session.title = title;
     session.updatedAt = new Date().toISOString();
-    await localStore.writeSession(session);
-  }
-  return session || null;
+    return session;
+  });
 }
 
 // ── 图片库 ──
@@ -102,7 +103,9 @@ export async function deleteTask(taskId) {
 export async function getTaskStatus(taskGroupId, taskId) {
   // 按任务组 ID 查询
   const all = await db.getAllTasks();
-  return all.filter((t) => t.task_group_id === taskGroupId || t.id === taskId);
+  return all.filter(
+    (t) => (taskGroupId && t.task_group_id === taskGroupId) || (taskId && t.id === taskId)
+  );
 }
 
 // ── 队列 ──
@@ -119,43 +122,95 @@ export function onQueueChange(callback) {
 // ── 生图（直接绘画模式） ──
 
 export async function createAgentDirectImageTask(sessionId, content, attachments, plan) {
+  content = String(content || '').trim();
+  if (!content) throw new Error('消息不能为空');
   const settings = (await localStore.readSettings()) || { providers: [] };
-  const provider = (settings.providers || []).find((p) => p.id === plan.providerId);
+  const provider = (settings.providers || []).find(
+    (p) => p.id === plan.providerId && p.modelType !== 'chat'
+  );
   if (!provider) throw new Error('找不到生图 API 配置');
+  if (!provider.apiKey?.trim()) throw new Error('请先填写生图模型 API Key');
+  const references = (attachments || []).map(({ dataUrl, ...attachment }) => attachment);
+  if (references.some((attachment) => !attachment.id?.trim() || !attachment.path)) {
+    throw new Error('参考图尚未保存，请重新添加');
+  }
+  const stamp = `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+  const now = new Date().toISOString();
 
   const request = {
+    id: `web-task-${stamp}`,
     model: provider.imageModel || '',
-    prompt: plan.prompt || content,
+    prompt: content,
     ratio: plan.ratio || '1:1',
     resolution: plan.resolution || '1K',
     count: plan.count || 1,
     output_format: 'png',
     quality: plan.quality || '',
     background: plan.background || '',
-    reference_paths: (plan.referenceIds || [])
-      .map((id) => {
-        const att = (attachments || []).find((a) => a.id === id);
-        return att?.path || '';
-      })
-      .filter(Boolean),
+    size: sizeForPreset(String(plan.resolution || '').toLowerCase(), plan.ratio),
+    reference_paths: [...new Set(references.map((attachment) => attachment.path))],
     origin: 'agent-direct',
     agent_session_id: sessionId,
-    task_group_id: `web-tg-${Date.now()}`,
+    task_group_id: `web-tg-${stamp}`,
   };
 
-  const task = queue.enqueueTask(request, provider);
-  return {
-    id: task.task_group_id,
+  const group = {
+    id: request.task_group_id,
     sessionId,
     status: 'queued',
-    taskIds: [task.id],
+    taskIds: [request.id],
     titles: [plan.title || '直接绘画'],
   };
+  const groupMessage = {
+    id: `web-msg-${stamp}-group`,
+    role: 'tool',
+    status: 'task_group',
+    content: '',
+    taskGroup: group,
+    createdAt: now,
+  };
+  // 任务可能很快结束，先保存会话中的任务组，确保终态可以回写。
+  await localStore.updateSession(sessionId, (session) => {
+    if (!session) throw new Error('找不到 Agent 会话');
+    session.messages = [
+      ...(session.messages || []),
+      {
+        id: `web-msg-${stamp}-user`,
+        role: 'user',
+        status: 'user',
+        content,
+        attachments: references,
+        createdAt: now,
+      },
+      groupMessage,
+    ];
+    session.title ||= content.split(/\r?\n/, 1)[0].slice(0, 32);
+    session.updatedAt = now;
+    return session;
+  });
+  try {
+    await queue.enqueueTask(request, provider);
+  } catch (error) {
+    await localStore.updateSession(sessionId, (session) => {
+      if (!session) return null;
+      const message = session.messages.find((item) => item.id === groupMessage.id);
+      if (!message) return null;
+      message.taskGroup = null;
+      message.status = 'error';
+      message.directDrawing = true;
+      message.error = `绘画任务未能加入队列：${error.message || error}`;
+      session.updatedAt = new Date().toISOString();
+      return session;
+    });
+    throw error;
+  }
+  return group;
 }
 
 // ── Agent 消息 ──
 
 let agentEventListeners = [];
+const activeAgentTurns = new Map();
 
 /** 注册 Agent 事件监听（对应 Tauri 的 listenEvent("agent-progress") 和 ("agent-task-group")） */
 export function onAgentEvent(callback) {
@@ -176,20 +231,38 @@ function emitAgentEvent(event, payload) {
 }
 
 export async function sendAgentMessage(sessionId, providerId, content, attachments) {
+  if (activeAgentTurns.has(sessionId)) throw new Error('这个对话正在生成中');
+  const controller = new AbortController();
+  activeAgentTurns.set(sessionId, controller);
+  try {
+    return await sendAgentMessageWithSignal(
+      sessionId,
+      providerId,
+      content,
+      attachments,
+      controller.signal
+    );
+  } finally {
+    activeAgentTurns.delete(sessionId);
+  }
+}
+
+async function sendAgentMessageWithSignal(sessionId, providerId, content, attachments, signal) {
   const settings = (await localStore.readSettings()) || { providers: [] };
   const provider =
     (settings.providers || []).find((p) => p.id === providerId && p.modelType === 'chat') ||
     (settings.providers || []).find((p) => p.modelType === 'chat');
   if (!provider) throw new Error('还没有配置对话模型');
-
-  let session = (await localStore.readSessions()).find((s) => s.id === sessionId);
-  if (!session) throw new Error('找不到 Agent 会话');
+  if (!provider.apiKey?.trim()) throw new Error('请先填写对话模型 API Key');
+  content = String(content || '').trim();
+  if (!content) throw new Error('消息不能为空');
 
   // 添加用户消息
   const now = new Date().toISOString();
   const userMsg = {
-    id: `web-msg-${Date.now()}`,
+    id: `web-msg-${Date.now()}-user`,
     role: 'user',
+    status: 'user',
     content,
     createdAt: now,
     attachments: (attachments || []).map((a) => ({
@@ -197,27 +270,55 @@ export async function sendAgentMessage(sessionId, providerId, content, attachmen
       path: a.path || '',
       fileName: a.fileName || 'image.png',
       mimeType: a.mimeType || 'image/png',
-      dataUrl: a.dataUrl || '',
     })),
   };
-  session.messages = [...(session.messages || []), userMsg];
+  let session = await localStore.updateSession(sessionId, (current) => {
+    if (!current) throw new Error('找不到 Agent 会话');
+    current.messages = [...(current.messages || []), userMsg];
+    current.title ||= content.split(/\r?\n/, 1)[0].slice(0, 32);
+    current.updatedAt = now;
+    return current;
+  });
 
   try {
-    session = await agent.runAgentTurn(provider, session, content, attachments, (event) => {
-      emitAgentEvent('agent-progress', event);
-    });
+    // 会话只保存路径；启用图片理解时，在发送前读出当前参考图。
+    const referenceInputs = provider.chatVision
+      ? await Promise.all(
+          userMsg.attachments.map(async (attachment) => {
+            if (!attachment.path) throw new Error('参考图路径缺失，请重新添加');
+            const preview = await referenceFromPath(attachment.path, signal);
+            return { ...attachment, dataUrl: preview.dataUrl };
+          })
+        )
+      : userMsg.attachments;
+    session = await agent.runAgentTurn(
+      provider,
+      session,
+      content,
+      referenceInputs,
+      (event) => {
+        emitAgentEvent('agent-progress', event);
+      },
+      signal
+    );
   } catch (error) {
     const errorMsg = {
-      id: `web-msg-${Date.now()}`,
+      id: `web-msg-${Date.now()}-error`,
       role: 'assistant',
+      status: signal.aborted ? 'cancelled' : 'error',
       content: '',
-      error: error.message || String(error),
+      error: signal.aborted ? '' : error.message || String(error),
       createdAt: new Date().toISOString(),
     };
-    session.messages = [...(session.messages || []), errorMsg];
+    session = await localStore.updateSession(sessionId, (current) => {
+      if (!current) throw new Error('找不到 Agent 会话');
+      current.messages = [...(current.messages || []), errorMsg];
+      current.updatedAt = errorMsg.createdAt;
+      return current;
+    });
     emitAgentEvent('agent-progress', {
-      phase: 'error',
-      message: error.message || 'Agent 调用失败',
+      phase: signal.aborted ? 'cancelled' : 'error',
+      message: signal.aborted ? '已停止生成' : error.message || 'Agent 调用失败',
       sessionId,
     });
   }
@@ -233,21 +334,11 @@ export async function sendAgentMessage(sessionId, providerId, content, attachmen
     });
   }
 
-  // 保存会话
-  const allSessions = await localStore.readSessions();
-  const idx = allSessions.findIndex((s) => s.id === session.id);
-  if (idx >= 0) {
-    allSessions[idx] = session;
-  } else {
-    allSessions.push(session);
-  }
-  await localStore.writeSession(session);
-
   return session;
 }
 
-export async function cancelAgentTurn() {
-  // Web 版可通过 AbortController 实现，当前占位
+export async function cancelAgentTurn(sessionId) {
+  activeAgentTurns.get(sessionId)?.abort();
 }
 
 // 与桌面 chat.rs 的 TEMPLATE_SYSTEM_PROMPT 保持一致
@@ -298,11 +389,11 @@ export async function fillPromptTemplate(sessionId, providerId, template) {
 }
 
 export async function cancelAgentTaskGroup(taskGroupId) {
-  queue.cancelTaskGroup(taskGroupId);
+  return queue.cancelTaskGroup(taskGroupId);
 }
 
 export async function retryAgentTaskGroup(taskGroupId) {
-  queue.retryTaskGroup(taskGroupId);
+  return queue.retryTaskGroup(taskGroupId);
 }
 
 export async function redrawTask(taskId) {
@@ -317,6 +408,7 @@ export async function redrawTask(taskId) {
   if (!provider) throw new Error('没有可用的生图 API 配置');
   const request = {
     prompt: source.prompt || '',
+    model: source.model || provider.imageModel || '',
     ratio: source.params?.ratio || '1:1',
     resolution: source.params?.resolution || '1K',
     count: source.params?.count || 1,
@@ -329,7 +421,7 @@ export async function redrawTask(taskId) {
     agent_session_id: source.agent_session_id || '',
     task_group_id: source.task_group_id || `web-tg-${Date.now()}`,
   };
-  const task = queue.enqueueTask(request, provider);
+  const task = await queue.enqueueTask(request, provider);
   return {
     id: source.task_group_id || task.task_group_id,
     status: 'queued',
@@ -337,13 +429,14 @@ export async function redrawTask(taskId) {
   };
 }
 
-export async function referenceFromPath(path) {
+export async function referenceFromPath(path, signal) {
   // 本地文件路径转为开发服务器 HTTP URL
   const url = toLocalFileUrl(path);
-  const res = await fetch(url);
+  const res = await fetch(url, { signal });
   if (!res.ok) throw new Error(`读取图片失败: ${res.status}`);
   const blob = await res.blob();
   const dataUrl = await blobToDataUrl(blob);
+  signal?.throwIfAborted();
   const fileName = path.split('/').pop() || 'image.png';
   return {
     path,

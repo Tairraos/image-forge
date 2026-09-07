@@ -1,10 +1,11 @@
 // Web 版队列调度系统，对应桌面版 queue.rs。
-// 单 worker 顺序处理任务，支持并发限制、取消和重试。
+// 单 worker 顺序处理任务，支持取消、恢复和重试。
 
 import * as db from './db.js';
 import * as localStore from './localStore.js';
 import { executeGeneration } from './providers.js';
 import { uploadImage } from './blob.js';
+import { taskGroupStatus } from '../lib/libraryFormat.js';
 
 // ── 队列状态 ──
 
@@ -12,7 +13,9 @@ let waiting = [];
 let running = [];
 let recent = [];
 let workerActive = false;
-let cancelSet = new Set(); // 被取消的任务 ID 集合
+let activeController = null;
+let recovery = null;
+const retrying = new Set();
 
 // 事件回调（供 UI 层监听队列变化）
 let onChangeCallback = null;
@@ -23,7 +26,11 @@ export function onQueueChange(callback) {
 
 function notifyChange() {
   if (onChangeCallback) {
-    onChangeCallback(snapshot());
+    try {
+      onChangeCallback(snapshot());
+    } catch (error) {
+      console.error('队列界面刷新失败:', error);
+    }
   }
 }
 
@@ -43,9 +50,9 @@ export function snapshot() {
  * 单个任务入队
  * @param {Object} request - GenerateRequest 结构
  * @param {Object} provider - API 配置
- * @returns {Object} TaskRecord
+ * @returns {Promise<Object>} 已持久化的 TaskRecord
  */
-export function enqueueTask(request, provider) {
+export async function enqueueTask(request, provider) {
   const now = new Date().toISOString();
   const id = request.id || `web-task-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
   const task = {
@@ -75,8 +82,8 @@ export function enqueueTask(request, provider) {
     outputs: [],
     usage: null,
   };
-  // 持久化到 IndexedDB
-  db.upsertTask(task).catch((e) => console.warn('队列任务持久化失败:', e));
+  // 先保存再执行，写入失败时不发送可能产生费用的生图请求。
+  await db.upsertTask(task);
   waiting.push(task);
   notifyChange();
   ensureWorker();
@@ -86,8 +93,10 @@ export function enqueueTask(request, provider) {
 /**
  * 批量入队
  */
-export function enqueueBatch(requests, provider) {
-  return requests.map((req) => enqueueTask(req, provider));
+export async function enqueueBatch(requests, provider) {
+  const tasks = [];
+  for (const request of requests) tasks.push(await enqueueTask(request, provider));
+  return tasks;
 }
 
 // ── Worker ──
@@ -101,23 +110,17 @@ function ensureWorker() {
 async function runWorker() {
   while (waiting.length > 0) {
     const task = waiting.shift();
-    // 检查是否已被取消
-    if (cancelSet.has(task.id)) {
-      cancelSet.delete(task.id);
-      task.status = 'cancelled';
-      task.updated_at = new Date().toISOString();
-      db.upsertTask(task).catch(() => {});
-      recent.push(task);
-      notifyChange();
-      continue;
-    }
-
+    const controller = new AbortController();
+    activeController = controller;
     task.status = 'running';
     task.updated_at = new Date().toISOString();
+    task.started_at = task.updated_at;
     running.push(task);
     notifyChange();
 
     try {
+      await db.upsertTask(task);
+      controller.signal.throwIfAborted();
       const provider = await loadProvider(task.provider_id);
       if (!provider) throw new Error(`找不到 API 配置: ${task.provider_id}`);
 
@@ -133,7 +136,13 @@ async function runWorker() {
         reference_paths: task.reference_paths || [],
       };
 
-      const results = await executeGeneration(provider, request);
+      const results = await executeGeneration(
+        { ...provider, imageModel: task.model || provider.imageModel },
+        request,
+        controller.signal
+      );
+      controller.signal.throwIfAborted();
+      if (!results?.length) throw new Error('生图服务未返回图像数据');
 
       // 保存生成的图片
       const outputs = [];
@@ -149,7 +158,9 @@ async function runWorker() {
         // 配了 VITE_BLOB_READ_WRITE_TOKEN 则上传到 Vercel Blob。
         // 任何分支都不再把图片字节写进 localStorage / IndexedDB。
         const datePath = `tasks/${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-        const imageUrl = await uploadImage(fileName, blob, datePath);
+        controller.signal.throwIfAborted();
+        const imageUrl = await uploadImage(fileName, blob, datePath, controller.signal);
+        controller.signal.throwIfAborted();
 
         outputs.push({
           path: imageUrl,
@@ -170,19 +181,29 @@ async function runWorker() {
       task.outputs = outputs;
       task.usage = results[0]?.usage || null;
     } catch (error) {
-      task.status = 'failed';
-      task.error = error.message || String(error);
-      console.error('生图失败:', task.id, error);
+      if (controller.signal.aborted) {
+        task.status = 'cancelled';
+        task.error = '';
+      } else {
+        task.status = 'failed';
+        task.error = error.message || String(error);
+        console.error('生图失败:', task.id, error);
+      }
     }
 
     task.updated_at = new Date().toISOString();
+    task.completed_at = task.updated_at;
+    // 会话摘要与 UI 读取终态前，保证任务已落盘。
+    try {
+      await db.upsertTask(task);
+      await recordAgentTaskResult(task);
+    } catch (error) {
+      task.error = `任务记录保存失败：${error.message || error}`;
+      console.error(task.error);
+    }
+    activeController = null;
     running = running.filter((t) => t.id !== task.id);
     recent.push(task);
-
-    // 持久化
-    db.upsertTask(task).catch(() => {});
-    void recordAgentTaskResult(task);
-
     notifyChange();
   }
 
@@ -190,19 +211,7 @@ async function runWorker() {
   notifyChange();
 }
 
-function summarizeGroupStatus(statuses) {
-  if (!statuses.length) return 'missing';
-  if (statuses.includes('cancelling')) return 'cancelling';
-  if (statuses.includes('running')) return 'running';
-  if (statuses.includes('queued')) return 'queued';
-  if (statuses.every((s) => s === 'completed')) return 'completed';
-  if (statuses.includes('failed')) return 'failed';
-  if (statuses.includes('cancelled')) return 'cancelled';
-  return 'missing';
-}
-
-// 任务终态后回写 Agent 会话：刷新任务组摘要状态，整组 completed/failed 时追加
-// 一条 task_result 消息（幂等）。读写 localStorage 之间不留 await，避免并发覆写。
+// 任务终态后回写 Agent 会话；重试完成时更新同一条 task_result，避免重复或过期摘要。
 async function recordAgentTaskResult(task) {
   const sessionId = task.agent_session_id || '';
   const groupId = task.task_group_id || '';
@@ -212,50 +221,57 @@ async function recordAgentTaskResult(task) {
     const groupTasks = all.filter((t) => t.task_group_id === groupId);
     const statuses = groupTasks.map((t) => t.status || '');
     if (!statuses.length) return;
-    const groupStatus = summarizeGroupStatus(statuses);
+    const groupStatus = taskGroupStatus(groupTasks);
 
-    const sessions = await localStore.readSessions();
-    const session = sessions.find((s) => s.id === sessionId);
-    if (!session) return;
-    let changed = false;
-    for (const msg of session.messages || []) {
-      if (msg.taskGroup?.id === groupId && msg.taskGroup.status !== groupStatus) {
-        msg.taskGroup.status = groupStatus;
+    await localStore.updateSession(sessionId, (session) => {
+      if (!session) return null;
+      let changed = false;
+      for (const msg of session.messages || []) {
+        if (msg.taskGroup?.id === groupId && msg.taskGroup.status !== groupStatus) {
+          msg.taskGroup.status = groupStatus;
+          changed = true;
+        }
+      }
+      const terminal = ['completed', 'failed', 'cancelled'].includes(groupStatus);
+      const previousResult = (session.messages || []).find(
+        (m) => m.status === 'task_result' && String(m.content || '').includes(groupId)
+      );
+      if (terminal) {
+        const succeeded = statuses.filter((s) => s === 'completed').length;
+        const failed = statuses.filter((s) => s === 'failed').length;
+        const outputs = groupTasks
+          .flatMap((t) => (t.outputs || []).map((o) => o.path))
+          .filter(Boolean);
+        const content =
+          groupStatus === 'completed'
+            ? `[taskGroupId=${groupId}] 绘图任务组已完成，共 ${outputs.length || statuses.length} 张${
+                outputs.length ? `：${outputs.join('、')}` : ''
+              }`
+            : groupStatus === 'cancelled'
+              ? `[taskGroupId=${groupId}] 绘图任务组已取消，已完成 ${outputs.length} 张。`
+              : `[taskGroupId=${groupId}] 绘图任务组未全部成功：成功 ${succeeded} 张，失败 ${failed} 张。`;
+        if (previousResult) {
+          previousResult.content = content;
+        } else {
+          session.messages = [
+            ...(session.messages || []),
+            {
+              id: `web-msg-${groupId}-result`,
+              role: 'tool',
+              status: 'task_result',
+              content,
+              createdAt: new Date().toISOString(),
+            },
+          ];
+        }
         changed = true;
       }
-    }
-    const terminal = groupStatus === 'completed' || groupStatus === 'failed';
-    const already = (session.messages || []).some(
-      (m) => m.status === 'task_result' && String(m.content || '').includes(groupId)
-    );
-    if (terminal && !already) {
-      const succeeded = statuses.filter((s) => s === 'completed').length;
-      const failed = statuses.filter((s) => s === 'failed').length;
-      const outputs = groupTasks
-        .flatMap((t) => (t.outputs || []).map((o) => o.path))
-        .filter(Boolean);
-      const content =
-        groupStatus === 'completed'
-          ? `[taskGroupId=${groupId}] 绘图任务组已完成，共 ${outputs.length || statuses.length} 张${
-              outputs.length ? `：${outputs.join('、')}` : ''
-            }`
-          : `[taskGroupId=${groupId}] 绘图任务组未全部成功：成功 ${succeeded} 张，失败 ${failed} 张。`;
-      session.messages = [
-        ...(session.messages || []),
-        {
-          id: `web-msg-${Date.now()}-tr`,
-          role: 'tool',
-          status: 'task_result',
-          content,
-          createdAt: new Date().toISOString(),
-        },
-      ];
-      changed = true;
-    }
-    if (changed) {
-      session.updatedAt = new Date().toISOString();
-      await localStore.writeSession(session);
-    }
+      if (changed) {
+        session.updatedAt = new Date().toISOString();
+        return session;
+      }
+      return null;
+    });
   } catch {
     // 会话回写失败不影响生图流程
   }
@@ -263,54 +279,73 @@ async function recordAgentTaskResult(task) {
 
 // ── 取消 ──
 
-export function cancelTask(taskId) {
-  cancelSet.add(taskId);
+export async function cancelTask(taskId) {
   // 如果任务在 waiting 中，直接标记取消
   const idx = waiting.findIndex((t) => t.id === taskId);
   if (idx >= 0) {
     const task = waiting.splice(idx, 1)[0];
     task.status = 'cancelled';
     task.updated_at = new Date().toISOString();
-    db.upsertTask(task).catch(() => {});
+    task.completed_at = task.updated_at;
+    await db.upsertTask(task);
     recent.push(task);
-    cancelSet.delete(taskId);
+    await recordAgentTaskResult(task);
+    notifyChange();
+    return;
+  }
+  const task = running.find((t) => t.id === taskId && t.status === 'running');
+  if (task) {
+    task.status = 'cancelling';
+    activeController?.abort();
     notifyChange();
   }
 }
 
-export function cancelTaskGroup(taskGroupId) {
-  // 取消任务组中所有排队/运行中的任务
-  for (const task of [...waiting, ...running]) {
-    if (task.task_group_id === taskGroupId) {
-      cancelTask(task.id);
-    }
-  }
+export async function cancelTaskGroup(taskGroupId) {
+  const tasks = [...waiting, ...running].filter((t) => t.task_group_id === taskGroupId);
+  // 一次标记整组，避免等待落盘时 worker 开始执行组内下一项。
+  await Promise.all(tasks.map((task) => cancelTask(task.id)));
+  if (tasks.length) await recordAgentTaskResult(tasks[0]);
 }
 
 // ── 重试 ──
 
-export function retryTask(taskId) {
-  const all = [...recent, ...waiting, ...running];
-  const task = all.find((t) => t.id === taskId);
-  if (!task || !['failed', 'cancelled'].includes(task.status)) return null;
-
-  task.status = 'queued';
-  task.updated_at = new Date().toISOString();
-  task.error = '';
-  waiting.push(task);
-  recent = recent.filter((t) => t.id !== taskId);
-  notifyChange();
-  ensureWorker();
-  return task;
+export async function retryTask(taskId) {
+  if (retrying.has(taskId) || [...waiting, ...running].some((t) => t.id === taskId)) return null;
+  retrying.add(taskId);
+  try {
+    const source = recent.find((t) => t.id === taskId) || (await db.getTask(taskId));
+    if (!source || !['failed', 'cancelled'].includes(source.status)) return null;
+    const task = {
+      ...source,
+      status: 'queued',
+      updated_at: new Date().toISOString(),
+      started_at: '',
+      completed_at: '',
+      error: '',
+      outputs: [],
+      usage: null,
+    };
+    await db.upsertTask(task);
+    waiting.push(task);
+    recent = recent.filter((t) => t.id !== taskId);
+    notifyChange();
+    ensureWorker();
+    return task;
+  } finally {
+    retrying.delete(taskId);
+  }
 }
 
-export function retryTaskGroup(taskGroupId) {
-  const all = [...recent, ...waiting, ...running];
+export async function retryTaskGroup(taskGroupId) {
+  const all = [...recent, ...(await db.getAllTasks())];
+  const ids = new Set();
   for (const task of all) {
     if (task.task_group_id === taskGroupId && ['failed', 'cancelled'].includes(task.status)) {
-      retryTask(task.id);
+      ids.add(task.id);
     }
   }
+  for (const id of ids) await retryTask(id);
 }
 
 // ── 辅助 ──
@@ -320,25 +355,34 @@ async function loadProvider(providerId) {
   return (settings.providers || []).find((p) => p.id === providerId) || null;
 }
 
-// 恢复：应用启动时把遗留的 running 任务恢复为 queued。
+// 恢复：应用启动时恢复 queued / running，取消中的任务保持取消。
 // 共享 SQLite 里也有桌面版的任务，只有 web-task- 前缀的归本浏览器恢复执行。
-export async function recoverTasks() {
+export function recoverTasks() {
+  if (!recovery) {
+    recovery = restoreTasks().finally(() => {
+      recovery = null;
+      ensureWorker();
+      notifyChange();
+    });
+  }
+  return recovery;
+}
+
+async function restoreTasks() {
   const all = await db.getAllTasks();
-  for (const task of all) {
-    if (task.status === 'running' && String(task.id || '').startsWith('web-task-')) {
-      task.status = 'queued';
-      task.updated_at = new Date().toISOString();
-      db.upsertTask(task).catch(() => {});
+  const knownIds = new Set([...waiting, ...running, ...recent].map((t) => t.id));
+  recent = all.filter((t) => ['completed', 'failed', 'cancelled'].includes(t.status)).slice(0, 50);
+  for (const task of [...all].reverse()) {
+    if (knownIds.has(task.id) || !String(task.id || '').startsWith('web-task-')) continue;
+    if (!['queued', 'running', 'cancelling'].includes(task.status)) continue;
+    task.status = task.status === 'cancelling' ? 'cancelled' : 'queued';
+    task.updated_at = new Date().toISOString();
+    await db.upsertTask(task);
+    if (task.status === 'cancelled') {
+      recent.push(task);
+      await recordAgentTaskResult(task);
+    } else {
       waiting.push(task);
     }
   }
-  if (waiting.length > 0) {
-    ensureWorker();
-  }
-  // 加载最近完成的任务到 recent
-  const completed = all.filter(
-    (t) => t.status === 'completed' || t.status === 'failed' || t.status === 'cancelled'
-  );
-  recent = completed.slice(0, 50);
-  notifyChange();
 }
