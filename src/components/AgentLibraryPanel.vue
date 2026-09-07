@@ -1,6 +1,25 @@
 <template>
   <section class="agent-library">
     <main class="agent-library-content" :aria-busy="loading">
+      <div v-if="loadError && dayGroups.length" class="library-load-notice" role="status">
+        <span>暂时无法更新，仍显示上次加载的图片。</span
+        ><button type="button" class="button button-small" :disabled="loading" @click="load">
+          重新加载
+        </button>
+      </div>
+      <div
+        v-if="loading && !tasks.length"
+        class="image-day-grid library-loading-grid"
+        role="status"
+        aria-label="正在加载图片库"
+      >
+        <span
+          v-for="index in 8"
+          :key="index"
+          class="library-image-skeleton"
+          aria-hidden="true"
+        ></span>
+      </div>
       <section v-for="group in dayGroups" :key="group.date" class="image-day-group">
         <header class="image-day-heading">
           <div>
@@ -16,12 +35,18 @@
               <button
                 type="button"
                 class="library-image-preview"
+                :aria-label="`预览图片：${card.task.prompt || card.output.fileName || card.output.file_name || '生成图片'}`"
                 @click="openPreview(card.output.path)"
               >
+                <span v-if="failedImages.has(card.output.path)" class="library-image-unavailable"
+                  ><ImageOff :size="24" :stroke-width="1.4" /><span>图片暂时不可用</span></span
+                >
                 <img
+                  v-else
                   loading="lazy"
                   :src="fileUrl(card.output.path)"
                   :alt="card.output.fileName || card.output.file_name || card.task.prompt"
+                  @error="failedImages = new Set([...failedImages, card.output.path])"
                 />
               </button>
               <div class="library-image-topbar">
@@ -48,11 +73,14 @@
                 <div class="library-image-actions">
                   <button
                     type="button"
-                    title="复制提示词"
-                    aria-label="复制提示词"
+                    :title="copiedTask === card.task.id ? '已复制' : '复制提示词'"
+                    :aria-label="copiedTask === card.task.id ? '已复制' : '复制提示词'"
                     @click.stop="copyPrompt(card.task)"
                   >
-                    <Copy :size="14" />
+                    <Check v-if="copiedTask === card.task.id" :size="14" /><Copy
+                      v-else
+                      :size="14"
+                    />
                   </button>
 
                   <button
@@ -104,17 +132,43 @@
                 </div>
               </div>
             </div>
+            <figcaption class="library-image-caption" :title="card.task.prompt">
+              {{ card.task.prompt || '未命名作品' }}
+            </figcaption>
           </figure>
         </div>
       </section>
 
-      <div v-if="!dayGroups.length" class="image-library-empty">
+      <div v-if="!loading && !dayGroups.length" class="image-library-empty">
         <Images :size="28" />
-        <strong>{{ loadError ? '图片库加载失败' : '没有找到图片' }}</strong>
+        <strong>{{
+          loadError ? '图片库加载失败' : hasFilters ? '没有匹配的图片' : '还没有作品'
+        }}</strong>
         <span v-if="loadError" class="image-library-error">{{ loadError }}</span>
         <span v-else>{{
-          searching ? '换个关键词试试' : months.length ? '这个月还没有图片' : '还没有图片'
+          hasFilters
+            ? '试试其它关键词，或清除筛选条件。'
+            : '在对话中描述一个画面，第一张作品会出现在这里。'
         }}</span>
+        <button v-if="loadError" type="button" class="button button-small" @click="load">
+          重新加载
+        </button>
+        <button
+          v-else-if="hasFilters"
+          type="button"
+          class="button button-small"
+          @click="clearFilters"
+        >
+          清除筛选
+        </button>
+        <button
+          v-else
+          type="button"
+          class="button button-primary button-small"
+          @click="$emit('start-creation')"
+        >
+          开始创作
+        </button>
       </div>
     </main>
 
@@ -160,6 +214,9 @@
           <ChevronRight :size="17" />
         </button>
       </div>
+      <span class="library-result-count" role="status">{{
+        copyFeedback || (loading ? '加载中…' : `${visibleImages.length} 张图片`)
+      }}</span>
     </footer>
   </section>
 </template>
@@ -168,6 +225,7 @@
 import {
   BookmarkPlus,
   Calendar,
+  Check,
   ChevronLeft,
   ChevronRight,
   Copy,
@@ -175,6 +233,7 @@ import {
   Filter,
   FolderOpen,
   Images,
+  ImageOff,
   Link2,
   Search,
   Trash2,
@@ -206,6 +265,7 @@ const emit = defineEmits([
   'reveal-output',
   'reference-to-agent',
   'add-to-template',
+  'start-creation',
 ]);
 
 const month = ref('');
@@ -215,7 +275,11 @@ const tasks = ref([]);
 const loading = ref(false);
 const loadError = ref('');
 const sourceFilter = ref('all');
+const failedImages = ref(new Set());
+const copiedTask = ref('');
+const copyFeedback = ref('');
 let queryTimer = 0;
+let copyTimer = 0;
 let requestId = 0;
 
 const sourceOptions = taskSourceOptions();
@@ -226,6 +290,7 @@ const filteredTasks = computed(() =>
 );
 
 const searching = computed(() => query.value.trim() !== '');
+const hasFilters = computed(() => searching.value || month.value || sourceFilter.value !== 'all');
 const monthOptions = computed(() => [
   { label: '全部月份', value: '' },
   ...months.value.map((item) => ({
@@ -286,11 +351,10 @@ async function load() {
     tasks.value = result.tasks || [];
     months.value = result.months || [];
     loadError.value = '';
+    failedImages.value = new Set();
   } catch (error) {
     console.error('图片库加载失败:', error);
     if (current === requestId) {
-      tasks.value = [];
-      months.value = [];
       loadError.value = String(error);
     }
   } finally {
@@ -300,6 +364,12 @@ async function load() {
 
 function goMonth(value) {
   if (value) month.value = value;
+}
+
+function clearFilters() {
+  query.value = '';
+  month.value = '';
+  sourceFilter.value = 'all';
 }
 
 function openPreview(path) {
@@ -324,16 +394,32 @@ function openReferencePreview(card, refPath) {
 async function copyPrompt(task) {
   try {
     await navigator.clipboard.writeText(task.prompt || '');
+    copiedTask.value = task.id;
+    copyFeedback.value = '已复制提示词';
   } catch {
-    // 复制失败静默忽略
+    copyFeedback.value = '复制失败，请在预览中手动复制';
   }
+  window.clearTimeout(copyTimer);
+  copyTimer = window.setTimeout(() => {
+    copiedTask.value = '';
+    copyFeedback.value = '';
+  }, 2400);
 }
 
-watch(month, load, { immediate: true });
-watch(query, () => {
+watch(
+  [month, query, () => props.version],
+  (current, previous = []) => {
+    window.clearTimeout(queryTimer);
+    requestId += 1;
+    loading.value = true;
+    if (previous.length && current[1] !== previous[1]) queryTimer = window.setTimeout(load, 250);
+    else void load();
+  },
+  { immediate: true }
+);
+onUnmounted(() => {
+  requestId += 1;
   window.clearTimeout(queryTimer);
-  queryTimer = window.setTimeout(load, 250);
+  window.clearTimeout(copyTimer);
 });
-watch(() => props.version, load);
-onUnmounted(() => window.clearTimeout(queryTimer));
 </script>

@@ -43,7 +43,7 @@ describe('EffectImageViewer', () => {
     expect(wrapper.get('img').attributes('alt')).toBe('第一张');
   });
 
-  it('标题条左半显示两个提示词，右侧显示 info，没有叉叉按钮', () => {
+  it('标题条显示提示词和图片信息，保留明确的关闭按钮', () => {
     const wrapper = mountViewer();
     const rows = wrapper.findAll('.viewer-prompt-row');
     expect(rows).toHaveLength(2);
@@ -51,7 +51,7 @@ describe('EffectImageViewer', () => {
     expect(rows[1].text()).toBe('A close-up of an open diary on a wooden desk');
     expect(wrapper.get('.viewer-title-info').text()).toContain('gpt-image-2');
     expect(wrapper.get('.viewer-title-info').text()).toContain('2880x2880');
-    expect(wrapper.find('[aria-label="关闭大图"]').exists()).toBe(false);
+    expect(wrapper.find('[aria-label="关闭预览"]').exists()).toBe(true);
   });
 
   it('只有原始提示词时标题条单行显示', () => {
@@ -64,7 +64,7 @@ describe('EffectImageViewer', () => {
 
   it('点击标题条向下展开：上方完整提示词，底部按钮与 info 常驻', async () => {
     const wrapper = mountViewer();
-    await wrapper.get('.viewer-title-bar').trigger('click');
+    await wrapper.get('.viewer-title-prompts').trigger('click');
 
     const panel = wrapper.get('.viewer-expand-panel');
     const prompts = panel.get('.viewer-expand-prompts').text();
@@ -74,12 +74,14 @@ describe('EffectImageViewer', () => {
     expect(panel.get('.viewer-title-info').text()).toContain('gpt-image-2');
 
     await panel.trigger('click');
+    expect(wrapper.find('.viewer-expand-panel').exists()).toBe(true);
+    await wrapper.get('.viewer-title-prompts').trigger('click');
     expect(wrapper.find('.viewer-expand-panel').exists()).toBe(false);
   });
 
   it('展开时点击遮罩只收起面板，不关闭查看器', async () => {
     const wrapper = mountViewer();
-    await wrapper.get('.viewer-title-bar').trigger('click');
+    await wrapper.get('.viewer-title-prompts').trigger('click');
     await wrapper.get('.effect-image-viewer-stage').trigger('click');
     expect(wrapper.find('.viewer-expand-panel').exists()).toBe(false);
     expect(wrapper.emitted('update:show')).toBeUndefined();
@@ -112,5 +114,36 @@ describe('EffectImageViewer', () => {
     expect(wrapper.find('.library-image-actions').exists()).toBe(false);
     expect(wrapper.find('.library-image-ref-thumbs').exists()).toBe(false);
     expect(wrapper.get('.viewer-prompt-row').text()).toBe('效果图');
+  });
+
+  it('从指定索引开始，加载后可查看真实尺寸及切换 100% 缩放', async () => {
+    const wrapper = mountViewer({
+      items: [{ path: '/first.png' }, { path: '/second.png' }],
+      initialIndex: 1,
+    });
+    const image = wrapper.get('.viewer-main-image');
+    expect(image.attributes('src')).toBe('/second.png');
+    expect(wrapper.get('.viewer-position').text()).toBe('2 / 2');
+    Object.defineProperties(image.element, {
+      naturalWidth: { value: 2048 },
+      naturalHeight: { value: 1024 },
+    });
+    await image.trigger('load');
+    expect(wrapper.get('.viewer-title-info').text()).toContain('2048 × 1024');
+    await wrapper.get('.viewer-zoom-control button:last-child').trigger('click');
+    expect(wrapper.get('.viewer-image-canvas').classes()).toContain('zoomed');
+    await wrapper.get('[aria-label="下一张"]').trigger('click');
+    expect(wrapper.get('.viewer-main-image').attributes('src')).toBe('/first.png');
+    expect(wrapper.get('.viewer-image-canvas').classes()).not.toContain('zoomed');
+  });
+
+  it('图片读取失败显示可操作的错误，重新加载会重新创建图片元素', async () => {
+    const wrapper = mountViewer();
+    const image = wrapper.get('.viewer-main-image');
+    await image.trigger('error');
+    expect(wrapper.get('.viewer-image-state').text()).toContain('暂时无法显示这张图片');
+    await wrapper.get('.viewer-image-state button').trigger('click');
+    expect(wrapper.get('.viewer-image-state').text()).toContain('正在载入图片');
+    expect(wrapper.get('.viewer-main-image').element).not.toBe(image.element);
   });
 });

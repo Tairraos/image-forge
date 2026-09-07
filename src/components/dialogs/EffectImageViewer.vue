@@ -10,8 +10,16 @@
   >
     <div class="effect-image-viewer-stage" @click="handleStageClick">
       <!-- 顶部标题条：左半提示词，右侧 info 与操作一上一下 -->
-      <header class="viewer-title-bar" :class="{ expanded }" @click.stop="expanded = !expanded">
-        <div class="viewer-title-prompts">
+      <header class="viewer-title-bar" :class="{ expanded }" @click.stop>
+        <button
+          type="button"
+          class="viewer-title-prompts"
+          :aria-expanded="expanded"
+          :disabled="!currentPrompt && !currentRevisedPrompt"
+          aria-controls="viewer-prompt-details"
+          :aria-label="expanded ? '收起提示词' : '展开提示词'"
+          @click="expanded = !expanded"
+        >
           <span class="viewer-prompt-row" :title="currentPrompt">
             {{ currentPrompt || currentTitle }}
           </span>
@@ -22,7 +30,12 @@
           >
             {{ currentRevisedPrompt }}
           </span>
-        </div>
+          <ChevronDown
+            v-if="currentPrompt || currentRevisedPrompt"
+            class="viewer-details-chevron"
+            :size="14"
+          />
+        </button>
         <div class="viewer-title-side">
           <span class="viewer-title-info">{{ infoLine }}</span>
           <div class="viewer-title-tools">
@@ -57,14 +70,14 @@
           class="icon-button viewer-close"
           aria-label="关闭预览"
           title="关闭预览 · Esc"
+          autofocus
           @click.stop="show = false"
         >
           <X :size="18" />
         </button>
       </header>
 
-      <!-- 展开面板：上方全部提示词（可滚动），底部按钮与 info 常驻；点击任意空白处收起 -->
-      <div v-if="expanded" class="viewer-expand-panel" @click.stop="expanded = false">
+      <div v-if="expanded" id="viewer-prompt-details" class="viewer-expand-panel" @click.stop>
         <div class="viewer-expand-prompts">
           <section v-if="currentPrompt">
             <h3>提示词</h3>
@@ -114,14 +127,34 @@
       >
         <ChevronLeft :size="28" />
       </button>
-      <img
-        v-if="currentPath"
-        :src="convertFileSrc(currentPath)"
-        :alt="currentTitle"
-        :style="imageStyle"
-        @load="updateImageSize"
-        @click.stop
-      />
+      <div class="viewer-image-canvas" :class="{ zoomed }">
+        <img
+          v-if="currentPath"
+          :key="`${currentPath}-${imageAttempt}`"
+          class="viewer-main-image"
+          :class="{ 'is-ready': imageState === 'ready' }"
+          :src="convertFileSrc(currentPath)"
+          :alt="currentTitle"
+          @load="updateImageSize"
+          @error="imageState = 'error'"
+          @click.stop
+          @dblclick.stop="zoomed = !zoomed"
+        />
+      </div>
+      <div v-if="imageState !== 'ready'" class="viewer-image-state" role="status" @click.stop>
+        <LoaderCircle v-if="imageState === 'loading'" class="spinning" :size="24" />
+        <ImageOff v-else :size="28" :stroke-width="1.4" />
+        <strong>{{ imageState === 'loading' ? '正在载入图片' : '暂时无法显示这张图片' }}</strong>
+        <span v-if="imageState === 'error'">图片可能已移动，或连接暂时不可用。</span>
+        <button
+          v-if="imageState === 'error'"
+          type="button"
+          class="button button-small"
+          @click="retryImage"
+        >
+          重新加载
+        </button>
+      </div>
       <button
         v-if="viewerItems.length > 1"
         type="button"
@@ -133,14 +166,51 @@
         <ChevronRight :size="28" />
       </button>
 
+      <div class="viewer-bottom-bar" @click.stop>
+        <span v-if="viewerItems.length > 1" class="viewer-position" aria-live="polite"
+          >{{ currentIndex + 1 }} / {{ viewerItems.length }}</span
+        >
+        <div class="viewer-zoom-control" role="group" aria-label="图片缩放">
+          <button type="button" :aria-pressed="!zoomed" @click="zoomed = false">适应窗口</button>
+          <button
+            type="button"
+            :aria-pressed="zoomed"
+            :disabled="imageState !== 'ready'"
+            @click="zoomed = true"
+          >
+            100%
+          </button>
+        </div>
+        <span class="viewer-keyboard-hint"
+          >{{ viewerItems.length > 1 ? '← → 切换 · ' : '' }}Esc 关闭</span
+        >
+      </div>
+      <span v-if="actionMessage" class="viewer-action-feedback" role="status">{{
+        actionMessage
+      }}</span>
+
       <!-- 参考图放大叠层：点击任意位置关闭 -->
       <div v-if="overlayPath" class="viewer-ref-overlay" @click.stop="overlayPath = ''">
+        <button
+          type="button"
+          class="icon-button viewer-ref-close"
+          aria-label="关闭参考图"
+          @click.stop="overlayPath = ''"
+        >
+          <X :size="20" />
+        </button>
         <img
+          v-show="overlayState !== 'error'"
           :src="convertFileSrc(overlayPath)"
           :alt="overlayTitle"
-          :style="overlayImageStyle"
-          @load="updateOverlaySize"
+          @load="overlayState = 'ready'"
+          @error="overlayState = 'error'"
         />
+        <div v-if="overlayState === 'error'" class="viewer-image-state">
+          <ImageOff :size="26" /><strong>参考图暂时不可用</strong
+          ><span>关闭预览后可重新添加参考图。</span>
+        </div>
+        <span class="viewer-ref-caption">{{ overlayTitle }} · 点击返回</span>
       </div>
     </div>
   </NativeDialog>
@@ -150,16 +220,19 @@
 import NativeDialog from './NativeDialog.vue';
 import {
   BookmarkPlus,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Copy,
   Download,
   FolderOpen,
+  ImageOff,
   Link2,
+  LoaderCircle,
   Trash2,
   X,
 } from '@lucide/vue';
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
+import { computed, onUnmounted, reactive, ref, watch } from 'vue';
 import { convertFileSrc } from '../../tauri';
 import { formatTime } from '../../lib/libraryFormat';
 
@@ -179,11 +252,15 @@ const emit = defineEmits([
 ]);
 
 const naturalSize = reactive({ width: 0, height: 0 });
-const overlaySize = reactive({ width: 0, height: 0 });
-const viewport = reactive({ width: window.innerWidth, height: window.innerHeight });
 const currentIndex = defineModel('index', { type: Number, default: 0 });
 const expanded = ref(false);
 const overlayPath = ref('');
+const imageState = ref('loading');
+const overlayState = ref('loading');
+const imageAttempt = ref(0);
+const zoomed = ref(false);
+const actionMessage = ref('');
+let actionTimer = 0;
 
 const viewerItems = computed(() =>
   props.items.length
@@ -207,7 +284,11 @@ const overlayTitle = computed(() => {
 const hasTaskActions = computed(() => Boolean(currentItem.value?.task));
 const infoLine = computed(() => {
   const item = currentItem.value || {};
-  return [formatTime(item.time || ''), item.model, item.size].filter(Boolean).join(' · ');
+  const size =
+    naturalSize.width && naturalSize.height
+      ? `${naturalSize.width} × ${naturalSize.height}`
+      : item.size;
+  return [formatTime(item.time || ''), item.model, size].filter(Boolean).join(' · ');
 });
 
 const actions = [
@@ -218,25 +299,6 @@ const actions = [
   { key: 'reveal', label: '在 Finder 中显示', icon: FolderOpen },
   { key: 'delete', label: '删除任务及图片', icon: Trash2 },
 ];
-
-function fitStyle(size, marginX, marginY) {
-  const width = size.width;
-  const height = size.height;
-  if (!width || !height) return {};
-  const fitScale = Math.min(
-    (viewport.width - marginX) / width,
-    (viewport.height - marginY) / height
-  );
-  const scale = Math.min(1, fitScale);
-  return {
-    width: `${Math.max(1, Math.round(width * scale))}px`,
-    height: `${Math.max(1, Math.round(height * scale))}px`,
-  };
-}
-
-// 尽可能 1:1 显示，尺寸不够时保持比例缩小
-const imageStyle = computed(() => fitStyle(naturalSize, 144, 176));
-const overlayImageStyle = computed(() => fitStyle(overlaySize, 144, 144));
 
 watch(
   () => [props.imagePath, props.items, props.initialIndex, show.value],
@@ -249,34 +311,38 @@ watch(
     }
     naturalSize.width = 0;
     naturalSize.height = 0;
+    imageState.value = 'loading';
+    zoomed.value = false;
+    actionMessage.value = '';
     expanded.value = false;
     overlayPath.value = '';
   },
-  { deep: false }
+  { immediate: true }
 );
 
 watch(currentIndex, () => {
   naturalSize.width = 0;
   naturalSize.height = 0;
+  imageState.value = 'loading';
+  zoomed.value = false;
   overlayPath.value = '';
 });
 
-onMounted(() => {
-  window.addEventListener('resize', updateViewport);
+watch(overlayPath, () => {
+  overlayState.value = 'loading';
 });
 
-onUnmounted(() => {
-  window.removeEventListener('resize', updateViewport);
-});
+onUnmounted(() => window.clearTimeout(actionTimer));
 
 function updateImageSize(event) {
   naturalSize.width = event.target.naturalWidth;
   naturalSize.height = event.target.naturalHeight;
+  imageState.value = 'ready';
 }
 
-function updateOverlaySize(event) {
-  overlaySize.width = event.target.naturalWidth;
-  overlaySize.height = event.target.naturalHeight;
+function retryImage() {
+  imageState.value = 'loading';
+  imageAttempt.value += 1;
 }
 
 function handleStageClick() {
@@ -295,13 +361,20 @@ function closeOnKey(event) {
     else if (expanded.value) expanded.value = false;
     else show.value = false;
   }
-  if (event.key === 'ArrowLeft') move(-1);
-  if (event.key === 'ArrowRight') move(1);
-}
-
-function updateViewport() {
-  viewport.width = window.innerWidth;
-  viewport.height = window.innerHeight;
+  if (
+    event.ctrlKey ||
+    event.metaKey ||
+    event.altKey ||
+    event.shiftKey ||
+    expanded.value ||
+    overlayPath.value ||
+    zoomed.value
+  )
+    return;
+  if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+    event.preventDefault();
+    move(event.key === 'ArrowLeft' ? -1 : 1);
+  }
 }
 
 function move(offset) {
@@ -312,11 +385,20 @@ function move(offset) {
   naturalSize.height = 0;
 }
 
-function runAction(key) {
+async function runAction(key) {
   const item = currentItem.value;
   if (!item?.task) return;
   if (key === 'copy') {
-    navigator.clipboard?.writeText(item.prompt || item.task.prompt || '');
+    try {
+      await navigator.clipboard.writeText(item.prompt || item.task.prompt || '');
+      actionMessage.value = '已复制提示词';
+    } catch {
+      actionMessage.value = '复制失败，请展开提示词后手动复制';
+    }
+    window.clearTimeout(actionTimer);
+    actionTimer = window.setTimeout(() => {
+      actionMessage.value = '';
+    }, 2400);
     return;
   }
   if (key === 'download') emit('download-output', item);

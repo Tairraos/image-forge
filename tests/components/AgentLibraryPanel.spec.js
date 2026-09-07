@@ -42,6 +42,36 @@ beforeEach(() => {
 });
 
 describe('AgentLibraryPanel', () => {
+  it('首次加载显示占位状态，失败后可重新加载', async () => {
+    let fail;
+    agentLibraryMock.mockReturnValueOnce(
+      new Promise((_, reject) => {
+        fail = reject;
+      })
+    );
+    const wrapper = mount(AgentLibraryPanel);
+    expect(wrapper.find('.library-loading-grid').exists()).toBe(true);
+    expect(wrapper.text()).not.toContain('没有匹配的图片');
+    fail(new Error('网络不可用'));
+    await flushPromises();
+    expect(wrapper.get('.image-library-empty').text()).toContain('图片库加载失败');
+    agentLibraryMock.mockResolvedValueOnce({ tasks: [taskWithRef], months: [] });
+    await wrapper.get('.image-library-empty button').trigger('click');
+    await flushPromises();
+    expect(wrapper.findAll('.library-image-card')).toHaveLength(1);
+  });
+
+  it('来源筛选为空时可清除筛选，损坏图片有可读占位', async () => {
+    const wrapper = mountPanel([taskWithRef]);
+    await flushPromises();
+    await wrapper.get('select[aria-label="按来源筛选"]').setValue('direct');
+    expect(wrapper.get('.image-library-empty').text()).toContain('没有匹配的图片');
+    await wrapper.get('.image-library-empty button').trigger('click');
+    await wrapper.get('.library-image-preview img').trigger('error');
+    expect(wrapper.get('.library-image-preview').text()).toContain('图片暂时不可用');
+    expect(wrapper.get('.library-image-caption').text()).toBe(taskWithRef.prompt);
+  });
+
   it('原生来源选择框筛选图片', async () => {
     const wrapper = mountPanel([taskWithRef, { ...taskNoRef, origin: 'agent-direct' }]);
     await flushPromises();

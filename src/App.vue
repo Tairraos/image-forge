@@ -25,6 +25,9 @@
   </div>
   <AppShell v-else>
     <AgentWorkspace
+      v-model:panel="agentPanel"
+      v-model:draft="agentDraft"
+      v-model:draw-this-turn="agentDrawThisTurn"
       :theme="resolvedTheme"
       :sessions="agentSessions"
       :current-session="currentAgentSession"
@@ -32,14 +35,14 @@
       :provider-id="form.chatProviderId"
       :image-provider-id="activeProvider?.id || ''"
       :busy="agentBusy"
-      :stream-text="agentStreamText"
-      :tool-status-text="agentToolStatus"
+      :busy-session-id="agentBusySessionId"
+      :stream-text="currentAgentSessionId === agentBusySessionId ? agentStreamText : ''"
+      :tool-status-text="currentAgentSessionId === agentBusySessionId ? agentToolStatus : ''"
       :answers="agentAnswers"
       :attachments="agentAttachments"
       :agent-library-version="agentLibraryVersion"
       :ratio="form.ratio"
       :resolution="form.resolution"
-      :prefill-prompt="agentPrefillPrompt"
       :templates="templates"
       :template-fill-busy="templateFillBusy"
       @create="createAgentConversation"
@@ -192,7 +195,12 @@ import NoticeDialog from './components/dialogs/NoticeDialog.vue';
 import TemplateEditorDialog from './components/dialogs/TemplateEditorDialog.vue';
 import DataTransferDialog from './components/dialogs/DataTransferDialog.vue';
 import { fileName } from './lib/formatters';
-import { taskReferencePaths } from './lib/libraryFormat';
+import {
+  agentMessagesForDisplay,
+  taskGroupStatus,
+  taskReferencePaths,
+  taskTime,
+} from './lib/libraryFormat';
 import { deepClone, defaultSettings, emptyTemplate, normalizeSettingsForUi } from './lib/models';
 import {
   clipboardHasImage,
@@ -247,14 +255,40 @@ function unlock() {
   }
 }
 const agentSessions = ref([]);
+const agentPanel = ref('chat');
 const currentAgentSessionId = ref('');
 const agentBusy = ref(false);
+const agentBusySessionId = ref('');
 const agentStreamText = ref('');
 const agentToolStatus = ref('');
 const agentAnswers = ref({});
-const agentAttachments = ref([]);
+const agentDrafts = reactive({});
+watch(
+  currentAgentSessionId,
+  (id) => {
+    agentDrafts[id] ||= { content: '', attachments: [], drawThisTurn: false };
+  },
+  { immediate: true, flush: 'sync' }
+);
+const agentDraft = computed({
+  get: () => agentDrafts[currentAgentSessionId.value].content,
+  set: (value) => {
+    agentDrafts[currentAgentSessionId.value].content = value;
+  },
+});
+const agentDrawThisTurn = computed({
+  get: () => agentDrafts[currentAgentSessionId.value].drawThisTurn,
+  set: (value) => {
+    agentDrafts[currentAgentSessionId.value].drawThisTurn = value;
+  },
+});
+const agentAttachments = computed({
+  get: () => agentDrafts[currentAgentSessionId.value].attachments,
+  set: (value) => {
+    agentDrafts[currentAgentSessionId.value].attachments = value;
+  },
+});
 const templateFillBusy = ref(false);
-const agentPrefillPrompt = ref('');
 const settings = ref(defaultSettings());
 const history = ref([]);
 const agentLibraryVersion = ref(0);
@@ -386,25 +420,7 @@ const libraryStats = computed(() => ({
 }));
 
 const currentAgentDisplayMessages = computed(() =>
-  currentAgentMessages.value.map((message) => {
-    const group = message.taskGroup;
-    if (!group?.id) return message;
-    const taskIds = new Set(group.taskIds || []);
-    const tasks = historyTimeline.value.filter(
-      (task) => taskIds.has(task.id) || task.taskGroupId === group.id
-    );
-    const images = tasks.flatMap((task) =>
-      (task.outputs || []).map((output) => ({
-        ...output,
-        title: task.prompt || output.fileName || '生成图片',
-        meta: [output.size || task.params?.size, task.model].filter(Boolean).join(' · '),
-      }))
-    );
-    return {
-      ...message,
-      taskGroup: { ...group, images },
-    };
-  })
+  agentMessagesForDisplay(currentAgentMessages.value, historyTimeline.value)
 );
 
 onMounted(async () => {
@@ -506,7 +522,7 @@ function sortAgentSessions(sessions) {
   return [...sessions].sort((a, b) => {
     const aTime = a.updatedAt || a.createdAt || '';
     const bTime = b.updatedAt || b.createdAt || '';
-    return aTime.localeCompare(bTime);
+    return bTime.localeCompare(aTime);
   });
 }
 
@@ -533,8 +549,10 @@ async function selectAgentConversation(sessionId) {
     setAgentSession(session);
     currentAgentSessionId.value = session.id;
     form.chatProviderId = session.modelProviderId || form.chatProviderId;
-    agentStreamText.value = '';
-    agentToolStatus.value = '';
+    if (!agentBusy.value) {
+      agentStreamText.value = '';
+      agentToolStatus.value = '';
+    }
     await refreshAgentTaskGroups();
     syncAgentTaskGroupPolling();
   } catch (error) {
@@ -543,6 +561,10 @@ async function selectAgentConversation(sessionId) {
 }
 
 async function deleteAgentConversation(sessionId) {
+  if (agentBusy.value && sessionId === agentBusySessionId.value) {
+    setStatus('请先停止这个对话中的生成，再删除对话', 'error');
+    return;
+  }
   // 空会话（没有任何消息）不弹确认框，直接删除
   const target = agentSessions.value.find((item) => item.id === sessionId);
   const isEmptySession = Boolean(target) && !(target.messages || []).length;
@@ -575,8 +597,7 @@ async function renameAgentConversation({ sessionId, title }) {
 
 // 乐观显示：发送后立刻把用户消息放到屏幕上，不等模型响应；
 // 本轮结束后 setAgentSession / selectAgentConversation 会用后端数据覆盖。
-function appendOptimisticUserMessage(content) {
-  const sessionId = currentAgentSessionId.value;
+function appendOptimisticUserMessage(sessionId, content, attachments) {
   if (!sessionId || !content) return;
   agentSessions.value = agentSessions.value.map((session) =>
     session.id === sessionId
@@ -589,7 +610,7 @@ function appendOptimisticUserMessage(content) {
               role: 'user',
               status: 'user',
               content,
-              attachments: [],
+              attachments,
               toolCall: null,
               questions: [],
               taskGroup: null,
@@ -603,123 +624,143 @@ function appendOptimisticUserMessage(content) {
 }
 
 async function sendAgentConversationMessage(payload) {
-  const content = typeof payload === 'string' ? payload : payload?.content || '';
+  const content = String(typeof payload === 'string' ? payload : payload?.content || '').trim();
+  if (agentBusy.value || !content) return;
   const drawThisTurn = typeof payload !== 'string' && Boolean(payload?.drawThisTurn);
-  if (!currentAgentSessionId.value) await createAgentConversation();
-  if (!currentAgentSessionId.value) return;
-  appendOptimisticUserMessage(content);
-  if (drawThisTurn) {
-    await createAgentDrawingTask(content);
+  const provider = drawThisTurn ? activeProvider.value : activeChatProvider.value;
+  if (!provider?.apiKey?.trim()) {
+    setStatus(`请先在 API 源里填写${drawThisTurn ? '生图' : '对话'}模型 API Key`, 'error');
+    showApiDialog.value = true;
     return;
   }
+  const composer = agentDrafts[currentAgentSessionId.value];
+  const attachments = (payload?.attachments || composer.attachments).map(
+    ({ dataUrl, ...attachment }) => attachment
+  );
+  let sessionId = currentAgentSessionId.value;
   agentBusy.value = true;
+  agentBusySessionId.value = sessionId;
   agentStreamText.value = '';
   try {
-    const session = await api.sendAgentMessage(
-      currentAgentSessionId.value,
-      form.chatProviderId,
-      content,
-      agentAttachments.value.map(({ dataUrl, ...attachment }) => attachment)
-    );
+    if (!sessionId) {
+      const created = await api.createAgentSession(form.chatProviderId || '');
+      sessionId = created.id;
+      setAgentSession(created);
+      agentDrafts[sessionId] = composer;
+      if (!currentAgentSessionId.value) currentAgentSessionId.value = sessionId;
+      agentBusySessionId.value = sessionId;
+    }
+    appendOptimisticUserMessage(sessionId, content, attachments);
+    if (composer.content.trim() === content) composer.content = '';
+    const session = drawThisTurn
+      ? await createAgentDrawingTask(sessionId, content, attachments, provider)
+      : await api.sendAgentMessage(sessionId, provider.id, content, attachments);
     setAgentSession(session);
-    agentAttachments.value = [];
+    if (session.messages?.at(-1)?.error) {
+      if (!composer.content) composer.content = content;
+      composer.drawThisTurn = drawThisTurn;
+    } else {
+      const sentIds = new Set(attachments.map((attachment) => attachment.id));
+      composer.attachments = composer.attachments.filter(
+        (attachment) => !sentIds.has(attachment.id)
+      );
+      composer.drawThisTurn = false;
+    }
     await refreshAgentTaskGroups();
     syncAgentTaskGroupPolling();
   } catch (error) {
     setStatus(String(error), 'error');
-    if (currentAgentSessionId.value) {
-      await selectAgentConversation(currentAgentSessionId.value);
+    if (!composer.content) composer.content = content;
+    composer.drawThisTurn = drawThisTurn;
+    if (sessionId) {
+      try {
+        const session = await api.getAgentSession(sessionId);
+        if (session) setAgentSession(session);
+      } catch {
+        // 读取也失败时保留当前消息和已恢复的草稿。
+      }
     }
   } finally {
     agentBusy.value = false;
+    agentBusySessionId.value = '';
     agentStreamText.value = '';
     agentToolStatus.value = '';
   }
 }
 
-async function createAgentDrawingTask(content) {
-  if (!activeProvider.value?.apiKey) {
-    setStatus('请先在 API 源里填写生图模型 API Key', 'error');
-    showApiDialog.value = true;
-    return;
-  }
-  const attachments = agentAttachments.value.map(({ dataUrl, ...attachment }) => attachment);
-  agentBusy.value = true;
-  try {
-    await api.createAgentDirectImageTask(currentAgentSessionId.value, content, attachments, {
-      title: content.split(/\r?\n/, 1)[0].slice(0, 32) || '直接绘画',
-      prompt: content,
-      providerId: activeProvider.value.id,
-      resolution: form.resolution,
-      ratio: form.ratio,
-      quality: form.quality,
-      promptFidelity: form.promptMode,
-      referencePolicy: attachments.length ? 'use' : 'none',
-      referenceIds: attachments.map((attachment) => attachment.id),
-    });
-    agentAttachments.value = [];
-    await refreshQueueOnly();
-    await selectAgentConversation(currentAgentSessionId.value);
-    setStatus('绘画任务已加入队列', 'ok');
-  } catch (error) {
-    setStatus(String(error), 'error');
-    await selectAgentConversation(currentAgentSessionId.value);
-  } finally {
-    agentBusy.value = false;
-  }
+async function createAgentDrawingTask(sessionId, content, attachments, provider) {
+  await api.createAgentDirectImageTask(sessionId, content, attachments, {
+    title: content.split(/\r?\n/, 1)[0].slice(0, 32) || '直接绘画',
+    prompt: content,
+    providerId: provider.id,
+    resolution: form.resolution,
+    ratio: form.ratio,
+    quality: form.quality,
+    promptFidelity: form.promptMode,
+    referencePolicy: attachments.length ? 'use' : 'none',
+    referenceIds: attachments.map((attachment) => attachment.id),
+  });
+  await refreshQueueOnly();
+  setStatus('绘画任务已加入队列', 'ok');
+  return api.getAgentSession(sessionId);
 }
 
 async function stopAgentConversation() {
-  if (currentAgentSessionId.value) {
+  if (agentBusy.value && agentBusySessionId.value) {
     try {
-      await api.cancelAgentTurn(currentAgentSessionId.value);
-      await selectAgentConversation(currentAgentSessionId.value);
+      agentToolStatus.value = '正在停止…';
+      await api.cancelAgentTurn(agentBusySessionId.value);
     } catch (error) {
       setStatus(String(error), 'error');
     }
   }
-  agentBusy.value = false;
-  agentStreamText.value = '';
 }
 
 async function addAgentReferenceImages() {
+  const composer = agentDrafts[currentAgentSessionId.value];
   const selected = await openDialog({
     multiple: true,
     filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] }],
   });
   const paths = Array.isArray(selected) ? selected : selected ? [selected] : [];
-  await addAgentReferencePaths(paths);
+  await addAgentReferencePaths(paths, composer);
 }
 
-async function addAgentReferencePaths(paths) {
+async function addAgentReferencePaths(paths, composer = agentDrafts[currentAgentSessionId.value]) {
+  let loaded = 0;
   for (const path of paths || []) {
     try {
       const preview = await api.referenceFromPath(path);
-      agentAttachments.value.push({
-        id: createAgentAttachmentId(),
-        path: preview.path,
-        fileName: preview.fileName,
-        mimeType: preview.mimeType,
-        dataUrl: preview.dataUrl,
-      });
+      if (!composer.attachments.some((item) => item.path === preview.path)) {
+        composer.attachments.push({
+          id: createAgentAttachmentId(),
+          path: preview.path,
+          fileName: preview.fileName,
+          mimeType: preview.mimeType,
+          dataUrl: preview.dataUrl,
+        });
+      }
+      loaded += 1;
     } catch (error) {
       setStatus(String(error), 'error');
     }
   }
+  return loaded;
 }
 
 async function pasteAgentReferenceImage(event) {
+  const composer = agentDrafts[currentAgentSessionId.value];
   const paths = extractClipboardFilePaths(event?.clipboardData);
   const containsImage = paths.length > 0 || clipboardHasImage(event?.clipboardData);
   if (containsImage) event?.preventDefault?.();
   if (paths.length) {
-    await addAgentReferencePaths(paths);
+    await addAgentReferencePaths(paths, composer);
     return;
   }
   try {
     const preview = await api.referenceFromClipboard();
-    if (preview && !agentAttachments.value.some((item) => item.path === preview.path)) {
-      agentAttachments.value.push({
+    if (preview && !composer.attachments.some((item) => item.path === preview.path)) {
+      composer.attachments.push({
         id: createAgentAttachmentId(),
         path: preview.path,
         fileName: preview.fileName,
@@ -742,45 +783,41 @@ function removeAgentAttachment(id) {
 }
 
 async function handleLibraryReferenceToAgent({ task }) {
+  const composer = agentDrafts[currentAgentSessionId.value];
+  composer.content = task.prompt || '';
+  agentPanel.value = 'chat';
+  effectViewer.show = false;
+  if (task.params?.ratio) form.ratio = task.params.ratio;
+  const resolution = String(task.params?.resolution || '').toLowerCase();
+  if (resolution) form.resolution = resolution === '1k' ? 'standard' : resolution;
+  if (task.params?.quality) form.quality = task.params.quality;
   // 添加生成此图时使用的所有参考图（双端字段形态兼容）
   const refPaths = taskReferencePaths(task);
-  if (refPaths.length) {
-    for (const path of refPaths) {
-      try {
-        const preview = await api.referenceFromPath(path);
-        if (!agentAttachments.value.some((item) => item.path === preview.path)) {
-          agentAttachments.value.push({
-            id: createAgentAttachmentId(),
-            path: preview.path,
-            fileName: preview.fileName,
-            mimeType: preview.mimeType,
-            dataUrl: preview.dataUrl,
-          });
-        }
-      } catch (error) {
-        setStatus(`参考图加载失败：${error}`, 'error');
-      }
-    }
-  }
-  // 预填提示词到输入框
-  agentPrefillPrompt.value = task.prompt || '';
-  // 清除预填（避免下次重复触发）
-  setTimeout(() => {
-    agentPrefillPrompt.value = '';
-  }, 100);
+  const loaded = await addAgentReferencePaths(refPaths, composer);
   setStatus(
-    `已引用到当前对话（${refPaths.length ? refPaths.length + ' 张参考图' : '无参考图'}）`,
-    'ok'
+    loaded < refPaths.length
+      ? `提示词已引用，${refPaths.length - loaded} 张参考图加载失败，请重新添加`
+      : `已引用到对话（${loaded ? loaded + ' 张参考图' : '无参考图'}）`,
+    loaded < refPaths.length ? 'error' : 'ok'
   );
 }
 
-async function handleLibraryAddToTemplate({ task }) {
+async function handleLibraryAddToTemplate({ task, output }) {
+  effectViewer.show = false;
   Object.assign(templateDraft, emptyTemplate());
   templateDraft.title = '';
-  templateDraft.prompt = task.prompt || '';
+  templateDraft.content = task.prompt || '';
   templateDraft.referencePaths = [];
   templateDraftReferences.value = [];
   templateDraftEffectImage.value = null;
+  if (output?.path) {
+    try {
+      const preview = await api.referenceFromPath(output.path);
+      templateDraftEffectImage.value = { ...preview, previewUrl: preview.dataUrl };
+    } catch {
+      // 效果图不可用时仍可保存提示词模板。
+    }
+  }
   // 添加生成此图时使用的所有参考图（双端字段形态兼容）
   const refPaths = taskReferencePaths(task);
   if (refPaths.length) {
@@ -801,33 +838,24 @@ async function handleLibraryAddToTemplate({ task }) {
 async function handleApplyTemplate({ template }) {
   if (!template) return;
   const refPaths = template.referencePaths || template.reference_paths || [];
-  for (const path of refPaths) {
-    try {
-      const preview = await api.referenceFromPath(path);
-      if (!agentAttachments.value.some((item) => item.path === preview.path)) {
-        agentAttachments.value.push({
-          id: createAgentAttachmentId(),
-          path: preview.path,
-          fileName: preview.fileName,
-          mimeType: preview.mimeType,
-          dataUrl: preview.dataUrl,
-        });
-      }
-    } catch {
-      // 模板参考图加载失败不阻塞插入
-    }
-  }
+  const loaded = await addAgentReferencePaths(refPaths);
   setStatus(
     `已插入模板「${template.title || '未命名模板'}」${
-      refPaths.length ? `（${refPaths.length} 张参考图）` : ''
+      loaded < refPaths.length
+        ? `，${refPaths.length - loaded} 张参考图加载失败，请重新添加`
+        : loaded
+          ? `（${loaded} 张参考图）`
+          : ''
     }`,
-    'ok'
+    loaded < refPaths.length ? 'error' : 'ok'
   );
 }
 
 async function handleFillTemplate({ template }) {
   const content = String(template?.content || '').trim();
-  if (!content) return;
+  if (!content || templateFillBusy.value) return;
+  const composer = agentDrafts[currentAgentSessionId.value];
+  const originalDraft = composer.content;
   templateFillBusy.value = true;
   try {
     const filled = await api.fillPromptTemplate(
@@ -835,10 +863,10 @@ async function handleFillTemplate({ template }) {
       form.chatProviderId,
       content
     );
-    agentPrefillPrompt.value = filled;
-    setTimeout(() => {
-      agentPrefillPrompt.value = '';
-    }, 100);
+    composer.content =
+      composer.content === originalDraft || !composer.content.trim()
+        ? filled
+        : `${composer.content.trimEnd()}\n\n${filled}`;
     setStatus('AI 已填充模板占位符', 'ok');
   } catch (error) {
     setStatus(String(error), 'error');
@@ -849,7 +877,7 @@ async function handleFillTemplate({ template }) {
 
 function handleAgentProgressEvent(event) {
   const payload = event?.payload || {};
-  if (payload.sessionId !== currentAgentSessionId.value) return;
+  if (payload.sessionId !== agentBusySessionId.value) return;
   if (payload.phase === 'delta') agentStreamText.value += payload.chunk || '';
   if (['tool_delta', 'tool_start', 'tool_result'].includes(payload.phase)) {
     const tool = payload.toolName ? ` · ${payload.toolName}` : '';
@@ -925,7 +953,11 @@ function retryAgentMessage(message) {
     .reverse()
     .find((item) => item.role === 'user');
   if (previousUser?.content) {
-    void sendAgentConversationMessage({ content: previousUser.content, drawThisTurn: false });
+    void sendAgentConversationMessage({
+      content: previousUser.content,
+      drawThisTurn: Boolean(message.directDrawing),
+      attachments: previousUser.attachments || [],
+    });
   }
 }
 
@@ -972,14 +1004,18 @@ async function refreshAgentTaskGroups({ silent = true } = {}) {
           const records = Array.isArray(tasks) ? tasks : [];
           return {
             id: group.id,
-            status: summarizeTaskGroupStatus(records, group.status),
+            status: records.length ? taskGroupStatus(records, group.status) : 'missing',
+            records,
+            loadError: '',
             taskIds: records.map((task) => task.id).filter(Boolean),
             titles: records.map((task) => singleLine(task.prompt)).filter(Boolean),
           };
         } catch (error) {
           return {
             id: group.id,
-            status: 'missing',
+            status: /找不到任务|404/.test(String(error)) ? 'missing' : group.status,
+            records: [],
+            loadError: String(error),
             taskIds: [],
             titles: [String(error)],
           };
@@ -987,6 +1023,7 @@ async function refreshAgentTaskGroups({ silent = true } = {}) {
       })
     );
     if (sessionId !== currentAgentSessionId.value) return;
+    mergeHistory(updates.flatMap((update) => update.records));
     applyAgentTaskGroupUpdates(sessionId, updates);
   } catch (error) {
     if (!silent) setStatus(String(error), 'error');
@@ -1017,6 +1054,7 @@ function applyAgentTaskGroupUpdates(sessionId, updates) {
           taskGroup: {
             ...group,
             status: update.status || group.status,
+            loadError: update.loadError,
             taskIds: update.taskIds.length ? update.taskIds : group.taskIds,
             titles: update.titles.length ? update.titles : group.titles,
           },
@@ -1024,19 +1062,6 @@ function applyAgentTaskGroupUpdates(sessionId, updates) {
       }),
     };
   });
-}
-
-function summarizeTaskGroupStatus(tasks, fallback = 'queued') {
-  const statuses = tasks.map((task) => task.status).filter(Boolean);
-  if (!statuses.length) return fallback || 'queued';
-  if (statuses.some((status) => status === 'cancelling')) return 'cancelling';
-  if (statuses.some((status) => status === 'running')) return 'running';
-  if (statuses.some((status) => status === 'queued')) return 'queued';
-  if (statuses.every((status) => status === 'completed')) return 'completed';
-  if (statuses.some((status) => status === 'failed')) return 'failed';
-  if (statuses.some((status) => status === 'cancelled')) return 'cancelled';
-  if (statuses.some((status) => status === 'missing')) return 'missing';
-  return statuses[0] || fallback || 'queued';
 }
 
 function syncAgentTaskGroupPolling() {
@@ -1119,9 +1144,15 @@ function applyQueue(snapshot) {
   queue.workerActive = Boolean(snapshot.workerActive);
   queue.updatedAt = snapshot.updatedAt || '';
   if (snapshot.recent) {
-    history.value = snapshot.recent;
+    mergeHistory(snapshot.recent);
   }
   syncQueuePolling();
+}
+
+function mergeHistory(records) {
+  const byId = new Map(history.value.map((task) => [task.id, task]));
+  for (const task of records) byId.set(task.id, task);
+  history.value = [...byId.values()];
 }
 
 async function chooseReferenceImages(target, successMessage) {
@@ -1303,6 +1334,7 @@ async function deleteTask(task) {
   if (!confirmed) return;
   try {
     await api.deleteTask(task.id);
+    effectViewer.show = false;
     setStatus('生成记录已删除', 'ok');
     await refreshAll();
     agentLibraryVersion.value += 1;
@@ -1649,10 +1681,6 @@ function resolveNotice() {
 
 function modelOptionLabel(provider) {
   return `${provider.name} · ${provider.imageModel || '未设置模型'}`;
-}
-
-function taskTime(task) {
-  return task.createdAt || task.updatedAt || task.completedAt || '';
 }
 
 // 根据设置、历史成功任务和当前列表，保证模型选择始终可用。

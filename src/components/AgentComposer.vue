@@ -177,7 +177,6 @@ const props = defineProps({
   attachments: { type: Array, default: () => [] },
   ratio: { type: String, default: '1:1' },
   resolution: { type: String, default: 'standard' },
-  prefillPrompt: { type: String, default: '' },
   templates: { type: Array, default: () => [] },
   templateFillBusy: Boolean,
 });
@@ -195,21 +194,11 @@ const emit = defineEmits([
   'update:resolution',
 ]);
 
-const draft = ref('');
+const draft = defineModel('draft', { type: String, default: '' });
 const promptInput = ref(null);
 const templateMenu = ref(null);
 const dragActive = ref(false);
-const drawThisTurn = ref(false);
-
-watch(
-  () => props.prefillPrompt,
-  (value) => {
-    if (value) {
-      draft.value = value;
-    }
-  },
-  { immediate: true }
-);
+const drawThisTurn = defineModel('drawThisTurn', { type: Boolean, default: false });
 
 const currentResolutionOptions = computed(() =>
   RESOLUTION_LIST.map((opt) => {
@@ -225,8 +214,6 @@ function send() {
   const providerId = drawThisTurn.value ? props.imageProviderId : props.providerId;
   if (!content || props.busy || !providerId) return;
   emit('send', { content, drawThisTurn: drawThisTurn.value });
-  draft.value = '';
-  drawThisTurn.value = false;
 }
 
 function hasPlaceholders(content) {

@@ -170,11 +170,13 @@
         @reveal-output="$emit('reveal-output', $event)"
         @reference-to-agent="handleReferenceToAgent"
         @add-to-template="$emit('add-to-template', $event)"
+        @start-creation="panel = 'chat'"
       />
       <template v-else>
         <AgentMessageList
+          :session-id="currentSession?.id || ''"
           :messages="messages"
-          :busy="busy"
+          :busy="busy && (!busySessionId || currentSession?.id === busySessionId)"
           :stream-text="streamText"
           :tool-status-text="toolStatusText"
           :answers="answers"
@@ -188,13 +190,14 @@
           @answer-questions="$emit('answer-questions', $event)"
         />
         <AgentComposer
+          v-model:draft="draft"
+          v-model:draw-this-turn="drawThisTurn"
           :provider-id="providerId"
           :image-provider-id="imageProviderId"
           :busy="busy"
           :attachments="attachments"
           :ratio="ratio"
           :resolution="resolution"
-          :prefill-prompt="prefillPrompt"
           :templates="templates"
           :template-fill-busy="templateFillBusy"
           @send="$emit('send', $event)"
@@ -228,6 +231,7 @@ defineProps({
   providerId: { type: String, default: '' },
   imageProviderId: { type: String, default: '' },
   busy: Boolean,
+  busySessionId: { type: String, default: '' },
   streamText: { type: String, default: '' },
   attachments: { type: Array, default: () => [] },
   toolStatusText: { type: String, default: '' },
@@ -235,10 +239,11 @@ defineProps({
   agentLibraryVersion: { type: Number, default: 0 },
   ratio: { type: String, default: '1:1' },
   resolution: { type: String, default: 'standard' },
-  prefillPrompt: { type: String, default: '' },
   templates: { type: Array, default: () => [] },
   templateFillBusy: Boolean,
 });
+const draft = defineModel('draft', { type: String, default: '' });
+const drawThisTurn = defineModel('drawThisTurn', { type: Boolean, default: false });
 const emit = defineEmits([
   'create',
   'select',
@@ -271,7 +276,7 @@ const emit = defineEmits([
   'redraw-task-group',
 ]);
 
-const panel = ref('chat');
+const panel = defineModel('panel', { type: String, default: 'chat' });
 const sidebarOpen = ref(false);
 const sidebar = ref(null);
 const sidebarToggle = ref(null);

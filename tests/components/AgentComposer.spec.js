@@ -66,12 +66,12 @@ describe('AgentComposer', () => {
     expect(wrapper.text()).toContain('停止');
   });
 
-  it('挂载时已带 prefillPrompt 直接回填（图片库引用到 Agent 场景）', () => {
+  it('挂载时显示已有草稿（图片库引用到 Agent 场景）', () => {
     const wrapper = mount(AgentComposer, {
       props: {
         providerId: 'chat',
         imageProviderId: 'image',
-        prefillPrompt: '一首诗的配图',
+        draft: '一首诗的配图',
       },
     });
     expect(wrapper.get('textarea').element.value).toBe('一首诗的配图');
