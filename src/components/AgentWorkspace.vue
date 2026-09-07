@@ -1,10 +1,27 @@
 <template>
-  <section class="agent-workspace">
-    <aside class="function-bar">
+  <section
+    class="agent-workspace"
+    :class="{ 'sidebar-open': sidebarOpen }"
+    @keydown.esc="sidebarOpen && closeSidebar()"
+  >
+    <button
+      v-if="sidebarOpen"
+      type="button"
+      class="sidebar-backdrop"
+      aria-label="收起侧栏"
+      @click="closeSidebar"
+    ></button>
+    <aside
+      id="workspace-sidebar"
+      ref="sidebar"
+      class="function-bar"
+      @keydown.esc.prevent.stop="closeSidebar"
+    >
       <div class="function-bar-head">
         <div class="function-bar-titlebar" data-tauri-drag-region="deep"></div>
         <div class="function-bar-brand">
-          <img :src="logoUrl" alt="Image Forge" />
+          <span class="brand-symbol"><Aperture :size="23" :stroke-width="1.7" /></span>
+          <span>Image Forge</span>
         </div>
         <nav class="function-bar-nav" aria-label="功能栏">
           <button
@@ -12,29 +29,30 @@
             class="function-bar-item"
             @click="
               panel = 'chat';
+              sidebarOpen = false;
               $emit('create');
             "
           >
-            <AppIcon :raw="newChatIcon" :size="16" />
+            <SquarePen :size="17" />
             <span>新对话</span>
           </button>
           <button
             type="button"
             class="function-bar-item"
             :class="{ active: panel === 'library' }"
-            @click="panel = panel === 'library' ? 'chat' : 'library'"
+            @click="
+              panel = panel === 'library' ? 'chat' : 'library';
+              sidebarOpen = false;
+            "
           >
-            <AppIcon :raw="libraryIcon" :size="16" />
+            <Images :size="17" />
             <span>图片库</span>
-          </button>
-          <button type="button" class="function-bar-item" @click="$emit('open-settings')">
-            <AppIcon :raw="settingsIcon" :size="16" />
-            <span>设置</span>
           </button>
         </nav>
       </div>
 
       <div class="function-bar-sessions">
+        <div class="sidebar-section-label">最近对话</div>
         <div v-if="sessions.length" class="agent-session-list">
           <div
             v-for="session in sessions"
@@ -49,6 +67,7 @@
               :title="session.title || '新对话'"
               @click="selectSession(session.id)"
               @keydown.enter="selectSession(session.id)"
+              @keydown.space.prevent="selectSession(session.id)"
             >
               <input
                 v-if="renaming?.id === session.id && renaming?.where === 'bar'"
@@ -81,10 +100,44 @@
         </div>
         <p v-else class="function-bar-empty">还没有对话</p>
       </div>
+      <footer class="function-bar-footer">
+        <button
+          type="button"
+          class="function-bar-item"
+          @click="
+            $emit('open-settings');
+            sidebarOpen = false;
+          "
+        >
+          <Settings2 :size="17" />
+          <span>设置</span>
+        </button>
+        <button
+          type="button"
+          class="icon-button theme-toggle"
+          :title="theme === 'dark' ? '切换到浅色模式' : '切换到深色模式'"
+          :aria-label="theme === 'dark' ? '切换到浅色模式' : '切换到深色模式'"
+          @click="$emit('toggle-theme')"
+        >
+          <Sun v-if="theme === 'dark'" :size="17" />
+          <Moon v-else :size="17" />
+        </button>
+      </footer>
     </aside>
 
     <div class="info-area">
       <header class="info-area-titlebar" data-tauri-drag-region="deep">
+        <button
+          ref="sidebarToggle"
+          type="button"
+          class="icon-button mobile-sidebar-toggle"
+          :aria-label="sidebarOpen ? '收起侧栏' : '展开侧栏'"
+          :aria-expanded="sidebarOpen"
+          aria-controls="workspace-sidebar"
+          @click="toggleSidebar"
+        >
+          <PanelLeft :size="18" />
+        </button>
         <template v-if="panel === 'chat'">
           <input
             v-if="renaming?.id === currentSession?.id && renaming?.where === 'top'"
@@ -162,17 +215,13 @@
 
 <script setup>
 import { nextTick, ref } from 'vue';
-import { Trash2 } from '@lucide/vue';
-import libraryIcon from '../assets/图片库.svg?raw';
-import newChatIcon from '../assets/新对话.svg?raw';
-import settingsIcon from '../assets/设置.svg?raw';
-import logoUrl from '../assets/title.png';
-import AppIcon from './snippets/AppIcon.vue';
+import { Aperture, Images, Moon, PanelLeft, Settings2, SquarePen, Sun, Trash2 } from '@lucide/vue';
 import AgentLibraryPanel from './AgentLibraryPanel.vue';
 import AgentComposer from './AgentComposer.vue';
 import AgentMessageList from './AgentMessageList.vue';
 
 defineProps({
+  theme: { type: String, default: 'light' },
   sessions: { type: Array, default: () => [] },
   currentSession: { type: Object, default: null },
   messages: { type: Array, default: () => [] },
@@ -211,6 +260,7 @@ const emit = defineEmits([
   'answer-questions',
   'delete-session',
   'open-settings',
+  'toggle-theme',
   'rename-session',
   'apply-template',
   'fill-template',
@@ -222,9 +272,24 @@ const emit = defineEmits([
 ]);
 
 const panel = ref('chat');
+const sidebarOpen = ref(false);
+const sidebar = ref(null);
+const sidebarToggle = ref(null);
 const renaming = ref(null);
 const titleDraft = ref('');
 let renameInputEl = null;
+
+async function toggleSidebar() {
+  if (sidebarOpen.value) return closeSidebar();
+  sidebarOpen.value = true;
+  await nextTick();
+  sidebar.value?.querySelector('button')?.focus();
+}
+
+function closeSidebar() {
+  sidebarOpen.value = false;
+  sidebarToggle.value?.focus();
+}
 
 function handleReferenceToAgent(payload) {
   panel.value = 'chat';
@@ -232,6 +297,7 @@ function handleReferenceToAgent(payload) {
 }
 
 function selectSession(id) {
+  sidebarOpen.value = false;
   panel.value = 'chat';
   emit('select', id);
 }

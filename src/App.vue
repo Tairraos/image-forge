@@ -1,190 +1,185 @@
 <template>
   <div v-if="isWeb && !unlocked" class="lock-screen">
-    <div class="lock-screen-card">
+    <form class="lock-screen-card" @submit.prevent="unlock">
       <img :src="logoUrl" alt="Image Forge" class="lock-screen-logo" />
       <h1>Image Forge</h1>
       <p>输入访问密码以继续</p>
-      <n-input
-        v-model:value="lockPassword"
+      <input
+        v-model="lockPassword"
+        class="form-control"
         type="password"
-        size="large"
+        aria-label="访问密码"
+        autocomplete="current-password"
         placeholder="访问密码"
-        :status="lockError ? 'error' : undefined"
-        @keydown.enter="unlock"
+        :aria-invalid="Boolean(lockError)"
       />
-      <n-button
-        type="primary"
-        size="large"
+      <button
+        type="submit"
         :disabled="!lockPassword.trim()"
-        class="lock-screen-btn"
-        @click="unlock"
+        class="button button-primary lock-screen-btn"
       >
         解锁
-      </n-button>
-      <p v-if="lockError" class="lock-screen-error">{{ lockError }}</p>
-    </div>
+      </button>
+      <p v-if="lockError" class="lock-screen-error" role="alert">{{ lockError }}</p>
+    </form>
   </div>
-  <n-config-provider v-else :theme-overrides="themeOverrides" component-size="small">
-    <n-global-style />
-    <AppShell>
-      <AgentWorkspace
-        :sessions="agentSessions"
-        :current-session="currentAgentSession"
-        :messages="currentAgentDisplayMessages"
-        :provider-id="form.chatProviderId"
+  <AppShell v-else>
+    <AgentWorkspace
+      :theme="resolvedTheme"
+      :sessions="agentSessions"
+      :current-session="currentAgentSession"
+      :messages="currentAgentDisplayMessages"
+      :provider-id="form.chatProviderId"
+      :image-provider-id="activeProvider?.id || ''"
+      :busy="agentBusy"
+      :stream-text="agentStreamText"
+      :tool-status-text="agentToolStatus"
+      :answers="agentAnswers"
+      :attachments="agentAttachments"
+      :agent-library-version="agentLibraryVersion"
+      :ratio="form.ratio"
+      :resolution="form.resolution"
+      :prefill-prompt="agentPrefillPrompt"
+      :templates="templates"
+      :template-fill-busy="templateFillBusy"
+      @create="createAgentConversation"
+      @select="selectAgentConversation"
+      @send="sendAgentConversationMessage"
+      @stop="stopAgentConversation"
+      @add-reference="addAgentReferenceImages"
+      @remove-attachment="removeAgentAttachment"
+      @open-task-group="openAgentTaskGroup"
+      @preview-images="openImageViewer"
+      @cancel-task-group="cancelAgentTaskGroup"
+      @retry-task-group="retryAgentTaskGroup"
+      @retry="retryAgentMessage"
+      @paste-reference="pasteAgentReferenceImage"
+      @drop-reference="addAgentReferencePaths"
+      @update-answer="updateAgentAnswer"
+      @answer-questions="answerAgentQuestions"
+      @delete-session="deleteAgentConversation"
+      @rename-session="renameAgentConversation"
+      @delete-task="deleteTask"
+      @download-output="downloadOutput"
+      @reveal-output="reveal($event.path)"
+      @open-settings="openDesign"
+      @toggle-theme="themePreference = resolvedTheme === 'dark' ? 'light' : 'dark'"
+      @apply-template="handleApplyTemplate"
+      @fill-template="handleFillTemplate"
+      @update:ratio="form.ratio = $event"
+      @update:resolution="form.resolution = $event"
+      @reference-to-agent="handleLibraryReferenceToAgent"
+      @add-to-template="handleLibraryAddToTemplate"
+      @redraw-task-group="handleRedrawTaskGroup"
+    />
+
+    <template #footer>
+      <AppFooterBar
+        :status-text="statusText"
+        :status-tone="statusTone"
         :image-provider-id="activeProvider?.id || ''"
-        :busy="agentBusy"
-        :stream-text="agentStreamText"
-        :tool-status-text="agentToolStatus"
-        :answers="agentAnswers"
-        :attachments="agentAttachments"
-        :agent-library-version="agentLibraryVersion"
-        :ratio="form.ratio"
-        :resolution="form.resolution"
-        :prefill-prompt="agentPrefillPrompt"
+        :image-provider-name="activeProvider?.name || ''"
+        :image-provider-options="imageProviderOptions"
+        :chat-provider-id="activeChatProvider?.id || ''"
+        :chat-provider-name="activeChatProvider?.name || ''"
+        :chat-provider-options="chatProviderOptions"
+        :running-count="queue.running.length"
+        :waiting-count="queue.waiting.length"
+        :image-provider-missing-key="Boolean(activeProvider && !activeProvider.apiKey)"
+        @select-image-provider="selectApiProvider('image', $event)"
+        @select-chat-provider="selectApiProvider('chat', $event)"
+      />
+    </template>
+
+    <template #dialogs>
+      <ApiSourceDialog v-model:show="showApiDialog" :settings="settings" @save="saveApiSettings" />
+
+      <DesignDialog
+        v-model:show="showDesignDialog"
+        v-model:theme="themePreference"
+        :settings="settings"
         :templates="templates"
-        :template-fill-busy="templateFillBusy"
-        @create="createAgentConversation"
-        @select="selectAgentConversation"
-        @send="sendAgentConversationMessage"
-        @stop="stopAgentConversation"
-        @add-reference="addAgentReferenceImages"
-        @remove-attachment="removeAgentAttachment"
-        @open-task-group="openAgentTaskGroup"
-        @preview-images="openImageViewer"
-        @cancel-task-group="cancelAgentTaskGroup"
-        @retry-task-group="retryAgentTaskGroup"
-        @retry="retryAgentMessage"
-        @paste-reference="pasteAgentReferenceImage"
-        @drop-reference="addAgentReferencePaths"
-        @update-answer="updateAgentAnswer"
-        @answer-questions="answerAgentQuestions"
-        @delete-session="deleteAgentConversation"
-        @rename-session="renameAgentConversation"
-        @delete-task="deleteTask"
-        @download-output="downloadOutput"
-        @reveal-output="reveal($event.path)"
-        @open-settings="openDesign"
-        @apply-template="handleApplyTemplate"
-        @fill-template="handleFillTemplate"
-        @update:ratio="form.ratio = $event"
-        @update:resolution="form.resolution = $event"
-        @reference-to-agent="handleLibraryReferenceToAgent"
-        @add-to-template="handleLibraryAddToTemplate"
-        @redraw-task-group="handleRedrawTaskGroup"
+        :info="aboutInfo"
+        :stats="libraryStats"
+        @save-api="saveApiSettings"
+        @edit-template="editTemplate"
+        @delete-template="deletePromptTemplate"
+        @create-template="newTemplate"
+        @import-template="importPromptTemplates"
+        @export-template="exportPromptTemplates"
+        @move-template="movePromptTemplate"
+        @show-template-effect="showTemplateEffect"
+        @show-template-image="showTemplateImage"
+        @cleanup="openCleanup"
+        @export-data="openExportData"
+        @import-data="openImportData"
       />
 
-      <template #footer>
-        <AppFooterBar
-          :status-text="statusText"
-          :status-tone="statusTone"
-          :image-provider-id="activeProvider?.id || ''"
-          :image-provider-name="activeProvider?.name || ''"
-          :image-provider-options="imageProviderOptions"
-          :chat-provider-id="activeChatProvider?.id || ''"
-          :chat-provider-name="activeChatProvider?.name || ''"
-          :chat-provider-options="chatProviderOptions"
-          :running-count="queue.running.length"
-          :waiting-count="queue.waiting.length"
-          :image-provider-missing-key="Boolean(activeProvider && !activeProvider.apiKey)"
-          @select-image-provider="selectApiProvider('image', $event)"
-          @select-chat-provider="selectApiProvider('chat', $event)"
-        />
-      </template>
+      <TemplateEditorDialog
+        v-model:show="showTemplateEditor"
+        :template="templateDraft"
+        :mode="templateEditorMode"
+        :references="templateDraftReferences"
+        :effect-image="templateDraftEffectImage"
+        :reference-drag-active="templateDraftDragActive"
+        @save="savePromptTemplate"
+        @add-reference="addTemplateDraftReferenceImages"
+        @remove-reference="removeReference(templateDraftReferences, $event)"
+        @add-effect-image="addTemplateDraftEffectImage"
+        @paste-effect-image="pasteTemplateDraftEffectImage"
+        @remove-effect-image="templateDraftEffectImage = null"
+        @paste-reference="handleTemplateDraftPaste"
+        @reference-drag-over="templateDraftDragActive = true"
+        @reference-drag-leave="templateDraftDragActive = false"
+        @drop-reference="handleTemplateDraftDropEvent"
+        @update:show="templateDraftDragActive = false"
+      />
 
-      <template #dialogs>
-        <ApiSourceDialog
-          v-model:show="showApiDialog"
-          :settings="settings"
-          @save="saveApiSettings"
-        />
+      <DataTransferDialog v-model:show="showDataTransfer" :mode="dataTransferMode" />
 
-        <DesignDialog
-          v-model:show="showDesignDialog"
-          :settings="settings"
-          :templates="templates"
-          :info="aboutInfo"
-          :stats="libraryStats"
-          @save-api="saveApiSettings"
-          @edit-template="editTemplate"
-          @delete-template="deletePromptTemplate"
-          @create-template="newTemplate"
-          @import-template="importPromptTemplates"
-          @export-template="exportPromptTemplates"
-          @move-template="movePromptTemplate"
-          @show-template-effect="showTemplateEffect"
-          @show-template-image="showTemplateImage"
-          @cleanup="openCleanup"
-          @export-data="openExportData"
-          @import-data="openImportData"
-        />
+      <EffectImageViewer
+        v-model:show="effectViewer.show"
+        :image-path="effectViewer.path"
+        :title="effectViewer.title"
+        :items="effectViewer.items"
+        :initial-index="effectViewer.index"
+        @download-output="downloadOutput"
+        @reveal-output="reveal($event.path)"
+        @delete-task="deleteTask"
+        @reference-to-agent="handleLibraryReferenceToAgent"
+        @add-to-template="handleLibraryAddToTemplate"
+      />
 
-        <TemplateEditorDialog
-          v-model:show="showTemplateEditor"
-          :template="templateDraft"
-          :mode="templateEditorMode"
-          :references="templateDraftReferences"
-          :effect-image="templateDraftEffectImage"
-          :reference-drag-active="templateDraftDragActive"
-          @save="savePromptTemplate"
-          @add-reference="addTemplateDraftReferenceImages"
-          @remove-reference="removeReference(templateDraftReferences, $event)"
-          @add-effect-image="addTemplateDraftEffectImage"
-          @paste-effect-image="pasteTemplateDraftEffectImage"
-          @remove-effect-image="templateDraftEffectImage = null"
-          @paste-reference="handleTemplateDraftPaste"
-          @reference-drag-over="templateDraftDragActive = true"
-          @reference-drag-leave="templateDraftDragActive = false"
-          @drop-reference="handleTemplateDraftDropEvent"
-          @update:show="templateDraftDragActive = false"
-        />
+      <CleanupDialog
+        v-model:show="showCleanupDialog"
+        :candidates="cleanupCandidates"
+        :loading="cleanupLoading"
+        :confirming="cleanupConfirming"
+        :error="cleanupError"
+        @confirm="confirmCleanup"
+      />
 
-        <DataTransferDialog v-model:show="showDataTransfer" :mode="dataTransferMode" />
+      <ConfirmDialog
+        v-model:show="confirmation.visible"
+        :title="confirmation.title"
+        :message="confirmation.message"
+        @confirm="resolveConfirmation(true)"
+        @cancel="resolveConfirmation(false)"
+      />
 
-        <EffectImageViewer
-          v-model:show="effectViewer.show"
-          :image-path="effectViewer.path"
-          :title="effectViewer.title"
-          :items="effectViewer.items"
-          :initial-index="effectViewer.index"
-          @download-output="downloadOutput"
-          @reveal-output="reveal($event.path)"
-          @delete-task="deleteTask"
-          @reference-to-agent="handleLibraryReferenceToAgent"
-          @add-to-template="handleLibraryAddToTemplate"
-        />
-
-        <CleanupDialog
-          v-model:show="showCleanupDialog"
-          :candidates="cleanupCandidates"
-          :loading="cleanupLoading"
-          :confirming="cleanupConfirming"
-          :error="cleanupError"
-          @confirm="confirmCleanup"
-        />
-
-        <ConfirmDialog
-          v-model:show="confirmation.visible"
-          :title="confirmation.title"
-          :message="confirmation.message"
-          @confirm="resolveConfirmation(true)"
-          @cancel="resolveConfirmation(false)"
-        />
-
-        <NoticeDialog
-          v-model:show="notice.visible"
-          :title="notice.title"
-          :message="notice.message"
-          :button-text="notice.buttonText"
-          @close="resolveNotice"
-        />
-      </template>
-    </AppShell>
-  </n-config-provider>
+      <NoticeDialog
+        v-model:show="notice.visible"
+        :title="notice.title"
+        :message="notice.message"
+        :button-text="notice.buttonText"
+        @close="resolveNotice"
+      />
+    </template>
+  </AppShell>
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import AgentWorkspace from './components/AgentWorkspace.vue';
 import AppFooterBar from './components/AppFooterBar.vue';
 import AppShell from './components/AppShell.vue';
@@ -206,7 +201,7 @@ import {
 } from './lib/referenceFiles';
 import { installAutoHideScrollbars } from './lib/scrollbarVisibility';
 import { DEFAULT_PROMPT_MODE, DEFAULT_RATIO } from './lib/options';
-import { themeOverrides } from './lib/theme';
+import { applyTheme, readThemePreference, saveThemePreference } from './lib/theme';
 import {
   listenDragDrop,
   listenEvent,
@@ -220,6 +215,18 @@ import logoUrl from './assets/title.png';
 
 const statusText = ref('启动中');
 const statusTone = ref('busy');
+const themePreference = ref(readThemePreference());
+const resolvedTheme = ref(applyTheme(themePreference.value));
+const systemTheme = window.matchMedia('(prefers-color-scheme: dark)');
+
+watch(themePreference, (value) => {
+  resolvedTheme.value = applyTheme(value);
+  saveThemePreference(value);
+});
+
+function syncSystemTheme() {
+  if (themePreference.value === 'system') resolvedTheme.value = applyTheme('system');
+}
 
 // 密码锁（仅 Web 版生效）
 const isWeb = !window.__TAURI_INTERNALS__;
@@ -401,6 +408,7 @@ const currentAgentDisplayMessages = computed(() =>
 );
 
 onMounted(async () => {
+  systemTheme.addEventListener('change', syncSystemTheme);
   removeScrollbarVisibility = installAutoHideScrollbars();
   try {
     await restoreWindowState();
@@ -451,6 +459,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  systemTheme.removeEventListener('change', syncSystemTheme);
   window.clearInterval(pollTimer);
   window.clearInterval(agentTaskGroupPollTimer);
   unlistenDragDrop?.();

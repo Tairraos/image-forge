@@ -1,32 +1,47 @@
 <template>
-  <n-modal
+  <NativeDialog
     v-model:show="visible"
-    preset="card"
     class="data-transfer-modal"
     :title="mode === 'export' ? '导出数据' : '导入数据'"
-    :bordered="false"
-    style="width: min(560px, calc(100vw - 48px))"
   >
     <template v-if="mode === 'export'">
       <p class="data-transfer-desc">选择要导出的内容，生成一个 ZIP 文件。</p>
-      <n-checkbox-group v-model:value="selected">
-        <n-space vertical>
-          <n-checkbox value="settings" label="API 源配置" />
-          <n-checkbox value="templates" label="提示词模板" />
-          <n-checkbox value="sessions" label="Agent 对话" />
-          <n-checkbox value="tasks" label="图片库" />
-        </n-space>
-      </n-checkbox-group>
+      <div class="data-transfer-options">
+        <label class="checkbox-field"
+          ><input v-model="selected" type="checkbox" value="settings" /><span
+            >API 源配置<small>服务地址、模型与密钥</small></span
+          ></label
+        >
+        <label class="checkbox-field"
+          ><input v-model="selected" type="checkbox" value="templates" /><span
+            >提示词模板<small>模板内容与参考图</small></span
+          ></label
+        >
+        <label class="checkbox-field"
+          ><input v-model="selected" type="checkbox" value="sessions" /><span
+            >Agent 对话<small>会话记录与创作过程</small></span
+          ></label
+        >
+        <label class="checkbox-field"
+          ><input v-model="selected" type="checkbox" value="tasks" /><span
+            >图片库<small>生成的图片与任务信息</small></span
+          ></label
+        >
+      </div>
+      <p v-if="selected.includes('settings')" class="data-transfer-key-note">
+        备份包含明文 API Key，请保存在可信位置。
+      </p>
       <div class="data-transfer-actions">
-        <n-button @click="emit('update:show', false)">取消</n-button>
-        <n-button
-          type="primary"
-          :loading="exporting"
-          :disabled="!selected.length"
+        <button type="button" class="button" @click="emit('update:show', false)">取消</button>
+        <button
+          type="button"
+          class="button button-primary"
+          :aria-busy="exporting"
+          :disabled="!selected.length || exporting"
           @click="doExport"
         >
           导出 ZIP
-        </n-button>
+        </button>
       </div>
       <p v-if="exportResult" class="data-transfer-result">{{ exportResult }}</p>
     </template>
@@ -41,7 +56,7 @@
         @drop.prevent="handleDrop"
       >
         <p>拖入 ZIP 文件，或点击选择</p>
-        <n-button size="small" @click="pickFile">选择文件</n-button>
+        <button type="button" class="button button-small" @click="pickFile">选择文件</button>
       </div>
       <input
         ref="fileInput"
@@ -51,14 +66,15 @@
         @change="handleFileChange"
       />
       <div class="data-transfer-actions">
-        <n-button @click="emit('update:show', false)">关闭</n-button>
+        <button type="button" class="button" @click="emit('update:show', false)">关闭</button>
       </div>
       <p v-if="importResult" class="data-transfer-result">{{ importResult }}</p>
     </template>
-  </n-modal>
+  </NativeDialog>
 </template>
 
 <script setup>
+import NativeDialog from './NativeDialog.vue';
 import { ref, watch, computed } from 'vue';
 import * as api from '../../api/index.js';
 
@@ -130,42 +146,3 @@ async function doImport(file) {
   }
 }
 </script>
-
-<style scoped>
-.data-transfer-desc {
-  margin: 0 0 12px;
-  color: #666;
-  font-size: 13px;
-}
-.data-transfer-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 16px;
-}
-.data-transfer-result {
-  margin: 12px 0 0;
-  color: #237257;
-  font-size: 12px;
-  word-break: break-all;
-}
-.data-transfer-drop {
-  display: grid;
-  place-items: center;
-  gap: 8px;
-  padding: 24px;
-  border: 1px dashed #c8bdf0;
-  border-radius: 10px;
-  background: #faf8ff;
-  text-align: center;
-}
-.data-transfer-drop.active {
-  border-color: #7c5ce8;
-  background: #f4efff;
-}
-.data-transfer-drop p {
-  margin: 0;
-  color: #666;
-  font-size: 13px;
-}
-</style>

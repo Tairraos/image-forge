@@ -1,12 +1,14 @@
 <template>
-  <n-modal v-model:show="show" class="effect-image-viewer" :mask-closable="false">
-    <div
-      class="effect-image-viewer-stage"
-      role="dialog"
-      aria-modal="true"
-      :aria-label="currentTitle"
-      @click="handleStageClick"
-    >
+  <NativeDialog
+    v-model:show="show"
+    class="effect-image-viewer"
+    :title="currentTitle"
+    frameless
+    :mask-closable="false"
+    :close-on-esc="false"
+    @keydown="closeOnKey"
+  >
+    <div class="effect-image-viewer-stage" @click="handleStageClick">
       <!-- 顶部标题条：左半提示词，右侧 info 与操作一上一下 -->
       <header class="viewer-title-bar" :class="{ expanded }" @click.stop="expanded = !expanded">
         <div class="viewer-title-prompts">
@@ -50,6 +52,15 @@
             </div>
           </div>
         </div>
+        <button
+          type="button"
+          class="icon-button viewer-close"
+          aria-label="关闭预览"
+          title="关闭预览 · Esc"
+          @click.stop="show = false"
+        >
+          <X :size="18" />
+        </button>
       </header>
 
       <!-- 展开面板：上方全部提示词（可滚动），底部按钮与 info 常驻；点击任意空白处收起 -->
@@ -132,10 +143,11 @@
         />
       </div>
     </div>
-  </n-modal>
+  </NativeDialog>
 </template>
 
 <script setup>
+import NativeDialog from './NativeDialog.vue';
 import {
   BookmarkPlus,
   ChevronLeft,
@@ -145,6 +157,7 @@ import {
   FolderOpen,
   Link2,
   Trash2,
+  X,
 } from '@lucide/vue';
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { convertFileSrc } from '../../tauri';
@@ -249,12 +262,10 @@ watch(currentIndex, () => {
 });
 
 onMounted(() => {
-  window.addEventListener('keydown', closeOnKey);
   window.addEventListener('resize', updateViewport);
 });
 
 onUnmounted(() => {
-  window.removeEventListener('keydown', closeOnKey);
   window.removeEventListener('resize', updateViewport);
 });
 
@@ -279,6 +290,7 @@ function handleStageClick() {
 function closeOnKey(event) {
   if (!show.value) return;
   if (event.key === 'Escape') {
+    event.preventDefault();
     if (overlayPath.value) overlayPath.value = '';
     else if (expanded.value) expanded.value = false;
     else show.value = false;

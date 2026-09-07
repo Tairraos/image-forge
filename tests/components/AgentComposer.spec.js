@@ -3,6 +3,23 @@ import { describe, expect, it } from 'vitest';
 import AgentComposer from '../../src/components/AgentComposer.vue';
 
 describe('AgentComposer', () => {
+  it('底部原生控件发出比例和分辨率变更，忙碌时禁止发送', async () => {
+    const wrapper = mount(AgentComposer, {
+      props: { providerId: 'chat', imageProviderId: 'image' },
+    });
+    await wrapper.get('.agent-composer-footer select[aria-label="图片比例"]').setValue('16:9');
+    await wrapper.get('.agent-composer-footer select[aria-label="图片分辨率"]').setValue('2k');
+    expect(wrapper.emitted('update:ratio')).toEqual([['16:9']]);
+    expect(wrapper.emitted('update:resolution')).toEqual([['2k']]);
+    await wrapper.get('textarea').setValue('保留的草稿');
+    await wrapper.setProps({ busy: true });
+    await wrapper.get('textarea').trigger('keydown', { key: 'Enter' });
+    expect(wrapper.emitted('send')).toBeUndefined();
+    expect(wrapper.get('textarea').element.value).toBe('保留的草稿');
+    await wrapper.get('[aria-label="停止生成"]').trigger('click');
+    expect(wrapper.emitted('stop')).toHaveLength(1);
+  });
+
   it('普通消息发送给对话模型', async () => {
     const wrapper = mount(AgentComposer, {
       props: { providerId: 'chat', imageProviderId: 'image' },

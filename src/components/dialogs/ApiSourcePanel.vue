@@ -2,22 +2,37 @@
   <div class="api-manager">
     <header class="api-manager-head">
       <div class="api-manager-title">
-        {{ kindLabel }}
+        <span>API 源</span>
         <span class="api-manager-count">{{ visibleProviders.length }} 项</span>
-        <span v-if="listMessage" class="api-manager-message" :data-tone="listMessageTone">
+        <span
+          v-if="listMessage"
+          class="api-manager-message"
+          :data-tone="listMessageTone"
+          role="status"
+        >
           {{ listMessage }}
         </span>
       </div>
       <div class="api-manager-actions">
-        <n-button size="small" secondary @click="pasteProvider">粘贴</n-button>
-        <n-button size="small" secondary :disabled="!expandedProvider" @click="cloneProvider">
-          <template #icon><Copy :size="14" /></template>
+        <button type="button" class="button button-small" @click="pasteProvider">
+          <ClipboardPaste :size="15" />粘贴配置
+        </button>
+        <button
+          type="button"
+          class="button button-small"
+          :disabled="!expandedProvider"
+          @click="cloneProvider"
+        >
+          <Copy :size="14" />
           克隆
-        </n-button>
-        <n-button size="small" type="primary" @click="addProvider">+ 新增</n-button>
+        </button>
+        <button type="button" class="button button-small button-primary" @click="addProvider">
+          <Plus :size="15" />新增 API
+        </button>
       </div>
     </header>
 
+    <p class="api-manager-hint">排在首位的 API 作为默认来源，可拖动或用箭头调整顺序。</p>
     <div class="api-list" data-persistent-scrollbar>
       <div
         v-for="(provider, index) in visibleProviders"
@@ -41,11 +56,13 @@
             @dragstart="onDragStart(provider.id, $event)"
             @dragend="onDragEnd"
           >
-            <AlignJustify :size="14" />
+            <GripVertical :size="15" />
           </button>
           <button
             type="button"
             class="api-row-main"
+            :aria-expanded="expandedId === provider.id"
+            :aria-controls="`api-details-${provider.id}`"
             :title="expandedId === provider.id && expandedMode === 'edit' ? '' : '点击查看详情'"
             @click="toggleDetail(provider.id)"
           >
@@ -110,7 +127,11 @@
           </div>
         </div>
 
-        <div v-if="expandedId === provider.id" class="api-drawer">
+        <div
+          v-if="expandedId === provider.id"
+          :id="`api-details-${provider.id}`"
+          class="api-drawer"
+        >
           <!-- 只读详情 -->
           <dl v-if="expandedMode !== 'edit'" class="api-drawer-readonly">
             <div>
@@ -144,66 +165,131 @@
           </dl>
 
           <!-- 编辑表单 -->
-          <n-form v-else class="provider-form" label-placement="top" :show-feedback="false">
-            <n-form-item label="名称">
-              <n-input v-model:value="provider.name" placeholder="例如 OpenAI / Azure / 自建服务" />
-            </n-form-item>
-            <n-form-item label="Base URL">
-              <n-input v-model:value="provider.baseUrl" placeholder="https://api.openai.com/v1" />
-            </n-form-item>
-            <n-form-item label="API Key">
-              <n-input
-                v-model:value="provider.apiKey"
-                type="password"
-                show-password-on="click"
-                placeholder="sk-..."
-              />
-            </n-form-item>
-            <n-form-item label="代理地址">
-              <n-input
-                v-model:value="provider.proxyUrl"
-                placeholder="可选，例如 http://127.0.0.1:7890"
-              />
-            </n-form-item>
-            <n-form-item label="模型">
+          <form v-else class="provider-form" @submit.prevent="saveEdits">
+            <label class="form-field"
+              ><span>名称</span
+              ><input
+                v-model="provider.name"
+                class="form-control"
+                placeholder="例如 OpenAI / 自建服务"
+            /></label>
+            <label class="form-field"
+              ><span>Base URL</span
+              ><input
+                v-model="provider.baseUrl"
+                class="form-control"
+                placeholder="https://api.openai.com/v1"
+                spellcheck="false"
+            /></label>
+            <label class="form-field"
+              ><span>API Key</span
+              ><span class="password-field"
+                ><input
+                  v-model="provider.apiKey"
+                  class="form-control"
+                  :type="passwordVisible ? 'text' : 'password'"
+                  aria-label="API Key"
+                  placeholder="sk-..."
+                  autocomplete="off"
+                  spellcheck="false" /><button
+                  type="button"
+                  class="icon-button"
+                  :title="passwordVisible ? '隐藏 API Key' : '显示 API Key'"
+                  :aria-label="passwordVisible ? '隐藏 API Key' : '显示 API Key'"
+                  :aria-pressed="passwordVisible"
+                  @click="passwordVisible = !passwordVisible"
+                >
+                  <EyeOff v-if="passwordVisible" :size="16" /><Eye
+                    v-else
+                    :size="16"
+                  /></button></span
+            ></label>
+            <label class="form-field"
+              ><span>代理地址 <small>可选</small></span
+              ><input
+                v-model="provider.proxyUrl"
+                class="form-control"
+                placeholder="http://127.0.0.1:7890"
+                spellcheck="false"
+            /></label>
+            <div class="form-field form-field-wide">
+              <label :for="`${modelListId}-input`">模型</label>
               <div class="model-select-row">
-                <n-select
+                <input
+                  :id="`${modelListId}-input`"
                   :value="provider.imageModel"
-                  filterable
-                  tag
-                  :options="modelOptions"
-                  placeholder="选择或输入模型 ID"
-                  @update:value="updateSelectedModel"
+                  class="form-control"
+                  :list="modelListId"
+                  placeholder="输入模型 ID，或从列表选择"
+                  spellcheck="false"
+                  @input="updateSelectedModel($event.target.value)"
                 />
-                <n-button secondary :loading="loadingModels" @click="fetchModels"> 获取 </n-button>
+                <datalist :id="modelListId">
+                  <option
+                    v-for="option in modelOptions"
+                    :key="option.value"
+                    :value="option.value"
+                  ></option>
+                </datalist>
+                <button
+                  type="button"
+                  class="button"
+                  :disabled="loadingModels"
+                  :aria-busy="loadingModels"
+                  @click="fetchModels"
+                >
+                  <RefreshCw :size="14" :class="{ spinning: loadingModels }" />{{
+                    loadingModels ? '获取中' : '获取模型'
+                  }}
+                </button>
               </div>
-            </n-form-item>
-            <!-- 绘图 API：可编辑模型类型；对话 API：只读展示「对话模型」 -->
-            <n-form-item label="模型类型">
-              <n-select
+            </div>
+            <label class="form-field"
+              ><span>模型类型</span>
+              <select
                 v-if="kind === 'image'"
+                class="form-control"
                 :value="provider.modelType"
-                :options="imageModelTypeOptions"
-                placeholder="选择模型类型"
-                :consistent-menu-width="false"
-                @update:value="updateSelectedModelType"
-              />
-              <n-input v-else :value="chatModelTypeLabel" readonly disabled />
-            </n-form-item>
-            <n-form-item v-if="kind === 'chat'" label="视觉输入">
-              <n-checkbox v-model:checked="provider.chatVision">
-                对话模型支持图片理解（Agent 会把参考图一并发送）
-              </n-checkbox>
-            </n-form-item>
-            <p v-if="modelFetchMessage" class="model-fetch-message" :data-tone="modelFetchTone">
+                @change="updateSelectedModelType($event.target.value)"
+              >
+                <option
+                  v-for="option in imageModelTypeOptions"
+                  :key="option.value"
+                  :value="option.value"
+                >
+                  {{ option.label }}
+                </option>
+              </select>
+              <input v-else class="form-control" :value="chatModelTypeLabel" readonly disabled />
+            </label>
+            <label v-if="kind === 'chat'" class="checkbox-field provider-vision"
+              ><input v-model="provider.chatVision" type="checkbox" /><span
+                >支持图片理解<small>向对话模型发送参考图</small></span
+              ></label
+            >
+            <p
+              v-if="modelFetchMessage"
+              class="model-fetch-message form-field-wide"
+              :data-tone="modelFetchTone"
+              role="status"
+            >
               {{ modelFetchMessage }}
             </p>
-          </n-form>
+            <div class="provider-form-actions form-field-wide">
+              <button type="submit" class="button button-primary">
+                <Save :size="15" />保存配置
+              </button>
+            </div>
+          </form>
         </div>
       </div>
-      <p v-if="!visibleProviders.length" class="provider-empty">
-        还没有{{ kindLabel }}源，点右上角「+ 新增」。
-      </p>
+      <div v-if="!visibleProviders.length" class="provider-empty">
+        <Plug :size="28" /><strong>连接你的{{ kindLabel }}</strong>
+        <p>添加 API 地址与密钥，即可开始创作。</p>
+        <button type="button" class="button button-primary" @click="addProvider">
+          <Plus :size="15" />添加 API 源
+        </button>
+      </div>
     </div>
   </div>
 
@@ -217,8 +303,22 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from 'vue';
-import { AlignJustify, ArrowDown, ArrowUp, Copy, Pencil, Save, Trash2 } from '@lucide/vue';
+import { computed, reactive, ref, useId, watch } from 'vue';
+import {
+  ArrowDown,
+  ArrowUp,
+  ClipboardPaste,
+  Copy,
+  Eye,
+  EyeOff,
+  GripVertical,
+  Pencil,
+  Plug,
+  Plus,
+  RefreshCw,
+  Save,
+  Trash2,
+} from '@lucide/vue';
 import ConfirmDialog from './ConfirmDialog.vue';
 import * as api from '../../api/index.js';
 import {
@@ -245,6 +345,8 @@ const props = defineProps({
 const emit = defineEmits(['close', 'save']);
 
 const draft = reactive(defaultSettings());
+const modelListId = useId();
+const passwordVisible = ref(false);
 /** 抽屉展开的 API 项 id；空串表示全部收起 */
 const expandedId = ref('');
 /** 抽屉模式：readonly 只读详情 / edit 编辑表单 */
@@ -330,6 +432,7 @@ function toggleDetail(id) {
 }
 
 function openEdit(id) {
+  passwordVisible.value = false;
   expandedId.value = id;
   expandedMode.value = 'edit';
   modelFetchMessage.value = '';

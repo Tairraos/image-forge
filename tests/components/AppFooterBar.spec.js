@@ -2,37 +2,30 @@ import { mount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
 import AppFooterBar from '../../src/components/AppFooterBar.vue';
 
-const PopselectStub = {
-  props: ['value', 'options', 'placement', 'trigger'],
-  emits: ['update:value'],
-  template: '<div class="popselect-stub"><slot /></div>',
-};
-
 describe('AppFooterBar', () => {
-  it('显示生图和对话 API，并让两个菜单向上展开', async () => {
+  it('原生选择框独立切换绘图与对话模型', async () => {
     const wrapper = mount(AppFooterBar, {
       props: {
         imageProviderId: 'image-1',
         imageProviderName: '生图源',
-        imageProviderOptions: [{ label: '生图源', value: 'image-1' }],
+        imageProviderOptions: [
+          { label: '生图源', value: 'image-1' },
+          { label: '另一个生图源', value: 'image-2' },
+        ],
         chatProviderId: 'chat-1',
         chatProviderName: '对话源',
-        chatProviderOptions: [{ label: '对话源', value: 'chat-1' }],
+        chatProviderOptions: [
+          { label: '对话源', value: 'chat-1' },
+          { label: '另一个对话源', value: 'chat-2' },
+        ],
       },
-      global: { stubs: { NPopselect: PopselectStub } },
     });
-
-    expect(wrapper.findAll('.status-api-name').map((item) => item.text())).toEqual([
-      '生图源',
-      '对话源',
-    ]);
-    expect(wrapper.get('.status-api-separator').text()).toBe('/');
-    const selectors = wrapper.findAllComponents(PopselectStub);
-    expect(selectors).toHaveLength(2);
-    expect(selectors.every((selector) => selector.props('placement') === 'top-start')).toBe(true);
-    selectors[0].vm.$emit('update:value', 'image-2');
-    selectors[1].vm.$emit('update:value', 'chat-2');
-    await wrapper.vm.$nextTick();
+    const image = wrapper.get('select[aria-label="绘图模型"]');
+    const chat = wrapper.get('select[aria-label="对话模型"]');
+    expect(image.element.value).toBe('image-1');
+    expect(chat.element.value).toBe('chat-1');
+    await image.setValue('image-2');
+    await chat.setValue('chat-2');
     expect(wrapper.emitted('select-image-provider')).toEqual([['image-2']]);
     expect(wrapper.emitted('select-chat-provider')).toEqual([['chat-2']]);
   });

@@ -1,8 +1,9 @@
 <template>
   <div ref="listRef" class="agent-message-list">
     <div v-if="!messages.length" class="agent-empty">
-      <strong>开始一段对话</strong>
-      <span>直接聊天，或勾选“本轮进行绘画”把提示词送到绘画模型。</span>
+      <span class="agent-empty-mark"><Aperture :size="32" :stroke-width="1.4" /></span>
+      <h1>从一个想法开始</h1>
+      <p>描述你的画面，与 Agent 一起把灵感变成作品。</p>
     </div>
     <article
       v-for="message in messages"
@@ -11,7 +12,10 @@
       :data-role="message.role"
     >
       <div class="agent-message-role" tabindex="0">
-        <Icon :icon="roleIcon(message.role)" />
+        <UserRound v-if="message.role === 'user'" :size="15" /><Wrench
+          v-else-if="message.role === 'tool'"
+          :size="15"
+        /><Aperture v-else :size="17" />
         <span>{{ roleLabel(message.role) }}</span>
         <time v-if="message.createdAt">{{ formatMessageTime(message.createdAt) }}</time>
       </div>
@@ -51,17 +55,23 @@
         <div class="agent-question-fields">
           <label v-for="question in message.questions" :key="question.key">
             <span>{{ question.label }}</span>
-            <n-input
+            <textarea
+              class="form-control"
+              rows="2"
               :value="answers[question.key] || ''"
               :placeholder="question.placeholder"
-              @update:value="$emit('update-answer', { key: question.key, value: $event })"
-            />
+              @input="$emit('update-answer', { key: question.key, value: $event.target.value })"
+            ></textarea>
           </label>
         </div>
         <div class="agent-question-actions">
-          <n-button size="small" type="primary" @click="$emit('answer-questions', message)"
-            >提交回答</n-button
+          <button
+            type="button"
+            class="button button-small button-primary"
+            @click="$emit('answer-questions', message)"
           >
+            提交回答
+          </button>
         </div>
       </div>
       <div v-if="message.taskGroup" class="agent-task-group-card">
@@ -79,31 +89,30 @@
             elapsed(message)
           }}</span>
           <div class="agent-task-group-spacer"></div>
-          <n-button
+          <button
             v-if="!isTerminalStatus(message.taskGroup.status)"
-            size="tiny"
-            secondary
+            type="button"
+            class="button button-small"
             @click="$emit('cancel-task-group', message.taskGroup)"
           >
             取消
-          </n-button>
-          <n-button
+          </button>
+          <button
             v-if="canRetryStatus(message.taskGroup.status)"
-            size="tiny"
-            type="warning"
-            secondary
+            type="button"
+            class="button button-small"
             @click="$emit('retry-task-group', message.taskGroup)"
           >
             重试
-          </n-button>
-          <n-button
+          </button>
+          <button
             v-if="message.taskGroup.status === 'completed' && message.taskGroup.taskIds?.length"
-            size="tiny"
-            secondary
+            type="button"
+            class="button button-small"
             @click="$emit('redraw-task-group', message.taskGroup)"
           >
             再来一张
-          </n-button>
+          </button>
         </div>
         <div v-if="message.taskGroup.images?.length" class="agent-generated-thumbs">
           <button
@@ -122,15 +131,14 @@
           </button>
         </div>
       </div>
-      <n-button
+      <button
         v-if="message.error"
-        size="tiny"
-        type="error"
-        secondary
+        type="button"
+        class="button button-small button-danger"
         @click="$emit('retry', message)"
       >
         {{ message.error }} · 重试
-      </n-button>
+      </button>
     </article>
     <article
       v-if="busy || streamText || toolStatusText"
@@ -138,13 +146,17 @@
       data-role="assistant"
     >
       <div class="agent-message-role" tabindex="0">
-        <Icon :icon="robotLine" />
+        <Aperture :size="17" />
         <span>Agent</span>
       </div>
       <div
+        v-if="streamText"
         class="agent-message-body agent-message-markdown"
-        v-html="renderMarkdown(streamText || toolStatusText || '正在思考...')"
+        v-html="renderMarkdown(streamText)"
       ></div>
+      <div v-else class="agent-thinking" role="status">
+        <span class="thinking-dot"></span>{{ toolStatusText || '正在思考…' }}
+      </div>
     </article>
   </div>
 </template>
@@ -152,20 +164,8 @@
 <script setup>
 import MarkdownIt from 'markdown-it';
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { Icon } from '@iconify/vue';
-import meIcon from '@iconify-icons/icon-park-solid/me';
+import { Aperture, UserRound, Wrench } from '@lucide/vue';
 import { fileUrl } from '../lib/formatters';
-
-const robotLine = {
-  body: '<g fill="none"><path d="m12.594 23.258l-.012.002l-.071.035l-.02.004l-.014-.004l-.071-.036q-.016-.004-.024.006l-.004.01l-.017.428l.005.02l.01.013l.104.074l.015.004l.012-.004l.104-.074l.012-.016l.004-.017l-.017-.427q-.004-.016-.016-.018m.264-.113l-.014.002l-.184.093l-.01.01l-.003.011l.018.43l.005.012l.008.008l.201.092q.019.005.029-.008l.004-.014l-.034-.614q-.005-.019-.02-.022m-.715.002a.02.02 0 0 0-.027.006l-.006.014l-.034.614q.001.018.017.024l.015-.002l.201-.093l.01-.008l.003-.011l.018-.43l-.003-.012l-.01-.01z"/><path fill="currentColor" d="M18 10a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2zM8 14v-2a1 1 0 1 1 2 0v2a1 1 0 1 1-2 0m6 0v-2a1 1 0 1 1 2 0v2a1 1 0 1 1-2 0m0-10c0 .74-.403 1.383-1 1.73V6h3a4 4 0 0 1 4 4v.05a2.501 2.501 0 0 1 0 4.9V16a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4v-1.05a2.5 2.5 0 0 1 0-4.9V10a4 4 0 0 1 4-4h3v-.27A2 2 0 1 1 14 4"/></g>',
-  width: 24,
-  height: 24,
-};
-const paintTool = {
-  body: '<path fill="currentColor" d="M18 1h-8a3 3 0 0 0-3 3H6a3 3 0 0 0-3 3v3a3 3 0 0 0 3 3h6a1 1 0 0 1 1 1v1a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2v-1a3 3 0 0 0-3-3H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h1a3 3 0 0 0 3 3h8a3 3 0 0 0 3-3V4a3 3 0 0 0-3-3m-3 16v4h-2v-4Zm4-11a1 1 0 0 1-1 1h-8a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1Z"/>',
-  width: 24,
-  height: 24,
-};
 
 const props = defineProps({
   messages: { type: Array, default: () => [] },
@@ -252,11 +252,6 @@ function roleLabel(role) {
   if (role === 'user') return '你';
   if (role === 'tool') return '工具';
   return 'Agent';
-}
-
-function roleIcon(role) {
-  if (role === 'tool') return paintTool;
-  return role === 'user' ? meIcon : robotLine;
 }
 
 function formatMessageTime(value) {

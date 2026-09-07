@@ -47,14 +47,11 @@
     "vitest": "^4.1.10"
   },
   "dependencies": {
-    "@iconify-icons/icon-park-solid": "^1.2.8",
-    "@iconify/vue": "^5.0.1",
     "@lucide/vue": "^1.23.0",
     "@tauri-apps/api": "^2.11.1",
     "dexie": "^4.4.5",
     "jszip": "^3.10.1",
     "markdown-it": "^14.3.0",
-    "naive-ui": "^2.44.1",
     "vue": "^3.5.39"
   },
   "lint-staged": {

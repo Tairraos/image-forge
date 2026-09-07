@@ -1,127 +1,164 @@
 <template>
-  <div
-    class="agent-composer"
-    data-reference-drop-target="agent"
-    :class="{ 'reference-drop-active': dragActive }"
-    @dragover.prevent="dragActive = true"
-    @dragleave="dragActive = false"
-    @drop.prevent="dropFiles"
-  >
-    <div class="agent-composer-body">
-      <div class="agent-composer-input-wrap" :class="{ 'has-reference': attachments.length }">
-        <div v-if="attachments.length" class="agent-reference-overlay">
-          <div v-for="attachment in attachments" :key="attachment.id" class="agent-reference-thumb">
-            <img :src="attachment.dataUrl" :alt="attachment.fileName" />
-            <button
-              type="button"
-              title="移除参考图"
-              aria-label="移除参考图"
-              @click.stop="$emit('remove-attachment', attachment.id)"
+  <div class="agent-composer-area">
+    <div
+      class="agent-composer"
+      data-reference-drop-target="agent"
+      :class="{ 'reference-drop-active': dragActive, 'is-busy': busy }"
+      @dragover.prevent="dragActive = true"
+      @dragleave="dragActive = false"
+      @drop.prevent="dropFiles"
+    >
+      <div v-if="attachments.length" class="agent-reference-overlay">
+        <div v-for="attachment in attachments" :key="attachment.id" class="agent-reference-thumb">
+          <img :src="attachment.dataUrl" :alt="attachment.fileName" />
+          <button
+            type="button"
+            title="移除参考图"
+            aria-label="移除参考图"
+            @click.stop="$emit('remove-attachment', attachment.id)"
+          >
+            <X :size="12" />
+          </button>
+        </div>
+      </div>
+      <textarea
+        ref="promptInput"
+        v-model="draft"
+        class="agent-prompt-input"
+        rows="3"
+        aria-label="提示词"
+        placeholder="描述你的想法，或粘贴、拖入参考图…"
+        :disabled="busy"
+        @paste="handlePaste"
+        @keydown="handleKeydown"
+      ></textarea>
+      <footer class="agent-composer-footer">
+        <div class="agent-composer-toolbar">
+          <button
+            type="button"
+            class="agent-toolbar-btn icon-button"
+            :disabled="busy"
+            title="添加参考图"
+            aria-label="添加参考图"
+            @click="$emit('add-reference')"
+          >
+            <ImagePlus :size="18" />
+          </button>
+          <details
+            ref="templateMenu"
+            class="template-picker-menu"
+            @keydown.esc.prevent.stop="closeTemplateMenu"
+          >
+            <summary
+              class="agent-toolbar-btn"
+              :aria-disabled="busy"
+              @click="busy && $event.preventDefault()"
             >
-              <X :size="12" />
-            </button>
-          </div>
+              <LayoutTemplate :size="16" /><span>模板</span><ChevronDown :size="12" />
+            </summary>
+            <div class="template-picker">
+              <div class="template-picker-heading">提示词模板</div>
+              <div v-if="!templates.length" class="template-picker-empty">
+                还没有模板，在设置的模板库中创建后即可使用。
+              </div>
+              <div v-for="template in templates" :key="template.id" class="template-picker-item">
+                <div class="template-picker-main">
+                  <strong>{{ template.title || '未命名模板' }}</strong
+                  ><span>{{ template.content }}</span>
+                </div>
+                <div class="template-picker-actions">
+                  <button
+                    type="button"
+                    class="button button-small"
+                    @click.stop="insertTemplate(template)"
+                  >
+                    插入
+                  </button>
+                  <button
+                    v-if="hasPlaceholders(template.content)"
+                    type="button"
+                    class="button button-small"
+                    :disabled="templateFillBusy"
+                    @click.stop="fillTemplate(template)"
+                  >
+                    {{ templateFillBusy ? '填充中…' : 'AI 填充' }}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </details>
+          <span class="composer-toolbar-divider" aria-hidden="true"></span>
+          <label class="agent-param-group" title="图片比例">
+            <Ratio :size="15" />
+            <select
+              class="agent-select agent-ratio-select"
+              aria-label="图片比例"
+              :value="ratio"
+              :disabled="busy"
+              @change="$emit('update:ratio', $event.target.value)"
+            >
+              <option v-for="value in RATIO_LIST" :key="value" :value="value">{{ value }}</option>
+            </select>
+          </label>
+          <label class="agent-param-group" title="图片分辨率">
+            <select
+              class="agent-select agent-resolution-select"
+              aria-label="图片分辨率"
+              :value="resolution"
+              :disabled="busy"
+              @change="$emit('update:resolution', $event.target.value)"
+            >
+              <option
+                v-for="option in currentResolutionOptions"
+                :key="option.value"
+                :value="option.value"
+              >
+                {{ option.label }}
+              </option>
+            </select>
+          </label>
+          <label
+            class="composer-draw-toggle"
+            :class="{ active: drawThisTurn }"
+            title="将提示词直接发送给绘图模型"
+          >
+            <input v-model="drawThisTurn" type="checkbox" :disabled="busy" />
+            <span>直接绘画</span>
+          </label>
         </div>
-        <n-input
-          v-model:value="draft"
-          type="textarea"
-          :autosize="{ minRows: 2, maxRows: 5 }"
-          placeholder="输入消息；可粘贴或拖入参考图"
-          :disabled="busy"
-          @paste="handlePaste"
-          @keydown="handleKeydown"
-        />
-      </div>
-    </div>
-    <footer class="agent-composer-footer">
-      <div class="agent-composer-toolbar">
         <button
+          v-if="busy"
           type="button"
-          class="agent-toolbar-btn"
-          :disabled="busy"
-          @click="$emit('add-reference')"
+          class="agent-send-button agent-stop-button"
+          title="停止生成"
+          aria-label="停止生成"
+          @click="$emit('stop')"
         >
-          <ImagePlus :size="15" />
-          <span>参考图</span>
+          <Square :size="14" fill="currentColor" /><span class="sr-only">停止</span>
         </button>
-        <n-popover trigger="click" placement="top-start" :show-arrow="false">
-          <template #trigger>
-            <button type="button" class="agent-toolbar-btn" :disabled="busy">
-              <LayoutTemplate :size="15" />
-              <span>模板</span>
-            </button>
-          </template>
-          <div class="template-picker">
-            <div v-if="!templates.length" class="template-picker-empty">
-              还没有模板；在设计面板的模板库里创建后即可在这里调用。
-            </div>
-            <div v-for="template in templates" :key="template.id" class="template-picker-item">
-              <div class="template-picker-main">
-                <strong>{{ template.title || '未命名模板' }}</strong>
-                <span>{{ template.content }}</span>
-              </div>
-              <div class="template-picker-actions">
-                <button type="button" @click.stop="insertTemplate(template)">插入</button>
-                <button
-                  v-if="hasPlaceholders(template.content)"
-                  type="button"
-                  :disabled="templateFillBusy"
-                  @click.stop="$emit('fill-template', { template })"
-                >
-                  {{ templateFillBusy ? '填充中…' : 'AI 填充' }}
-                </button>
-              </div>
-            </div>
-          </div>
-        </n-popover>
-
-        <div class="agent-param-group">
-          <span class="agent-param-label">比例</span>
-          <n-select
-            class="agent-select agent-ratio-select"
-            size="small"
-            :value="ratio"
-            :options="ratioOptions"
-            :render-label="renderRatioLabel"
-            :disabled="busy"
-            @update:value="$emit('update:ratio', $event)"
-          />
-        </div>
-
-        <div class="agent-param-group">
-          <span class="agent-param-label">分辨率</span>
-          <n-select
-            class="agent-select agent-resolution-select"
-            size="small"
-            :value="resolution"
-            :options="currentResolutionOptions"
-            :disabled="busy"
-            @update:value="$emit('update:resolution', $event)"
-          />
-        </div>
-      </div>
-      <div class="agent-send-stack">
-        <n-button v-if="busy" size="small" type="error" secondary @click="$emit('stop')"
-          >停止</n-button
-        >
-        <n-button
+        <button
           v-else
+          type="button"
           class="agent-send-button"
-          size="small"
-          type="primary"
+          title="发送 · Enter"
+          aria-label="发送"
           :disabled="!draft.trim() || (drawThisTurn ? !imageProviderId : !providerId)"
           @click="send"
-          >发送</n-button
         >
-        <n-checkbox v-model:checked="drawThisTurn" :disabled="busy">直接绘画</n-checkbox>
-      </div>
-    </footer>
+          <ArrowUp :size="19" /><span class="sr-only">发送</span>
+        </button>
+      </footer>
+    </div>
+    <p class="agent-composer-hint">
+      <span>{{ drawThisTurn ? '直接绘画模式' : '与 Agent 一起构思与创作' }}</span
+      ><span>Enter 发送 · Shift + Enter 换行</span>
+    </p>
   </div>
 </template>
 
 <script setup>
-import { ImagePlus, LayoutTemplate, X } from '@lucide/vue';
-import { computed, h, ref, watch } from 'vue';
+import { ArrowUp, ChevronDown, ImagePlus, LayoutTemplate, Ratio, Square, X } from '@lucide/vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { extractDroppedFilePaths } from '../lib/referenceFiles';
 import { imageSizePresets } from '../lib/options';
 
@@ -132,35 +169,6 @@ const RESOLUTION_LIST = [
   { value: '3k', label: '3k' },
   { value: '4k', label: '4k' },
 ];
-
-function ratioSvg(ratio) {
-  const [w, h] = ratio.split(':').map(Number);
-  const maxDim = w === h ? 14 : 18;
-  let rw, rh;
-  if (w >= h) {
-    rw = maxDim;
-    rh = Math.round((maxDim * h) / w);
-  } else {
-    rh = maxDim;
-    rw = Math.round((maxDim * w) / h);
-  }
-  const x = ((24 - rw) / 2).toFixed(1);
-  const y = ((24 - rh) / 2).toFixed(1);
-  return `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="${x}" y="${y}" width="${rw}" height="${rh}" rx="2" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>`;
-}
-
-const ratioOptions = RATIO_LIST.map((value) => ({
-  value,
-  label: value,
-  icon: ratioSvg(value),
-}));
-
-function renderRatioLabel(option) {
-  return h('span', { class: 'agent-ratio-option' }, [
-    h('span', { class: 'agent-ratio-icon', innerHTML: option.icon }),
-    h('span', { class: 'agent-ratio-text' }, option.label),
-  ]);
-}
 
 const props = defineProps({
   providerId: { type: String, default: '' },
@@ -188,6 +196,8 @@ const emit = defineEmits([
 ]);
 
 const draft = ref('');
+const promptInput = ref(null);
+const templateMenu = ref(null);
 const dragActive = ref(false);
 const drawThisTurn = ref(false);
 
@@ -205,7 +215,7 @@ const currentResolutionOptions = computed(() =>
   RESOLUTION_LIST.map((opt) => {
     const preset = imageSizePresets[opt.value];
     const dims = preset?.[props.ratio] || preset?.['1:1'];
-    const label = dims ? `${dims[0]} x ${dims[1]} ${opt.label}` : opt.label;
+    const label = dims ? `${opt.label.toUpperCase()} · ${dims[0]} × ${dims[1]}` : opt.label;
     return { value: opt.value, label };
   })
 );
@@ -230,6 +240,8 @@ function insertTemplate(template) {
   if (!content) return;
   draft.value = draft.value.trim() ? `${draft.value.trimEnd()}\n\n${content}` : content;
   emit('apply-template', { template });
+  closeTemplateMenu();
+  promptInput.value?.focus();
 }
 
 function handleKeydown(event) {
@@ -246,4 +258,34 @@ function dropFiles(event) {
   dragActive.value = false;
   emit('drop-reference', extractDroppedFilePaths(event.dataTransfer));
 }
+
+function closeTemplateMenu(event) {
+  if (templateMenu.value) templateMenu.value.open = false;
+  if (event?.key === 'Escape') templateMenu.value?.querySelector('summary')?.focus();
+}
+
+function fillTemplate(template) {
+  closeTemplateMenu();
+  emit('fill-template', { template });
+}
+
+function closeOutside(event) {
+  if (!templateMenu.value?.contains(event.target)) closeTemplateMenu();
+}
+
+function resizePrompt() {
+  if (!promptInput.value) return;
+  promptInput.value.style.height = 'auto';
+  promptInput.value.style.height = `${Math.min(220, Math.max(80, promptInput.value.scrollHeight))}px`;
+}
+
+watch(draft, async () => {
+  await nextTick();
+  resizePrompt();
+});
+onMounted(() => {
+  resizePrompt();
+  document.addEventListener('pointerdown', closeOutside);
+});
+onBeforeUnmount(() => document.removeEventListener('pointerdown', closeOutside));
 </script>

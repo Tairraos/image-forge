@@ -1,77 +1,61 @@
 <template>
-  <n-dropdown
-    trigger="manual"
-    placement="bottom-start"
-    :show="show"
-    :disabled="disabled"
-    :options="options"
-    @update:show="show = $event"
-    @select="handleSelect"
-    @clickoutside="show = false"
-  >
-    <span ref="triggerRef" class="clipboard-image-menu-trigger">
-      <slot :open="openMenu" />
+  <span ref="triggerRef" class="clipboard-image-menu-trigger">
+    <slot :open="openMenu" />
+    <span
+      v-if="show"
+      ref="menuRef"
+      class="clipboard-menu"
+      role="menu"
+      :style="position"
+      @keydown.esc.prevent.stop="closeMenu"
+    >
+      <button ref="pasteButton" type="button" role="menuitem" @click="paste">
+        <ClipboardPaste :size="16" />粘贴剪贴板图片
+      </button>
     </span>
-  </n-dropdown>
+  </span>
 </template>
 
 <script setup>
 import { ClipboardPaste } from '@lucide/vue';
-import { h, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
+import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 
-const props = defineProps({
-  disabled: { type: Boolean, default: false },
-});
-
+const props = defineProps({ disabled: { type: Boolean, default: false } });
 const emit = defineEmits(['paste']);
 const show = ref(false);
 const triggerRef = ref(null);
-const options = [
-  {
-    label: '粘贴剪贴板图片',
-    key: 'paste',
-    icon: () => h(ClipboardPaste, { size: 16 }),
-  },
-];
+const menuRef = ref(null);
+const pasteButton = ref(null);
+const position = ref({});
 
-function openMenu(event) {
+async function openMenu(event) {
   if (props.disabled) return;
   event.preventDefault();
   event.stopPropagation();
+  const bounds = triggerRef.value.getBoundingClientRect();
+  position.value = {
+    left: `${Math.max(8, Math.min(event.clientX || bounds.left, window.innerWidth - 228))}px`,
+    top: `${Math.max(8, Math.min(event.clientY || bounds.top, window.innerHeight - 56))}px`,
+  };
+  show.value = true;
+  await nextTick();
+  pasteButton.value?.focus();
+}
+
+function closeMenu() {
   show.value = false;
-  nextTick(() => {
-    show.value = true;
-  });
+  triggerRef.value?.querySelector('button')?.focus();
 }
 
-function handleSelect(key) {
-  show.value = false;
-  if (key === 'paste') emit('paste');
+function paste() {
+  closeMenu();
+  emit('paste');
 }
 
-function handleDocumentPointerDown(event) {
-  if (!show.value) return;
-  const target = event.target;
-  if (!(target instanceof Element)) {
-    show.value = false;
-    return;
-  }
-  if (target.closest('.n-dropdown')) return;
-  if (triggerRef.value?.contains(target) && event.button !== 0) return;
-  show.value = false;
+function closeOutside(event) {
+  if (show.value && !menuRef.value?.contains(event.target)) show.value = false;
 }
 
-function handleDocumentKeydown(event) {
-  if (event.key === 'Escape') show.value = false;
-}
-
-onMounted(() => {
-  document.addEventListener('pointerdown', handleDocumentPointerDown, true);
-  document.addEventListener('keydown', handleDocumentKeydown, true);
-});
-
-onBeforeUnmount(() => {
-  document.removeEventListener('pointerdown', handleDocumentPointerDown, true);
-  document.removeEventListener('keydown', handleDocumentKeydown, true);
-});
+onMounted(() => document.addEventListener('pointerdown', closeOutside, true));
+onBeforeUnmount(() => document.removeEventListener('pointerdown', closeOutside, true));
 </script>

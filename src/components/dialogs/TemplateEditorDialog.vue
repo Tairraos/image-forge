@@ -1,14 +1,14 @@
 <template>
-  <n-modal v-model:show="show" preset="card" :title="dialogTitle" class="template-editor-modal">
+  <NativeDialog v-model:show="show" :title="dialogTitle" class="template-editor-modal">
     <div class="template-edit-body">
       <label class="template-title-field">
         <span>标题</span>
         <!-- eslint-disable vue/no-mutating-props -->
-        <n-input
-          v-model:value="template.title"
+        <input
+          v-model="template.title"
+          class="form-control"
           :readonly="readonly"
           maxlength="80"
-          show-count
           placeholder="留空时使用内容第一行，最多 24 个字"
         />
         <!-- eslint-enable vue/no-mutating-props -->
@@ -24,15 +24,15 @@
         @drop.prevent="$emit('drop-reference', $event)"
       >
         <!-- eslint-disable vue/no-mutating-props -->
-        <n-input
-          v-model:value="template.content"
-          type="textarea"
-          class="template-content-input"
-          :autosize="{ minRows: 16, maxRows: 16 }"
-          :resizable="false"
+        <textarea
+          v-model="template.content"
+          class="form-control template-content-input"
+          aria-label="模板提示词"
+          :readonly="readonly"
+          rows="12"
           placeholder="输入模板内容，可使用 {这里写需要 AI 填充的描述}"
           @paste="$emit('paste-reference', $event)"
-        />
+        ></textarea>
         <!-- eslint-enable vue/no-mutating-props -->
       </div>
       <div class="template-editor-media-row">
@@ -99,16 +99,24 @@
     </div>
     <template #footer>
       <div class="dialog-actions">
-        <n-button size="small" @click="show = false">{{ readonly ? '关闭' : '取消' }}</n-button>
-        <n-button v-if="!readonly" size="small" type="primary" @click="$emit('save')"
-          >保存</n-button
+        <button type="button" class="button button-small" @click="show = false">
+          {{ readonly ? '关闭' : '取消' }}
+        </button>
+        <button
+          v-if="!readonly"
+          type="button"
+          class="button button-small button-primary"
+          @click="$emit('save')"
         >
+          保存
+        </button>
       </div>
     </template>
-  </n-modal>
+  </NativeDialog>
 </template>
 
 <script setup>
+import NativeDialog from './NativeDialog.vue';
 import { Plus, X } from '@lucide/vue';
 import { computed } from 'vue';
 import ClipboardImageMenu from '../ClipboardImageMenu.vue';

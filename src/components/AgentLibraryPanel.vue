@@ -38,6 +38,7 @@
                     :key="refPath"
                     type="button"
                     class="library-image-ref-thumb"
+                    :title="`查看参考图 ${ri + 1}`"
                     :aria-label="`查看参考图 ${ri + 1}`"
                     @click.stop="openReferencePreview(card, refPath)"
                   >
@@ -45,82 +46,61 @@
                   </button>
                 </div>
                 <div class="library-image-actions">
-                  <n-tooltip trigger="hover" :delay="0">
-                    <template #trigger>
-                      <button
-                        type="button"
-                        aria-label="复制提示词"
-                        @click.stop="copyPrompt(card.task)"
-                      >
-                        <Copy :size="14" />
-                      </button>
-                    </template>
-                    复制提示词
-                  </n-tooltip>
-                  <n-tooltip trigger="hover" :delay="0">
-                    <template #trigger>
-                      <button
-                        type="button"
-                        aria-label="引用到 Agent"
-                        @click.stop="
-                          $emit('reference-to-agent', { task: card.task, output: card.output })
-                        "
-                      >
-                        <Link2 :size="14" />
-                      </button>
-                    </template>
-                    引用到 Agent
-                  </n-tooltip>
-                  <n-tooltip trigger="hover" :delay="0">
-                    <template #trigger>
-                      <button
-                        type="button"
-                        aria-label="添加到模板"
-                        @click.stop="
-                          $emit('add-to-template', { task: card.task, output: card.output })
-                        "
-                      >
-                        <BookmarkPlus :size="14" />
-                      </button>
-                    </template>
-                    添加到模板
-                  </n-tooltip>
-                  <n-tooltip trigger="hover" :delay="0">
-                    <template #trigger>
-                      <button
-                        type="button"
-                        aria-label="下载图片"
-                        @click.stop="$emit('download-output', card.output)"
-                      >
-                        <Download :size="14" />
-                      </button>
-                    </template>
-                    下载
-                  </n-tooltip>
-                  <n-tooltip trigger="hover" :delay="0">
-                    <template #trigger>
-                      <button
-                        type="button"
-                        aria-label="在 Finder 中显示"
-                        @click.stop="$emit('reveal-output', card.output)"
-                      >
-                        <FolderOpen :size="14" />
-                      </button>
-                    </template>
-                    在 Finder 中显示
-                  </n-tooltip>
-                  <n-tooltip trigger="hover" :delay="0">
-                    <template #trigger>
-                      <button
-                        type="button"
-                        aria-label="删除任务及图片"
-                        @click.stop="$emit('delete-task', card.task)"
-                      >
-                        <Trash2 :size="14" />
-                      </button>
-                    </template>
-                    删除任务及图片
-                  </n-tooltip>
+                  <button
+                    type="button"
+                    title="复制提示词"
+                    aria-label="复制提示词"
+                    @click.stop="copyPrompt(card.task)"
+                  >
+                    <Copy :size="14" />
+                  </button>
+
+                  <button
+                    type="button"
+                    title="引用到 Agent"
+                    aria-label="引用到 Agent"
+                    @click.stop="
+                      $emit('reference-to-agent', { task: card.task, output: card.output })
+                    "
+                  >
+                    <Link2 :size="14" />
+                  </button>
+
+                  <button
+                    type="button"
+                    title="添加到模板"
+                    aria-label="添加到模板"
+                    @click.stop="$emit('add-to-template', { task: card.task, output: card.output })"
+                  >
+                    <BookmarkPlus :size="14" />
+                  </button>
+
+                  <button
+                    type="button"
+                    title="下载图片"
+                    aria-label="下载图片"
+                    @click.stop="$emit('download-output', card.output)"
+                  >
+                    <Download :size="14" />
+                  </button>
+
+                  <button
+                    type="button"
+                    title="在 Finder 中显示"
+                    aria-label="在 Finder 中显示"
+                    @click.stop="$emit('reveal-output', card.output)"
+                  >
+                    <FolderOpen :size="14" />
+                  </button>
+
+                  <button
+                    type="button"
+                    title="删除任务及图片"
+                    aria-label="删除任务及图片"
+                    @click.stop="$emit('delete-task', card.task)"
+                  >
+                    <Trash2 :size="14" />
+                  </button>
                 </div>
               </div>
             </div>
@@ -139,43 +119,27 @@
     </main>
 
     <footer class="agent-library-bar">
-      <n-input
-        v-model:value="query"
-        size="small"
-        clearable
-        placeholder="搜索提示词（全部图片）"
-        aria-label="搜索提示词"
+      <label class="search-field"
+        ><Search :size="16" /><input
+          v-model="query"
+          type="search"
+          placeholder="搜索全部图片的提示词"
+          aria-label="搜索提示词"
+      /></label>
+      <label class="library-filter"
+        ><Filter :size="15" /><select v-model="sourceFilter" aria-label="按来源筛选">
+          <option v-for="option in sourceOptions" :key="option.value" :value="option.value">
+            {{ option.label }}
+          </option>
+        </select></label
       >
-        <template #prefix><Search :size="15" /></template>
-      </n-input>
-      <n-popselect
-        v-model:value="sourceFilter"
-        :options="sourceOptions"
-        placement="top-start"
-        trigger="click"
+      <label class="library-filter"
+        ><Calendar :size="15" /><select v-model="month" :disabled="searching" aria-label="选择月份">
+          <option v-for="option in monthOptions" :key="option.value" :value="option.value">
+            {{ searching ? '全部月份' : option.label }}
+          </option>
+        </select></label
       >
-        <button class="agent-library-month" type="button" aria-label="按来源筛选">
-          <Filter :size="15" />
-          <span>{{ sourceLabel }}</span>
-        </button>
-      </n-popselect>
-      <n-popselect
-        v-model:value="month"
-        :options="monthOptions"
-        placement="top-start"
-        trigger="click"
-        :disabled="searching"
-      >
-        <button
-          class="agent-library-month"
-          type="button"
-          :disabled="searching"
-          aria-label="选择月份"
-        >
-          <Calendar :size="15" />
-          <span>{{ searching ? '全部月份' : monthLabel }}</span>
-        </button>
-      </n-popselect>
       <div class="agent-library-month-nav" role="group" aria-label="切换月份">
         <button
           type="button"
@@ -255,9 +219,6 @@ let queryTimer = 0;
 let requestId = 0;
 
 const sourceOptions = taskSourceOptions();
-const sourceLabel = computed(
-  () => sourceOptions.find((option) => option.value === sourceFilter.value)?.label || '全部来源'
-);
 const filteredTasks = computed(() =>
   sourceFilter.value === 'all'
     ? tasks.value
@@ -265,7 +226,6 @@ const filteredTasks = computed(() =>
 );
 
 const searching = computed(() => query.value.trim() !== '');
-const monthLabel = computed(() => (month.value ? formatMonth(month.value) : '全部月份'));
 const monthOptions = computed(() => [
   { label: '全部月份', value: '' },
   ...months.value.map((item) => ({

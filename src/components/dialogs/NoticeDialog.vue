@@ -1,32 +1,32 @@
 <template>
-  <n-modal
+  <NativeDialog
     v-model:show="show"
-    preset="card"
     :title="title"
     :closable="false"
     :mask-closable="false"
     :close-on-esc="false"
-    :auto-focus="false"
     class="notice-modal"
-    @after-enter="focusActionButton"
+    @opened="focusActionButton"
+    @cancel="close"
   >
-    <div
-      class="notice-dialog-shell"
-      tabindex="-1"
-      @keydown.enter.prevent.stop="close"
-      @keydown.esc.prevent.stop="close"
-    >
+    <div class="notice-dialog-shell" tabindex="-1">
       <p class="notice-dialog-message">{{ message }}</p>
       <div class="notice-dialog-actions">
-        <n-button ref="actionButton" size="small" type="primary" @click="close">
+        <button
+          ref="actionButton"
+          type="button"
+          class="button button-small button-primary"
+          @click="close"
+        >
           {{ buttonText }}
-        </n-button>
+        </button>
       </div>
     </div>
-  </n-modal>
+  </NativeDialog>
 </template>
 
 <script setup>
+import NativeDialog from './NativeDialog.vue';
 import { nextTick, ref, watch } from 'vue';
 
 const show = defineModel('show', { type: Boolean, default: false });
@@ -47,7 +47,6 @@ watch(show, (visible) => {
 function focusActionButton() {
   const button = actionButton.value;
   button?.focus?.();
-  button?.$el?.focus?.();
 }
 
 function close() {

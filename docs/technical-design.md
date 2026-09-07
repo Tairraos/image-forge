@@ -95,7 +95,8 @@ const adapter = isTauri
 
 | 模块 | 职责 |
 | --- | --- |
-| `src/components/dialogs/DesignDialog.vue` | 设计面板：API 配置、模板库、备份/恢复、关于。 |
+| `src/components/dialogs/DesignDialog.vue` | 设置：API 配置、模板库、外观主题、备份/恢复、关于。 |
+| `src/components/dialogs/NativeDialog.vue` | 基于原生 `<dialog>` 的弹窗，统一标题、关闭行为与布局；浏览器负责焦点锁定与弹窗堆叠。 |
 | `src/components/dialogs/ApiSourcePanel.vue` | API 源编辑、模型列表拉取。 |
 | `src/components/dialogs/TemplateEditorDialog.vue` | 模板编辑：提示词、参考图、效果图。 |
 | `src/components/dialogs/DataTransferDialog.vue` | 数据导出/导入：分类多选（API 配置/模板/对话/图片库），生成 ZIP 或导入合并。 |
@@ -117,7 +118,7 @@ const adapter = isTauri
 - Agent 回复通过 `markdown-it` 渲染 Markdown；工具成功结果不把原始 JSON 直接塞进对话，只有错误以可换行文本显示。
 - 任务组卡片显示服务器反应状态 + 计时器 + 取消/重试按钮；成功后显示长边 400 保持比例的缩略图，点击以 1:1 显示原图。
 - 输入框默认 Enter 发送，Command/Ctrl+Enter 也发送，Shift+Enter 保留换行，输入法组合态不会误发送。
-- "直接绘画"位于发送按钮下方。勾选后提示词绕过对话模型，直接以当前生图模型和默认生图参数进入绘画队列；未勾选时走对话模型，由 LLM 通过工具调用规划绘图。
+- 提示词输入框内的底部工具栏提供参考图、模板、图片比例、分辨率、"直接绘画"和发送 / 停止。勾选后提示词绕过对话模型，直接以当前生图模型和默认生图参数进入绘画队列；未勾选时走对话模型，由 LLM 通过工具调用规划绘图。
 - 参考图支持文件选择、剪贴板图片、右键粘贴和拖放；剪贴板同时含图片与文本时只处理图片。
 - 图片库「引用」按钮：将生图时使用的所有原始参考图重新添加到提示词框，提示词预填。
 - 图片库「添加到模板」按钮：将原始参考图添加到模板，提示词填入模板内容区，模板标题留空。
@@ -140,9 +141,15 @@ const adapter = isTauri
 | `src/lib/libraryFormat.js` | 图片库任务来源、日期/月份分组与展示格式化。 |
 | `src/lib/referenceFiles.js` | 解析剪贴板、拖放和 `file://` 本地路径。 |
 | `src/lib/generationTimer.js` | 运行中任务计时和超时状态。 |
-| `src/lib/scrollbarVisibility.js` | 覆盖式滚动条的显隐、拖动和布局隔离。 |
-| `src/lib/theme.js` | Naive UI 主题覆盖（配色、圆角、字体和滚动条）。 |
+| `src/lib/scrollbarVisibility.js` | 原生滚动条在滚动期间的显隐状态，悬停和键盘聚焦由 CSS 控制。 |
+| `src/lib/theme.js` | 读取、解析和保存浅色 / 深色 / 跟随系统的主题偏好，配色由 `src/styles.css` 的 CSS 变量统一管理。 |
 | `src/tauri.js` | Tauri invoke、文件对话框、原生拖放、窗口状态和图片资源 URL。Web 版自动降级为 `fetch` 和 `URL.createObjectURL`。 |
+
+### 原生界面与主题
+
+界面使用 Vue + 原生 HTML/CSS，不依赖组件框架。表单使用 `input`、`textarea`、`select`，模型列表支持 `datalist`；模板菜单使用 `details`，弹窗统一使用 `NativeDialog`。
+
+`App.vue` 持有主题偏好并传递给侧栏和设置面板。浅色、深色和跟随系统三种选择保存在 localStorage 的 `image-forge-theme` 中；跟随系统时监听 `prefers-color-scheme` 的变化。`src/styles.css` 通过语义 CSS 变量覆盖所有界面，并提供窄屏侧栏、键盘聚焦和减少动态效果的样式。
 
 ## Rust 架构
 

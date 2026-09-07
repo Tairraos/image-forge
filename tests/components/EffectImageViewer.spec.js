@@ -3,8 +3,6 @@ import { mount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
 import EffectImageViewer from '../../src/components/dialogs/EffectImageViewer.vue';
 
-const nModalStub = { props: ['show'], template: '<div><slot /></div>' };
-
 const task = {
   id: 'task-1',
   prompt: '特写，一本放大的日记本',
@@ -27,7 +25,6 @@ const taskItem = {
 function mountViewer(extraProps = {}) {
   return mount(EffectImageViewer, {
     props: { show: true, items: [taskItem], ...extraProps },
-    global: { stubs: { 'n-modal': nModalStub } },
   });
 }
 

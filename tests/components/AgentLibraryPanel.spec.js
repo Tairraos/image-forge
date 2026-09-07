@@ -9,13 +9,6 @@ vi.mock('../../src/api/index.js', () => ({
 
 import AgentLibraryPanel from '../../src/components/AgentLibraryPanel.vue';
 
-const globalStubs = {
-  stubs: {
-    'n-tooltip': { template: '<span><slot name="trigger" /></span>' },
-    'n-popselect': { template: '<span><slot /></span>' },
-  },
-};
-
 const taskWithRef = {
   id: 'task-1',
   prompt: '特写，一本放大的日记本',
@@ -41,7 +34,7 @@ const taskNoRef = {
 
 function mountPanel(tasks) {
   agentLibraryMock.mockResolvedValue({ tasks, months: [] });
-  return mount(AgentLibraryPanel, { global: globalStubs });
+  return mount(AgentLibraryPanel);
 }
 
 beforeEach(() => {
@@ -49,6 +42,14 @@ beforeEach(() => {
 });
 
 describe('AgentLibraryPanel', () => {
+  it('原生来源选择框筛选图片', async () => {
+    const wrapper = mountPanel([taskWithRef, { ...taskNoRef, origin: 'agent-direct' }]);
+    await flushPromises();
+    await wrapper.get('select[aria-label="按来源筛选"]').setValue('direct');
+    expect(wrapper.findAll('.library-image-card')).toHaveLength(1);
+    expect(wrapper.get('.library-image-preview img').attributes('alt')).toBe('b.png');
+  });
+
   it('同一天的图片合并在一个 grid 中，一行展示', async () => {
     const wrapper = mountPanel([taskWithRef, taskNoRef]);
     await flushPromises();

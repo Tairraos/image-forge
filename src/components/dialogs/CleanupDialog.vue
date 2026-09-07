@@ -1,5 +1,5 @@
 <template>
-  <n-modal v-model:show="show" preset="card" title="清理孤岛文件" class="cleanup-modal">
+  <NativeDialog v-model:show="show" title="清理孤岛文件" class="cleanup-modal">
     <div class="cleanup-content">
       <p class="cleanup-summary">
         以下文件没有被当前历史、模板、队列或请求引用。确认后会移入系统回收站。
@@ -26,21 +26,23 @@
     </div>
     <template #footer>
       <div class="dialog-actions">
-        <n-button size="small" @click="show = false">取消</n-button>
-        <n-button
-          size="small"
-          type="primary"
-          :loading="confirming"
-          :disabled="loading || !!error || !candidates.length"
+        <button type="button" class="button button-small" @click="show = false">取消</button>
+        <button
+          type="button"
+          class="button button-small button-primary"
+          :aria-busy="confirming"
+          :disabled="loading || !!error || !candidates.length || confirming"
           @click="$emit('confirm')"
-          >确认清理</n-button
         >
+          确认清理
+        </button>
       </div>
     </template>
-  </n-modal>
+  </NativeDialog>
 </template>
 
 <script setup>
+import NativeDialog from './NativeDialog.vue';
 const show = defineModel('show', { type: Boolean, default: false });
 defineProps({
   candidates: { type: Array, default: () => [] },

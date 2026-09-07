@@ -1,31 +1,33 @@
 <template>
-  <n-modal
+  <NativeDialog
     v-model:show="show"
-    preset="card"
     :title="title"
     :closable="false"
     :mask-closable="false"
     :close-on-esc="false"
-    :auto-focus="false"
     class="confirm-modal"
-    @after-enter="focusConfirmButton"
+    @opened="focusConfirmButton"
+    @cancel="cancel"
   >
-    <div
-      class="confirm-dialog-shell"
-      tabindex="-1"
-      @keydown.enter.prevent.stop="confirm"
-      @keydown.esc.prevent.stop="cancel"
-    >
+    <div class="confirm-dialog-shell" tabindex="-1">
       <p class="confirm-dialog-message">{{ message }}</p>
       <div class="confirm-dialog-actions">
-        <n-button size="small" @click="cancel">取消</n-button>
-        <n-button ref="confirmButton" size="small" type="error" @click="confirm">确认</n-button>
+        <button type="button" class="button button-small" @click="cancel">取消</button>
+        <button
+          ref="confirmButton"
+          type="button"
+          class="button button-small button-danger"
+          @click="confirm"
+        >
+          确认
+        </button>
       </div>
     </div>
-  </n-modal>
+  </NativeDialog>
 </template>
 
 <script setup>
+import NativeDialog from './NativeDialog.vue';
 import { nextTick, ref, watch } from 'vue';
 
 const show = defineModel('show', { type: Boolean, default: false });
@@ -45,7 +47,6 @@ watch(show, (visible) => {
 function focusConfirmButton() {
   const button = confirmButton.value;
   button?.focus?.();
-  button?.$el?.focus?.();
 }
 
 function confirm() {

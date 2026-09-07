@@ -1,37 +1,49 @@
 <template>
   <footer class="status-bar">
-    <span class="status-pill" :data-tone="statusTone">{{ statusText }}</span>
+    <span class="status-pill" :data-tone="statusTone" role="status"
+      ><span class="status-dot"></span>{{ statusText }}</span
+    >
     <div class="status-summary">
-      <span class="status-meta">
-        当前 API：
-        <n-popselect
+      <label class="status-model"
+        ><Images :size="13" /><select
+          class="status-api-name"
+          aria-label="绘图模型"
           :value="imageProviderId"
-          :options="imageProviderOptions"
-          placement="top-start"
-          trigger="click"
-          @update:value="$emit('select-image-provider', $event)"
+          :title="imageProviderName"
+          :disabled="!imageProviderOptions.length"
+          @change="$emit('select-image-provider', $event.target.value)"
         >
-          <button class="status-api-name" type="button">{{ imageProviderName || '未配置' }}</button>
-        </n-popselect>
-        <span class="status-api-separator">/</span>
-        <n-popselect
+          <option v-if="!imageProviderOptions.length" value="">未配置绘图 API</option>
+          <option v-for="option in imageProviderOptions" :key="option.value" :value="option.value">
+            {{ option.label }}
+          </option>
+        </select></label
+      >
+      <span class="status-api-separator">/</span>
+      <label class="status-model"
+        ><MessageSquare :size="13" /><select
+          class="status-api-name"
+          aria-label="对话模型"
           :value="chatProviderId"
-          :options="chatProviderOptions"
-          placement="top-start"
-          trigger="click"
-          @update:value="$emit('select-chat-provider', $event)"
+          :title="chatProviderName"
+          :disabled="!chatProviderOptions.length"
+          @change="$emit('select-chat-provider', $event.target.value)"
         >
-          <button class="status-api-name" type="button">{{ chatProviderName || '未配置' }}</button>
-        </n-popselect>
-      </span>
-      <span class="status-count">{{ runningCount }} 运行</span>
-      <span class="status-count">{{ waitingCount }} 排队</span>
+          <option v-if="!chatProviderOptions.length" value="">未配置对话 API</option>
+          <option v-for="option in chatProviderOptions" :key="option.value" :value="option.value">
+            {{ option.label }}
+          </option>
+        </select></label
+      >
+      <span class="status-count">{{ runningCount }} 运行<span>·</span>{{ waitingCount }} 排队</span>
       <span v-if="imageProviderMissingKey" class="warn-text">API Key 未设置</span>
     </div>
   </footer>
 </template>
 
 <script setup>
+import { Images, MessageSquare } from '@lucide/vue';
+
 defineProps({
   statusText: { type: String, default: '' },
   statusTone: { type: String, default: '' },
