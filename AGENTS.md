@@ -44,7 +44,8 @@ pnpm dev            # 仅 Web 开发（http://localhost:1421，Tauri 能力不�
 ```bash
 pnpm verify         # 完成任务后必跑：lint + 格式 + 测试 + Rust check（见 scripts/verify.mjs）
 pnpm check          # 同上，轻量版（不含 fmt:check 和 cargo test）
-pnpm ship <version> # 一键发布：patch + build + cargo check + prerelease
+pnpm ship <version> # 本地一键构建：patch + build + cargo check + prerelease（.app）
+pnpm release [version] # 云端发布：升版本（可选）→ commit → tag → push，三平台自动构建并发布 Release
 ```
 
 ## 关键规则在哪
@@ -64,7 +65,7 @@ pnpm ship <version> # 一键发布：patch + build + cargo check + prerelease
 
 ## 完成一次任务的固定流程
 
-改代码 → `pnpm verify` → 修复失败 → `pnpm ship <version>` → 按任务拆分提交（Conventional Commits + 中文描述）
+改代码 → `pnpm verify` → 修复失败 → 按任务拆分提交（Conventional Commits + 中文描述）→ `pnpm release <version>`（云端三平台构建并自动发布）
 
 ## 删除与回收站规则（硬约束）
 

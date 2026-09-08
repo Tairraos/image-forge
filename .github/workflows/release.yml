@@ -1,6 +1,6 @@
-# 三平台发布流水线：push 版本号 tag（如 1.0.104，与现有 tag 习惯一致）或手动触发后，
+# 三平台发布流水线：push 版本号 tag（如 1.0.104，推荐用 pnpm release 一键完成）或手动触发后，
 # 在 macOS / Windows / Linux 三种云端 runner 上并行构建安装包，
-# 自动创建 Draft Release 并上传产物，人工核对无误后手动点击发布。
+# 自动创建并直接公开 Release；各平台产物由先完成的 job 陆续追加到同一个 Release。
 #
 # 产物：
 #   - macOS (Apple Silicon)：.app + .dmg（未做 Developer ID 签名/公证，见 docs 说明）
@@ -77,6 +77,6 @@ jobs:
           tagName: __VERSION__ # 自动替换为 tauri.conf.json 中的版本号
           releaseName: 'ImageForge __VERSION__'
           releaseBody: 'See the assets to download this version and install.'
-          releaseDraft: true # 生成草稿，人工核对后再发布
+          releaseDraft: false # 构建完成即自动公开发布
           prerelease: false
           args: ${{ matrix.args }}
