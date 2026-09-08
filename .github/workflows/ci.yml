@@ -1,0 +1,51 @@
+# 持续集成：push 到 main 或提交 PR 时，在云端跑一遍 pnpm verify
+# （ESLint + Prettier 格式检查 + Vitest 测试 + Rust cargo check），
+# 相当于把本地的"完成任务必跑"检查前移到仓库上，尽早发现问题。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true # 同一分支有新 push 时取消旧的运行，节省时间
+
+jobs:
+  verify:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24 # 与本机开发版本保持一致
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install Linux system dependencies
+        # cargo check 编译 Tauri 需要 webkit2gtk 等系统库
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Install frontend dependencies
+        run: pnpm install
+
+      - name: Verify
+        run: pnpm verify

@@ -1,0 +1,82 @@
+# 三平台发布流水线：push 版本号 tag（如 1.0.104，与现有 tag 习惯一致）或手动触发后，
+# 在 macOS / Windows / Linux 三种云端 runner 上并行构建安装包，
+# 自动创建 Draft Release 并上传产物，人工核对无误后手动点击发布。
+#
+# 产物：
+#   - macOS (Apple Silicon)：.app + .dmg（未做 Developer ID 签名/公证，见 docs 说明）
+#   - Windows：NSIS 安装器 .exe
+#   - Linux：.AppImage + .deb
+#
+# 如需覆盖 Intel Mac，取消下方 matrix 中被注释的条目即可。
+name: Release
+
+on:
+  push:
+    tags: ['*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest # Apple Silicon（M 系列）
+            args: '--target aarch64-apple-darwin --bundles app,dmg'
+          # - platform: macos-latest # Intel Mac（按需启用）
+          #   args: '--target x86_64-apple-darwin --bundles app,dmg'
+          - platform: ubuntu-22.04 # AppImage 打包对 22.04 兼容性最好
+            args: '--bundles appimage,deb'
+          - platform: windows-latest
+            args: '--bundles nsis'
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4 # 自动读取 package.json 的 packageManager 字段
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24 # 与本机开发版本保持一致
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          # 仅 mac runner 需要额外 target，避免拖慢 windows/linux
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install Linux system dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
+
+      - name: Install frontend dependencies
+        run: pnpm install
+
+      - name: Generate icon set
+        # 仓库只提交 app-icon.png / icon.png 源图，与本地 release.mjs 流程一致，构建前生成完整图标集
+        run: pnpm tauri icon src-tauri/icons/app-icon.png
+
+      - name: Build and upload to Release
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: __VERSION__ # 自动替换为 tauri.conf.json 中的版本号
+          releaseName: 'ImageForge __VERSION__'
+          releaseBody: 'See the assets to download this version and install.'
+          releaseDraft: true # 生成草稿，人工核对后再发布
+          prerelease: false
+          args: ${{ matrix.args }}
