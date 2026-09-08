@@ -1,4 +1,5 @@
 import vue from '@vitejs/plugin-vue';
+import Inspector from 'vite-plugin-vue-inspector';
 import { defineConfig, loadEnv } from 'vite';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -34,7 +35,7 @@ function devHostBanner() {
   };
 }
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ mode, command }) => {
   const env = loadEnv(mode, process.cwd(), '');
   const host = env.VITE_DEV_HOST || '127.0.0.1';
   const port = parseInt(env.VITE_DEV_PORT, 10) || 1421;
@@ -61,7 +62,20 @@ export default defineConfig(({ mode }) => {
   }
 
   return {
-    plugins: [vue(), serveImageForgeData(), devHostBanner()],
+    plugins: [
+      vue(),
+      // 仅开发模式：点击页面元素直接跳编辑器对应源码（toggleButtonPos 等为 v6 选项名）
+      ...(command === 'serve'
+        ? [
+            Inspector({
+              toggleButtonVisibility: 'always',
+              toggleButtonPos: 'bottom-right',
+            }),
+          ]
+        : []),
+      serveImageForgeData(),
+      devHostBanner(),
+    ],
     test: {
       environment: 'jsdom',
       setupFiles: ['./tests/setup.js'],
