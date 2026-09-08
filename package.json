@@ -6,7 +6,7 @@
   "packageManager": "pnpm@11.25.0",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "node scripts/build.mjs",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "preview": "vite preview --host 127.0.0.1 --port 1421",
@@ -21,9 +21,7 @@
     "ship": "node scripts/ship.mjs",
     "patch": "node scripts/patch-version.mjs",
     "migrate:data": "node scripts/migrate-data-root.mjs",
-    "prerelease": "node scripts/prerelease.mjs",
     "release": "node scripts/git-release.mjs",
-    "release:local": "node scripts/release.mjs",
     "sync:web": "node scripts/sync-desktop-to-web.mjs",
     "sync:web:serve": "node scripts/sync-desktop-to-web.mjs --serve",
     "sync:desktop": "node scripts/sync-web-to-desktop.mjs",

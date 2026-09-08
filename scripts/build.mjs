@@ -1,3 +1,11 @@
+#!/usr/bin/env node
+// 打包本地 App：可选升版本 → pnpm tauri build（前端 vite build + Rust 编译）→ ad-hoc 签名 .app + 自制 .dmg
+// → 产物统一收进 release/（旧版本产物移入系统回收站，只留当前版本）→ 收尾把 dist/、src-tauri/target/、
+// src-tauri/gen/ 与生成的图标移入回收站。
+// 用法：
+//   pnpm build            # 用项目当前版本打包
+//   pnpm build 1.0.104    # 先升版本到 1.0.104 再打包
+
 import { spawnSync } from 'node:child_process';
 import {
   cpSync,

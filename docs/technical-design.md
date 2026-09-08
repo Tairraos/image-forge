@@ -439,7 +439,7 @@ pnpm sync:desktop <导出文件路径>
 
 ```bash
 pnpm test
-pnpm build
+pnpm exec vite build # 仅前端生产构建 → dist/（打桌面包时由 tauri 自动执行）
 ```
 
 ### Rust 检查
@@ -450,14 +450,14 @@ cargo check --manifest-path src-tauri/Cargo.toml
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
-### 版本升级与预发布
+### 版本升级与本地打包
 
 ```bash
 pnpm run patch -- <next-version>
-pnpm run prerelease
+pnpm build # 也可直接带版本参数：pnpm build <next-version>，先升版本再打包
 ```
 
-`prerelease` 会构建、签名并在 `release/` 生成当前版本 `.app`，日常开发不生成 `.dmg`。`release/` 和构建缓存不提交 Git；临时目录清理优先使用系统回收站，回收站不可用时保留并提示，不做永久删除。
+`build`（scripts/build.mjs）会构建并 ad-hoc 签名，在 `release/` 生成当前版本的 `.app` 与 `.dmg`，旧版本产物移入系统回收站、只保留当前产物；收尾把 `dist/`、`src-tauri/target/`、`src-tauri/gen/` 与生成的图标移入回收站。`release/` 和构建缓存不提交 Git；临时目录清理优先使用系统回收站，回收站不可用时保留并提示，不做永久删除。
 
 ### Web 版部署到 Vercel
 
