@@ -116,10 +116,10 @@ pnpm run patch -- <next-version>
 生成日常预发布 App：
 
 ```bash
-pnpm run prerelease
+pnpm build # 可带版本参数：pnpm build <next-version>，先升版本再打包
 ```
 
-预发布流程会构建、签名并在 `release/` 生成当前版本的 `.app`；日常开发不要求生成 `.dmg`。正式发布流程可按项目维护者的发布环境另行执行。
+预发布流程会构建、签名并在 `release/` 生成当前版本的 `.app`，默认不生成 `.dmg`（需要时用 `pnpm build --dmg`）。构建结束后只保留 `src-tauri/target/release` 作为 Rust 增量编译缓存，其余构建过程文件移入系统回收站；正式发布流程可按项目维护者的发布环境另行执行。
 
 ## 设计文档
 

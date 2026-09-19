@@ -44,7 +44,7 @@ pnpm dev            # 仅 Web 开发（http://localhost:1421，Tauri 能力不�
 ```bash
 pnpm verify         # 完成任务后必跑：lint + 格式 + 测试 + Rust check（见 scripts/verify.mjs）
 pnpm check          # 同上，轻量版（不含 fmt:check 和 cargo test）
-pnpm build          # 打包本地 App（.app + .dmg），旧产物与构建环境移入回收站（见 scripts/build.mjs）
+pnpm build          # 打包本地 App（只出 .app，--dmg 才出 .dmg），保留 target/release 增量缓存（见 scripts/build.mjs）
 pnpm ship <version> # 本地一键发布：verify + patch + cargo check + build
 pnpm release [version] # 云端发布：升版本（可选）→ commit → tag → push，三平台自动构建并发布 Release
 ```
@@ -66,11 +66,12 @@ pnpm release [version] # 云端发布：升版本（可选）→ commit → tag 
 
 ## 完成一次任务的固定流程
 
-改代码 → `pnpm verify` → 修复失败 → 按任务拆分提交（Conventional Commits + 中文描述）→ `pnpm release <version>`（云端三平台构建并自动发布）
+改代码 → `pnpm verify` → 修复失败 → 按任务拆分提交（Conventional Commits + 中文描述）→ 每次会话结束前 `pnpm build` 打包出新版本的 .app（默认不产出 .dmg）；需要云端三平台发布时另用 `pnpm release <version>`
 
 ## 删除与回收站规则（硬约束）
 
 - 除 `~/.image-forge`、Tauri `app_data_dir()`、`~/Workspaces/Tools/image-forge` 外，删除任何文件前必须先获得用户二次确认。
+- `src-tauri/target/release` 是刻意保留的 Rust 增量编译缓存，由用户手动清理；任何清理操作（包括回收站流程）都不得触碰它，只清 `target/` 下其余内容。
 - 允许删除的范围也优先用系统回收站，不直接 `rm -rf`。
 - 回收站不可用时，不执行必要删除；说明原因并给出用户可自行执行的命令。
 - 每轮结束的交付说明必须报告实际移入回收站 / 删除的内容；没有删除也要明确说明。

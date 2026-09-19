@@ -1,10 +1,11 @@
 #!/usr/bin/env node
-// 打包本地 App：可选升版本 → pnpm tauri build（前端 vite build + Rust 编译）→ ad-hoc 签名 .app + 自制 .dmg
-// → 产物统一收进 release/（旧版本产物移入系统回收站，只留当前版本）→ 收尾把 dist/、src-tauri/target/、
-// src-tauri/gen/ 与生成的图标移入回收站。
+// 打包本地 App：可选升版本 → pnpm tauri build（前端 vite build + Rust 编译）→ ad-hoc 签名 .app（默认不出 .dmg）
+// → 产物统一收进 release/（旧版本产物移入系统回收站，只留当前版本）→ 收尾清理：dist/、src-tauri/gen/
+// 与生成的图标移入回收站；src-tauri/target/ 只保留 release/ 作 Rust 增量编译缓存（由用户手动清理）。
 // 用法：
-//   pnpm build            # 用项目当前版本打包
+//   pnpm build            # 用项目当前版本打包（只出 .app，不出 .dmg）
 //   pnpm build 1.0.104    # 先升版本到 1.0.104 再打包
+//   pnpm build --dmg      # 额外生成 .dmg，可与版本参数同用
 
 import { spawnSync } from 'node:child_process';
 import {
@@ -22,10 +23,9 @@ import { currentVersion, patchVersion, readJson, root } from './patch-version.mj
 
 process.chdir(root);
 
-const requestedVersion = process.argv
-  .slice(2)
-  .find((arg) => arg !== '--')
-  ?.trim();
+const rawArgs = process.argv.slice(2).map((arg) => arg.trim());
+const withDmg = rawArgs.includes('--dmg');
+const requestedVersion = rawArgs.find((arg) => arg !== '--' && !arg.startsWith('--')) ?? '';
 if (requestedVersion) patchVersion(requestedVersion);
 
 const version = currentVersion();
@@ -114,6 +114,7 @@ function createSimpleDmg() {
 function prepareMacBundles() {
   const appPath = macAppPath();
   run('codesign', ['--force', '--deep', '--sign', '-', appPath]);
+  if (!withDmg) return;
   moveToTrash(join(bundleDir, 'dmg'));
   createSimpleDmg();
 }
@@ -208,12 +209,11 @@ function findFiles(dir, extension) {
 }
 
 function assertExpectedOutputs(outputs) {
-  if (
-    process.platform === 'darwin' &&
-    (!outputs.some((file) => file.endsWith('.app')) ||
-      !outputs.some((file) => file.endsWith('.dmg')))
-  ) {
-    throw new Error('macOS 发布包必须包含 .app 和 .dmg');
+  if (process.platform === 'darwin' && !outputs.some((file) => file.endsWith('.app'))) {
+    throw new Error('macOS 发布包必须包含 .app');
+  }
+  if (process.platform === 'darwin' && withDmg && !outputs.some((file) => file.endsWith('.dmg'))) {
+    throw new Error('macOS 发布包必须包含 .dmg');
   }
   if (
     process.platform === 'win32' &&
@@ -235,9 +235,21 @@ function cleanIcons() {
 
 function cleanProcessFiles() {
   moveToTrash(join(root, 'dist'));
-  moveToTrash(join(root, 'src-tauri', 'target'));
   moveToTrash(join(root, 'src-tauri', 'gen'));
   cleanIcons();
+  cleanTargetExceptRelease();
+}
+
+// target/release 保留为 Rust 增量编译缓存（由用户手动清理），
+// 其余对增量编译没有帮助的构建过程文件在编译结束后立即移入回收站。
+function cleanTargetExceptRelease() {
+  const targetDir = join(root, 'src-tauri', 'target');
+  if (!existsSync(targetDir)) return;
+  for (const entry of readdirSync(targetDir, { withFileTypes: true })) {
+    if (entry.name === 'release') continue;
+    moveToTrash(join(targetDir, entry.name));
+  }
+  moveToTrash(join(targetDir, 'release', 'bundle'));
 }
 
 function moveToTrash(path) {

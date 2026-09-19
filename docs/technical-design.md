@@ -457,7 +457,7 @@ pnpm run patch -- <next-version>
 pnpm build # 也可直接带版本参数：pnpm build <next-version>，先升版本再打包
 ```
 
-`build`（scripts/build.mjs）会构建并 ad-hoc 签名，在 `release/` 生成当前版本的 `.app` 与 `.dmg`，旧版本产物移入系统回收站、只保留当前产物；收尾把 `dist/`、`src-tauri/target/`、`src-tauri/gen/` 与生成的图标移入回收站。`release/` 和构建缓存不提交 Git；临时目录清理优先使用系统回收站，回收站不可用时保留并提示，不做永久删除。
+`build`（scripts/build.mjs）会构建并 ad-hoc 签名，在 `release/` 生成当前版本的 `.app`（默认不产出 `.dmg`，`--dmg` 才生成），旧版本产物移入系统回收站、只保留当前产物；收尾把 `dist/`、`src-tauri/gen/` 与生成的图标移入回收站，并清理 `src-tauri/target/` 中除 `release/` 外的内容——`target/release` 保留为 Rust 增量编译缓存，由用户手动清理。`release/` 和构建缓存不提交 Git；临时目录清理优先使用系统回收站，回收站不可用时保留并提示，不做永久删除。
 
 ### Web 版部署到 Vercel
 
