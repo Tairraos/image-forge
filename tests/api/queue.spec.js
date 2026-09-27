@@ -283,16 +283,13 @@ describe('worker 执行流程', () => {
     const storage = new Map([
       ['if_settings', enabledProviderSettings],
       [
-        'if_agent_sessions',
-        JSON.stringify([
-          {
-            id: 'summary-session',
-            messages: [
-              { id: 'group-message', taskGroup: { id: 'summary-group', status: 'queued' } },
-            ],
-          },
-        ]),
+        'if_agent_session:summary-session',
+        JSON.stringify({
+          id: 'summary-session',
+          messages: [{ id: 'group-message', taskGroup: { id: 'summary-group', status: 'queued' } }],
+        }),
       ],
+      ['if_agent_session_ids', JSON.stringify(['summary-session'])],
     ]);
     localStorageMock.getItem.mockImplementation((key) => storage.get(key));
     localStorageMock.setItem.mockImplementation((key, value) => storage.set(key, value));
@@ -301,7 +298,7 @@ describe('worker 执行流程', () => {
       { id: 'prov-1' }
     );
     await waitForIdle();
-    const session = JSON.parse(storage.get('if_agent_sessions'))[0];
+    const session = JSON.parse(storage.get('if_agent_session:summary-session'));
     expect(session.messages[0].taskGroup.status).toBe('completed');
     expect(session.messages.find((message) => message.status === 'task_result').content).toContain(
       '共 1 张'

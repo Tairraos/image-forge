@@ -79,7 +79,8 @@ export async function deleteAgentSession(sessionId) {
 
 export async function renameAgentSession(sessionId, title) {
   return localStore.updateSession(sessionId, (session) => {
-    if (!session) return null;
+    // 与桌面版契约一致：会话不存在时报错，而不是返回 null 让调用方崩出 TypeError
+    if (!session) throw new Error(`找不到 Agent 会话: ${sessionId}`);
     session.title = title;
     session.updatedAt = new Date().toISOString();
     return session;
@@ -101,11 +102,12 @@ export async function deleteTask(taskId) {
 }
 
 export async function getTaskStatus(taskGroupId, taskId) {
-  // 按任务组 ID 查询
+  if (taskGroupId && !taskId) {
+    // 轮询热路径：按组查询，本地开发避免每 5 秒全表拉取一次
+    return db.getTasksByGroup(taskGroupId);
+  }
   const all = await db.getAllTasks();
-  return all.filter(
-    (t) => (taskGroupId && t.task_group_id === taskGroupId) || (taskId && t.id === taskId)
-  );
+  return all.filter((t) => taskId && t.id === taskId);
 }
 
 // ── 队列 ──

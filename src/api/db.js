@@ -126,6 +126,18 @@ export async function getTask(id) {
   return row ? parseRecord(row.record_json) : null;
 }
 
+/** 按任务组查询（轮询热路径：本地开发走 HTTP 按组过滤，避免全表拉取） */
+export async function getTasksByGroup(taskGroupId) {
+  if (isLocalDev()) {
+    const data = await requestJson(
+      `${DATA_ORIGIN}/__tasks?group=${encodeURIComponent(taskGroupId)}`
+    );
+    return (Array.isArray(data?.tasks) ? data.tasks : []).map(toSnakeTaskRecord);
+  }
+  const rows = await db.tasks.where('task_group_id').equals(taskGroupId).toArray();
+  return rows.map((row) => parseRecord(row.record_json)).filter(Boolean);
+}
+
 /** 删除任务 */
 export async function deleteTask(id) {
   if (isLocalDev()) {
@@ -142,7 +154,7 @@ export async function getAllTasks(limit) {
   let collection = db.tasks.orderBy('created_at').reverse();
   if (limit) collection = collection.limit(limit);
   const rows = await collection.toArray();
-  return rows.map((row) => parseRecord(row.record_json));
+  return rows.map((row) => parseRecord(row.record_json)).filter(Boolean);
 }
 
 // ── 图片库查询 ──
@@ -168,7 +180,7 @@ export async function getCompletedLibraryRecords() {
   const rows = await db.tasks.filter((row) => row.status === 'completed').toArray();
   return rows
     .map((row) => parseRecord(row.record_json))
-    .filter((record) => record.outputs?.length > 0);
+    .filter((record) => record?.outputs?.length > 0);
 }
 
 /**
@@ -248,7 +260,9 @@ function parseRecord(json) {
   try {
     return JSON.parse(json);
   } catch {
-    return { id: '', outputs: [], prompt: '' };
+    // 损坏记录不能伪装成空任务混进列表（会显示为幽灵记录），交由调用方过滤
+    console.warn('[image-forge] 忽略一条无法解析的任务记录');
+    return null;
   }
 }
 

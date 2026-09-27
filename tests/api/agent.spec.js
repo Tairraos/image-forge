@@ -290,8 +290,8 @@ describe('工具调用循环', () => {
       events.filter((e) => e.phase === 'tool_result' && e.message === '工具执行完成')
     ).toHaveLength(1);
 
-    const saved = JSON.parse(localStorage.getItem('if_agent_sessions'));
-    expect(saved.some((s) => s.id === 'sess-3')).toBe(true);
+    const saved = JSON.parse(localStorage.getItem('if_agent_session:sess-3'));
+    expect(saved).toBeTruthy();
   });
 
   it('referencePolicy=use 缺少参考图时工具报错回传', async () => {
@@ -635,9 +635,10 @@ describe('多轮对话历史重建', () => {
 
   it('图片先完成时，回复保留结果摘要和最新标题，并恢复任务组终态', async () => {
     const original = newSession('sess-fast-image');
-    localStorage.setItem('if_agent_sessions', JSON.stringify([original]));
+    localStorage.setItem('if_agent_session:sess-fast-image', JSON.stringify(original));
+    localStorage.setItem('if_agent_session_ids', JSON.stringify(['sess-fast-image']));
     enqueueTask.mockImplementationOnce(async (request) => {
-      const current = JSON.parse(localStorage.getItem('if_agent_sessions'))[0];
+      const current = JSON.parse(localStorage.getItem('if_agent_session:sess-fast-image'));
       current.title = '最新会话标题';
       current.messages.push({
         id: 'fast-result',
@@ -645,7 +646,7 @@ describe('多轮对话历史重建', () => {
         status: 'task_result',
         content: `[taskGroupId=${request.task_group_id}] 绘图任务组已完成，共 1 张`,
       });
-      localStorage.setItem('if_agent_sessions', JSON.stringify([current]));
+      localStorage.setItem('if_agent_session:sess-fast-image', JSON.stringify(current));
       getAllTasks.mockResolvedValueOnce([
         { id: 'fast-task', task_group_id: request.task_group_id, status: 'completed' },
       ]);
@@ -662,7 +663,7 @@ describe('多轮对话历史重建', () => {
     expect(result.title).toBe('最新会话标题');
     expect(result.messages.filter((message) => message.id === 'fast-result')).toHaveLength(1);
     expect(result.messages.at(-1).taskGroup.status).toBe('completed');
-    expect(JSON.parse(localStorage.getItem('if_agent_sessions'))[0]).toEqual(result);
+    expect(JSON.parse(localStorage.getItem('if_agent_session:sess-fast-image'))).toEqual(result);
   });
 });
 

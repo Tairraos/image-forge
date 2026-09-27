@@ -235,13 +235,23 @@ function upsertSession(db, session) {
   return session;
 }
 
-function readTasks(db, limit) {
+function readTasks(db, limit, group) {
+  // 支持按任务组过滤：任务状态轮询不再每次全表拉取
+  const conditions = [];
+  const params = [];
+  if (group) {
+    conditions.push('task_group_id = ?');
+    params.push(String(group));
+  }
+  const where = conditions.length ? ` WHERE ${conditions.join(' AND ')}` : '';
   const sql =
-    'SELECT record_json FROM tasks ORDER BY created_at DESC' +
+    'SELECT record_json FROM tasks' +
+    where +
+    ' ORDER BY created_at DESC' +
     (limit ? ` LIMIT ${Number(limit) | 0}` : '');
   return db
     .prepare(sql)
-    .all()
+    .all(...params)
     .map((row) => {
       try {
         return JSON.parse(row.record_json);
@@ -371,7 +381,9 @@ export function serveImageForgeData() {
             return;
           }
           if (urlPath === '/__tasks' && req.method === 'GET') {
-            json(res, { tasks: readTasks(await getDb(), query.get('limit')) });
+            json(res, {
+              tasks: readTasks(await getDb(), query.get('limit'), query.get('group')),
+            });
             return;
           }
           if (urlPath === '/__tasks' && (req.method === 'PUT' || req.method === 'POST')) {

@@ -108,6 +108,24 @@ function ensureWorker() {
 }
 
 async function runWorker() {
+  // 跨标签页互斥：每个标签页有独立的 worker，同时运行会双份消耗生图额度。
+  // 支持 Web Locks 的浏览器全局只放行一个执行者；其余标签页的任务排队等锁，
+  // 锁释放后由本标签页的 worker 继续处理。不支持 Web Locks 时退回单标签页行为。
+  try {
+    if (typeof navigator !== 'undefined' && navigator?.locks?.request) {
+      await navigator.locks.request('image-forge-queue-worker', () => processWaitingTasks());
+    } else {
+      await processWaitingTasks();
+    }
+  } finally {
+    workerActive = false;
+    // 等锁期间可能有新任务入队，重新尝试
+    if (waiting.length > 0) ensureWorker();
+    notifyChange();
+  }
+}
+
+async function processWaitingTasks() {
   while (waiting.length > 0) {
     const task = waiting.shift();
     const controller = new AbortController();
@@ -203,12 +221,19 @@ async function runWorker() {
     }
     activeController = null;
     running = running.filter((t) => t.id !== task.id);
-    recent.push(task);
+    pushRecent(task);
     notifyChange();
   }
+}
 
-  workerActive = false;
-  notifyChange();
+// 终态任务保留上限：超过后丢弃最旧的，避免长会话内存持续增长
+const MAX_RECENT = 50;
+
+function pushRecent(task) {
+  recent.push(task);
+  if (recent.length > MAX_RECENT) {
+    recent = recent.slice(-MAX_RECENT);
+  }
 }
 
 // 任务终态后回写 Agent 会话；重试完成时更新同一条 task_result，避免重复或过期摘要。
@@ -288,7 +313,7 @@ export async function cancelTask(taskId) {
     task.updated_at = new Date().toISOString();
     task.completed_at = task.updated_at;
     await db.upsertTask(task);
-    recent.push(task);
+    pushRecent(task);
     await recordAgentTaskResult(task);
     notifyChange();
     return;
@@ -379,7 +404,7 @@ async function restoreTasks() {
     task.updated_at = new Date().toISOString();
     await db.upsertTask(task);
     if (task.status === 'cancelled') {
-      recent.push(task);
+      pushRecent(task);
       await recordAgentTaskResult(task);
     } else {
       waiting.push(task);

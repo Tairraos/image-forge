@@ -230,12 +230,23 @@ async function parseSSEStream(res, onDelta, signal) {
   let fullText = '';
   const toolCallAccum = new Map(); // index -> { id, name, arguments }
 
+  // 空闲超时：网关挂起（有响应但长时间不吐数据）时不至于永久停在"正在思考"。
+  // 外部 signal 仍然优先；桌面版另有 Rust 层超时兜底，这里主要覆盖 Web 版。
+  const IDLE_TIMEOUT_MS = 120000;
+  const controller = new AbortController();
+  const onExternalAbort = () => controller.abort();
+  signal?.addEventListener('abort', onExternalAbort, { once: true });
+  const idleAbortReason = new Error('Agent 流式响应空闲超时（120 秒未收到数据）');
+  let idleTimer = setTimeout(() => controller.abort(idleAbortReason), IDLE_TIMEOUT_MS);
+
   let finished = false;
   try {
     while (!finished) {
-      signal?.throwIfAborted();
+      controller.signal.throwIfAborted();
       const { done, value } = await reader.read();
-      signal?.throwIfAborted();
+      clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => controller.abort(idleAbortReason), IDLE_TIMEOUT_MS);
+      controller.signal.throwIfAborted();
       buffer += done ? decoder.decode() : decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
       buffer = lines.pop() || '';
@@ -286,7 +297,17 @@ async function parseSSEStream(res, onDelta, signal) {
         }
       }
     }
+  } catch (error) {
+    // 空闲超时的中止要转成可读错误；外部主动取消维持原有"已停止"语义
+    if (controller.signal.aborted && !signal?.aborted) {
+      throw new Error(controller.signal.reason?.message || 'Agent 流式响应已中止', {
+        cause: error,
+      });
+    }
+    throw error;
   } finally {
+    clearTimeout(idleTimer);
+    signal?.removeEventListener('abort', onExternalAbort);
     try {
       await reader.cancel?.();
     } finally {
