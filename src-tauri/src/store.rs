@@ -2,6 +2,7 @@ use std::{
     collections::{HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
+    sync::{Mutex, MutexGuard, OnceLock},
 };
 
 use serde::{Deserialize, Serialize};
@@ -314,6 +315,7 @@ pub(crate) fn refresh_history_output_sizes(history: &mut [TaskRecord]) -> bool {
 
 /// 按任务 ID 更新或插入历史记录。
 pub(crate) fn upsert_history(data_dir: &Path, record: TaskRecord) -> Result<(), String> {
+    let _guard = data_lock();
     history_db::upsert(data_dir, &record)
 }
 
@@ -361,6 +363,18 @@ pub(crate) fn fallback_failed_record(task_id: &str, error: &str) -> TaskRecord {
     }
 }
 
+/// 进程内数据锁：串行化所有"读取历史/队列 → 修改 → 全量写回"的命令级序列，
+/// 防止与 worker 的单行 upsert 交错时把并发写入的记录整体抹掉。
+/// 规则：锁只在命令入口获取（write_generation_batch、write_history_queue_transaction 的调用方、
+/// delete/finish/import 等读改写序列），内部落盘函数不再加锁，避免重入死锁。
+pub(crate) fn data_lock() -> MutexGuard<'static, ()> {
+    static DATA_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    DATA_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 pub(crate) fn read_queue(data_dir: &Path) -> Result<QueueState, String> {
     let raw = history_db::read_queue_json(data_dir)?;
     match raw {
@@ -398,7 +412,7 @@ pub(crate) fn read_queue(data_dir: &Path) -> Result<QueueState, String> {
     }
 }
 
-pub(crate) fn write_queue(data_dir: &Path, queue: &QueueState) -> Result<(), String> {
+fn queue_items_json(queue: &QueueState) -> Result<String, String> {
     let mut items = Vec::new();
     for (i, id) in queue.waiting.iter().enumerate() {
         items.push(serde_json::json!({
@@ -422,7 +436,11 @@ pub(crate) fn write_queue(data_dir: &Path, queue: &QueueState) -> Result<(), Str
             })).unwrap_or_default(),
         }));
     }
-    let json = serde_json::to_string(&items).map_err(|e| format!("序列化队列失败: {e}"))?;
+    serde_json::to_string(&items).map_err(|e| format!("序列化队列失败: {e}"))
+}
+
+pub(crate) fn write_queue(data_dir: &Path, queue: &QueueState) -> Result<(), String> {
+    let json = queue_items_json(queue)?;
     history_db::write_queue_items(data_dir, &json)
 }
 
@@ -434,6 +452,7 @@ pub(crate) fn write_generation_batch(
     if requests.len() != records.len() || requests.is_empty() {
         return Err("批量任务数据不完整".into());
     }
+    let _guard = data_lock();
     let mut history = read_history(data_dir)?;
     let mut queue = read_queue(data_dir)?;
     for record in records {
@@ -443,25 +462,26 @@ pub(crate) fn write_generation_batch(
         queue.waiting.retain(|task_id| task_id != &record.id);
         queue.waiting.push(record.id.clone());
     }
-    // 队列先写入 SQLite
-    write_queue(data_dir, &queue)?;
-
-    write_generation_transaction(data_dir, requests, &history)
+    let queue_items = queue_items_json(&queue)?;
+    write_generation_transaction(data_dir, requests, &history, &queue_items)
 }
 
+/// 历史与队列放进同一个 SQLite 事务整体替换。调用方负责持有 data_lock()
+/// 并保证读改写序列都在锁内完成。
 pub(crate) fn write_history_queue_transaction(
     data_dir: &Path,
     history: &[TaskRecord],
     queue: &QueueState,
 ) -> Result<(), String> {
-    write_queue(data_dir, queue)?;
-    write_generation_transaction(data_dir, &[], history)
+    let queue_items = queue_items_json(queue)?;
+    history_db::replace_history_and_queue(data_dir, history, &queue_items)
 }
 
 fn write_generation_transaction(
     data_dir: &Path,
     requests: &[(String, GenerateRequest)],
     history: &[TaskRecord],
+    queue_items: &str,
 ) -> Result<(), String> {
     let transaction_id = format!("generation-batch-{}", Uuid::new_v4());
     let transaction_dir = data_dir.join(".staging").join(&transaction_id);
@@ -488,7 +508,8 @@ fn write_generation_transaction(
             )),
         };
     }
-    if let Err(error) = write_history(data_dir, history) {
+    // 历史与队列在同一个事务里落库：任何一步失败都不会留下半更新的队列。
+    if let Err(error) = history_db::replace_history_and_queue(data_dir, history, queue_items) {
         let rollback = rollback_generation_transaction(data_dir, &transaction_dir, &transaction);
         return match rollback {
             Ok(()) => Err(format!("写入任务数据库失败，文件事务已回滚: {error}")),
@@ -705,21 +726,43 @@ pub(crate) fn enqueue_task(data_dir: &Path, task_id: &str) -> Result<(), String>
 }
 
 /// 取出下一条未超过供应商并发限制的等待任务。
+/// 请求文件缺失或损坏的等待任务永远无法执行：标记失败并移出队列，
+/// 避免单个坏任务让 worker 无限空转、阻塞整个队列。
 pub(crate) fn pop_next_runnable(
     data_dir: &Path,
     settings: &Settings,
 ) -> Result<Option<(String, ApiProvider)>, String> {
+    let _guard = data_lock();
     let mut queue = read_queue(data_dir)?;
     let running_counts = running_counts_by_provider(&queue);
-    for index in 0..queue.waiting.len() {
+    let mut index = 0;
+    while index < queue.waiting.len() {
         let task_id = queue.waiting[index].clone();
-        let request: GenerateRequest = read_json(&request_path(data_dir, &task_id))?;
+        // read_json 对缺失文件返回默认值（prompt 为空），两者都视为不可执行：
+        // 缺失/损坏的请求文件永远跑不出结果，直接标记失败并移出队列。
+        let request: GenerateRequest = match read_json::<GenerateRequest>(&request_path(data_dir, &task_id))
+        {
+            Ok(request) if !request.prompt.trim().is_empty() => request,
+            Ok(_) => {
+                queue.waiting.remove(index);
+                write_queue(data_dir, &queue)?;
+                mark_waiting_task_failed(data_dir, &task_id, "请求文件缺失或请求内容为空")?;
+                continue;
+            }
+            Err(error) => {
+                queue.waiting.remove(index);
+                write_queue(data_dir, &queue)?;
+                mark_waiting_task_failed(data_dir, &task_id, &error)?;
+                continue;
+            }
+        };
         let provider = provider_for_request(settings, request.provider_id.as_deref())?;
         let running = running_counts
             .get(&provider.id)
             .copied()
             .unwrap_or_default();
         if running >= provider.images_concurrency as usize {
+            index += 1;
             continue;
         }
         queue.waiting.remove(index);
@@ -733,6 +776,21 @@ pub(crate) fn pop_next_runnable(
         return Ok(Some((task_id, provider)));
     }
     Ok(None)
+}
+
+/// 把无法执行的等待任务标记为失败：已有历史记录就更新状态，否则补一条失败记录。
+/// 调用方需持有 data_lock()，这里直接走无锁的 history_db::upsert。
+fn mark_waiting_task_failed(data_dir: &Path, task_id: &str, error: &str) -> Result<(), String> {
+    let message = format!("任务无法执行，已从队列移除：{error}");
+    let mut record = match history_record(data_dir, task_id)? {
+        Some(record) => record,
+        None => fallback_failed_record(task_id, &message),
+    };
+    record.status = "failed".into();
+    record.error = Some(message);
+    record.completed_at = Some(utc_now());
+    record.updated_at = utc_now();
+    history_db::upsert(data_dir, &record)
 }
 
 pub(crate) fn clear_running_task(data_dir: &Path, task_id: &str) -> Result<(), String> {
@@ -1139,6 +1197,61 @@ mod transaction_tests {
         rollback_generation_transaction(&root, &transaction_dir, &transaction).unwrap();
 
         assert_eq!(read_history(&root).unwrap()[0].id, "old");
+        recycle(&root);
+    }
+
+    #[test]
+    fn pop_next_runnable_skips_missing_request_and_marks_failed() {
+        let root = temp_root("ghost-waiting");
+        let provider = |id: &str| ApiProvider {
+            id: id.into(),
+            name: id.into(),
+            model_type: "image-gpt".into(),
+            base_url: "https://example.com/v1".into(),
+            api_key: "key".into(),
+            proxy_url: String::new(),
+            image_model: "gpt-image-1".into(),
+            images_concurrency: 2,
+            chat_vision: false,
+            enabled: true,
+            notes: String::new(),
+        };
+        let settings = Settings {
+            providers: vec![provider("provider-a")],
+            ..Settings::default()
+        };
+        let mut ghost = fallback_failed_record("ghost", "placeholder");
+        ghost.status = "queued".into();
+        write_history(&root, &[ghost]).unwrap();
+        write_queue(
+            &root,
+            &QueueState {
+                waiting: vec!["ghost".into(), "healthy".into()],
+                ..QueueState::default()
+            },
+        )
+        .unwrap();
+        write_json(
+            &request_path(&root, "healthy"),
+            &GenerateRequest {
+                provider_id: Some("provider-a".into()),
+                prompt: "healthy".into(),
+                ..GenerateRequest::default()
+            },
+        )
+        .unwrap();
+
+        // 请求文件缺失的 ghost 不应阻塞队列：跳过并标记失败，后续任务正常调度
+        let (task_id, _) = pop_next_runnable(&root, &settings).unwrap().unwrap();
+        assert_eq!(task_id, "healthy");
+        let queue = read_queue(&root).unwrap();
+        assert_eq!(queue.waiting, Vec::<String>::new());
+        assert!(queue.running.iter().any(|run| run.task_id == "healthy"));
+        let failed = history_record(&root, "ghost")
+            .unwrap()
+            .expect("ghost 历史记录应存在");
+        assert_eq!(failed.status, "failed");
+        assert!(failed.error.as_deref().unwrap_or_default().contains("已从队列移除"));
         recycle(&root);
     }
 

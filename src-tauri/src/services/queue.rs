@@ -8,9 +8,9 @@ use crate::{
     services::references::prune_unreferenced_files,
     state::{record_operation, RuntimeState},
     store::{
-        clear_running_task, enqueue_task, ensure_data_dir, fallback_failed_record, history_record,
-        output_dir_for, pop_next_runnable, read_history, read_json, read_queue, read_settings,
-        request_path, upsert_history, write_history, write_history_queue_transaction,
+        clear_running_task, data_lock, enqueue_task, ensure_data_dir, fallback_failed_record,
+        history_record, output_dir_for, pop_next_runnable, read_history, read_json, read_queue,
+        read_settings, request_path, upsert_history, write_history_queue_transaction,
     },
     utils::{http_client_with_proxy, recycle_path, utc_now, REQUEST_TIMEOUT_SECONDS},
 };
@@ -110,6 +110,7 @@ pub(crate) fn recover_stale_running(
     if worker_active {
         return Ok(false);
     }
+    let _guard = data_lock();
     let mut queue = read_queue(data_dir)?;
     if queue.running.is_empty() {
         return Ok(false);
@@ -568,14 +569,20 @@ fn upsert_task_history(
 }
 
 /// 完成运行中删除任务的收尾：清队列、清请求文件、清运行态标记。
+/// 历史与队列在同一个事务里落库（持数据锁），避免删除中途失败留下幽灵队列项。
 fn finish_deleted_task(app: &AppHandle, data_dir: &Path, task_id: &str) -> Result<(), String> {
     if let Ok(mut requests) = app.state::<RuntimeState>().cancel_requests.lock() {
         requests.remove(task_id);
     }
-    clear_running_task(data_dir, task_id)?;
-    let mut history = read_history(data_dir)?;
-    history.retain(|record| record.id != task_id);
-    write_history(data_dir, &history)?;
+    {
+        let _guard = data_lock();
+        let mut queue = read_queue(data_dir)?;
+        queue.running.retain(|run| run.task_id != task_id);
+        queue.waiting.retain(|id| id != task_id);
+        let mut history = read_history(data_dir)?;
+        history.retain(|record| record.id != task_id);
+        write_history_queue_transaction(data_dir, &history, &queue)?;
+    }
     let request_file = request_path(data_dir, task_id);
     if request_file.exists() {
         recycle_path(&request_file)

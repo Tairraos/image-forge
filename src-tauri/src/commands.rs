@@ -42,7 +42,7 @@ use crate::{
         normalize_template, params_from_request, provider_for_request, read_history, read_json,
         read_queue, read_recent_history, read_settings, read_templates,
         refresh_history_output_sizes, request_path, write_generation_batch, write_history,
-        write_history_queue_transaction, write_queue, write_settings, write_templates_to_db,
+        write_history_queue_transaction, write_settings, write_templates_to_db,
     },
     utils::{recycle_path, utc_now},
 };
@@ -1047,6 +1047,8 @@ pub(crate) fn cancel_agent_task_group(
     task_group_id: String,
 ) -> Result<Vec<TaskRecord>, String> {
     let data_dir = ensure_data_dir(&app)?;
+    // 读改写全程持有数据锁，历史与队列在同一事务里落库。
+    let _guard = crate::store::data_lock();
     let mut history = read_history(&data_dir)?;
     let mut queue = read_queue(&data_dir)?;
     let mut found = false;
@@ -1087,6 +1089,7 @@ pub(crate) fn cancel_agent_task_group(
             .map_err(|_| "取消状态锁定失败")?;
         requests.extend(cancel_ids.iter().cloned());
     }
+    // 顶部已持有数据锁；历史与队列在同一事务里落库。
     if let Err(error) = write_history_queue_transaction(&data_dir, &history, &queue) {
         if let Ok(mut requests) = runtime_state.cancel_requests.lock() {
             for task_id in &cancel_ids {
@@ -1401,6 +1404,8 @@ fn redraw_task_in_data_dir(data_dir: &Path, task_id: &str) -> Result<TaskRecord,
 /// 删除任务记录、队列项和请求文件，并把已生成图片移入回收站。
 pub(crate) fn delete_task(app: AppHandle, task_id: String) -> Result<(), String> {
     let data_dir = ensure_data_dir(&app)?;
+    // 读改写全程持有数据锁：全量替换历史期间不允许 worker 并发 upsert。
+    let _guard = crate::store::data_lock();
     let mut history = read_history(&data_dir)?;
     let Some(index) = history.iter().position(|item| item.id == task_id) else {
         return Err("找不到任务".into());
@@ -1428,8 +1433,8 @@ pub(crate) fn delete_task(app: AppHandle, task_id: String) -> Result<(), String>
     let mut queue = read_queue(&data_dir)?;
     queue.waiting.retain(|id| id != &task_id);
     queue.running.retain(|run| run.task_id != task_id);
-    write_history(&data_dir, &history)?;
-    write_queue(&data_dir, &queue)?;
+    // 历史与队列在同一个事务里落库，避免删除中途失败留下幽灵队列项。
+    write_history_queue_transaction(&data_dir, &history, &queue)?;
 
     let request_file = request_path(&data_dir, &task_id);
     if request_file.exists() {

@@ -99,6 +99,25 @@ pub(crate) fn upsert(data_dir: &Path, record: &TaskRecord) -> Result<(), String>
     transaction.commit().map_err(db_error)
 }
 
+/// 在同一个 SQLite 事务里替换完整历史与队列，保证两者要么同时生效、要么同时保持原状，
+/// 避免出现"队列已写入但历史/请求文件缺失"的幽灵条目。
+pub(crate) fn replace_history_and_queue(
+    data_dir: &Path,
+    records: &[TaskRecord],
+    queue_items: &str,
+) -> Result<(), String> {
+    let mut connection = open(data_dir)?;
+    let transaction = connection.transaction().map_err(db_error)?;
+    transaction
+        .execute("DELETE FROM tasks", [])
+        .map_err(db_error)?;
+    for record in records {
+        upsert_in_transaction(&transaction, record)?;
+    }
+    write_queue_in_transaction(&transaction, queue_items)?;
+    transaction.commit().map_err(db_error)
+}
+
 /// agent 视图内嵌图片库：无关键词时按月份列出图片，有关键词时跨月份搜索，
 /// 并返回所有有图片的月份列表（供月份选择器与上/下月切换）。
 pub(crate) fn agent_library(
@@ -761,6 +780,11 @@ pub(crate) fn read_queue_json(data_dir: &Path) -> Result<Option<String>, String>
 pub(crate) fn write_queue_items(data_dir: &Path, items: &str) -> Result<(), String> {
     let mut connection = open(data_dir)?;
     let transaction = connection.transaction().map_err(db_error)?;
+    write_queue_in_transaction(&transaction, items)?;
+    transaction.commit().map_err(db_error)
+}
+
+fn write_queue_in_transaction(transaction: &Transaction<'_>, items: &str) -> Result<(), String> {
     transaction
         .execute("DELETE FROM app_queue", [])
         .map_err(db_error)?;
@@ -777,7 +801,7 @@ pub(crate) fn write_queue_items(data_dir: &Path, items: &str) -> Result<(), Stri
             )
             .map_err(db_error)?;
     }
-    transaction.commit().map_err(db_error)
+    Ok(())
 }
 
 #[cfg(test)]
