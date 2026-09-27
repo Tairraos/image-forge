@@ -80,7 +80,7 @@ Web 版直接从浏览器调用 OpenAI/Gemini/Grok API（`src/api/providers.js`�
 
 ### 图片存在哪里？
 
-1. 优先：Vercel Blob（需配置 `VITE_BLOB_READ_WRITE_TOKEN`）
+1. 部署的 Web 版：Vercel Blob。在 Vercel 项目设置里配置服务端环境变量 `BLOB_READ_WRITE_TOKEN`（不要放进前端环境变量），上传/删除经 `api/blob/*` 函数签发短时令牌完成，前端 bundle 不含任何 Token
 2. 本地开发：写入 `~/.image-forge/` 目录，通过 Vite dev server 的 `/image-forge-data/` 路径提供
 
 ### 图片库能看到桌面版的图吗？

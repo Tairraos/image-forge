@@ -155,7 +155,7 @@ async function runWorker() {
         const fileName = `${timestamp}-${task.id}-${String(i + 1).padStart(2, '0')}.${result.output_format || 'png'}`;
 
         // 把图片写入 ~/.image-forge/tasks/<YYYY-MM-DD>/<fileName>（本地开发）；
-        // 配了 VITE_BLOB_READ_WRITE_TOKEN 则上传到 Vercel Blob。
+        // 部署的 Web 版经服务端短时令牌上传到 Vercel Blob。
         // 任何分支都不再把图片字节写进 localStorage / IndexedDB。
         const datePath = `tasks/${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
         controller.signal.throwIfAborted();

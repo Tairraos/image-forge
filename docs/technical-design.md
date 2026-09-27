@@ -464,7 +464,9 @@ pnpm build # 也可直接带版本参数：pnpm build <next-version>，先升版
 ```bash
 # 1. 配置环境变量
 cp .env.example .env
-# 编辑 .env：VITE_ACCESS_PASSWORD、VITE_BLOB_READ_WRITE_TOKEN
+# 编辑 .env：VITE_ACCESS_PASSWORD（访问密码锁）
+# 另在 Vercel 项目设置 → Environment Variables 配置服务端 BLOB_READ_WRITE_TOKEN，
+# 供 api/blob/* 函数签发短时上传令牌；前端不持有任何 Blob Token
 
 # 2. 部署
 vercel --prod

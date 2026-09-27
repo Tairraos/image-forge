@@ -1,16 +1,23 @@
 // blob.spec.js — 图片存储层测试
 // 测试 isLocalDev、uploadImage、downloadImage、deleteImage、isBlobUrl 等函数。
 
-import { describe, expect, it, vi, afterEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+
+// mock 掉 @vercel/blob/client：上传走服务端签发短时令牌后直传的流程
+vi.mock('@vercel/blob/client', () => ({ upload: vi.fn() }));
 
 // 先 stub 环境变量，再导入模块
-vi.stubEnv('VITE_BLOB_READ_WRITE_TOKEN', '');
 vi.stubEnv('VITE_DEV_PORT', '');
 
 const { uploadImage, downloadImage, deleteImage, isBlobUrl, devUrlToAbsPath } =
   await import('../../src/api/blob.js');
+const { upload: blobClientUpload } = await import('@vercel/blob/client');
 
 const originalLocation = { ...window.location };
+
+beforeEach(() => {
+  blobClientUpload.mockReset();
+});
 
 afterEach(() => {
   Object.defineProperty(window, 'location', {
@@ -92,14 +99,36 @@ describe('uploadImage — 本地开发模式', () => {
   });
 });
 
-describe('uploadImage — 非本地开发且无 token', () => {
-  it('非本地开发且无 token 时抛出错误', async () => {
+describe('uploadImage — 部署的 Web 版（服务端代理）', () => {
+  it('非本地开发时经短时令牌直传 Blob，返回远端 URL', async () => {
     setLocation({ port: '3000', origin: 'http://localhost:3000' });
+    blobClientUpload.mockResolvedValueOnce({
+      url: 'https://xxx.public.blob.vercel-storage.com/cat-abc123.png',
+    });
 
     const fakeBlob = new Blob(['test'], { type: 'image/png' });
-    await expect(uploadImage('cat.png', fakeBlob)).rejects.toThrow(
-      'Web 版未配置 VITE_BLOB_READ_WRITE_TOKEN'
+    const result = await uploadImage('cat.png', fakeBlob, 'tasks');
+
+    expect(result).toBe('https://xxx.public.blob.vercel-storage.com/cat-abc123.png');
+    expect(blobClientUpload).toHaveBeenCalledTimes(1);
+    expect(blobClientUpload).toHaveBeenCalledWith(
+      'cat.png',
+      expect.any(Blob),
+      expect.objectContaining({
+        access: 'public',
+        handleUploadUrl: '/api/blob/upload',
+        contentType: 'image/png',
+      })
     );
+  });
+
+  it('上传失败时抛出带部署提示的错误', async () => {
+    setLocation({ port: '3000', origin: 'http://localhost:3000' });
+    blobClientUpload.mockRejectedValue(new Error('fetch failed'));
+
+    const fakeBlob = new Blob(['test'], { type: 'image/png' });
+    await expect(uploadImage('cat.png', fakeBlob)).rejects.toThrow('Blob 上传失败');
+    await expect(uploadImage('cat.png', fakeBlob)).rejects.toThrow('/api/blob/upload');
   });
 });
 
@@ -147,5 +176,26 @@ describe('deleteImage', () => {
     await deleteImage('/image-forge-data/tasks/cat.png');
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(fetch.mock.calls[0][1].method).toBe('DELETE');
+  });
+
+  it('Blob URL 走服务端删除 API', async () => {
+    setLocation({ port: '3000', origin: 'http://localhost:3000' });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }));
+
+    await deleteImage('https://xxx.public.blob.vercel-storage.com/cat-abc123.png');
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch.mock.calls[0][0]).toBe('/api/blob/delete');
+    expect(fetch.mock.calls[0][1].method).toBe('POST');
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({
+      urls: ['https://xxx.public.blob.vercel-storage.com/cat-abc123.png'],
+    });
+  });
+
+  it('非 Blob 的 https URL 不发任何请求', async () => {
+    setLocation({ port: '3000', origin: 'http://localhost:3000' });
+    vi.stubGlobal('fetch', vi.fn());
+
+    await deleteImage('https://example.com/image.png');
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

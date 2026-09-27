@@ -29,7 +29,14 @@ export default [
   prettier,
 
   {
-    files: ['src/**/*.{js,vue}', 'tests/**/*.js', 'vite.config.js', 'dev-server/**/*.mjs'],
+    files: [
+      'src/**/*.{js,vue}',
+      'tests/**/*.js',
+      'vite.config.js',
+      'dev-server/**/*.mjs',
+      // Vercel Functions：Node 运行时
+      'api/**/*.js',
+    ],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'module',
