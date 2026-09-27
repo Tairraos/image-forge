@@ -8,7 +8,7 @@
 import { createReadStream, existsSync, unlinkSync } from 'node:fs';
 import { mkdir, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join, normalize, extname } from 'node:path';
+import { join, normalize, extname, sep } from 'node:path';
 
 const IMAGE_FORGE_DIR = join(homedir(), '.image-forge');
 const DB_PATH = join(IMAGE_FORGE_DIR, 'library.sqlite');
@@ -298,12 +298,26 @@ export function serveImageForgeData() {
   return {
     name: 'serve-image-forge-data',
     configureServer(server) {
+      // 可选访问令牌：配置 VITE_DEV_DATA_TOKEN 后，敏感端点（/__* 与文件写入/删除）
+      // 必须携带 x-if-data-token 头或 ?token= 参数；静态图片 GET 保持开放以保证 <img> 渲染。
+      const dataToken =
+        server.config.env?.VITE_DEV_DATA_TOKEN || process.env.VITE_DEV_DATA_TOKEN || '';
       server.middlewares.use(DEV_DATA_ORIGIN, async (req, res) => {
         const urlPath = decodeURIComponent(req.url?.split('?')[0] || '/');
         const query = new URL(req.url ?? '/', 'http://localhost').searchParams;
+        if (dataToken) {
+          const isSensitive =
+            !['GET', 'HEAD'].includes(req.method || '') || urlPath.startsWith('/__');
+          const provided = req.headers['x-if-data-token'] || query.get('token') || '';
+          if (isSensitive && provided !== dataToken) {
+            res.statusCode = 403;
+            res.end('Forbidden');
+            return;
+          }
+        }
         const filePath = normalize(join(IMAGE_FORGE_DIR, urlPath));
-        // 安全检查：确保路径在 .image-forge 目录内
-        if (!filePath.startsWith(IMAGE_FORGE_DIR)) {
+        // 安全检查：确保路径在 .image-forge 目录内（补上分隔符，避免 .image-forge2 等兄弟目录绕过）
+        if (filePath !== IMAGE_FORGE_DIR && !filePath.startsWith(IMAGE_FORGE_DIR + sep)) {
           res.statusCode = 403;
           res.end('Forbidden');
           return;

@@ -87,7 +87,9 @@ export default defineConfig(({ mode, command }) => {
       },
     },
     server: {
-      host: '0.0.0.0',
+      // 默认只监听回环地址：数据服务无鉴权地暴露 ~/.image-forge（含 API Key 明文），
+      // 需要局域网设备访问时显式设置 VITE_DEV_EXPOSE=true，并建议同时配置 VITE_DEV_DATA_TOKEN。
+      host: env.VITE_DEV_EXPOSE === 'true' ? '0.0.0.0' : '127.0.0.1',
       port,
       strictPort: true,
       allowedHosts,
