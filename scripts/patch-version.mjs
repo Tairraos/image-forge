@@ -81,7 +81,11 @@ function replaceInFile(path, pattern, replacement) {
   const fullPath = resolve(root, path);
   const before = readFileSync(fullPath, 'utf8');
   const after = before.replace(pattern, replacement);
-  if (after !== before) writeFileSync(fullPath, after);
+  if (after === before) {
+    // 静默跳过会让版本号悄悄失同步，这里必须报错暴露文件格式漂移
+    throw new Error(`版本号同步失败：${path} 中没有命中需要替换的模式，请检查该文件格式是否变化`);
+  }
+  writeFileSync(fullPath, after);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
