@@ -112,7 +112,7 @@ describe('uploadImage — 部署的 Web 版（服务端代理）', () => {
     expect(result).toBe('https://xxx.public.blob.vercel-storage.com/cat-abc123.png');
     expect(blobClientUpload).toHaveBeenCalledTimes(1);
     expect(blobClientUpload).toHaveBeenCalledWith(
-      'cat.png',
+      'tasks/cat.png',
       expect.any(Blob),
       expect.objectContaining({
         access: 'public',

@@ -31,8 +31,10 @@ export async function uploadImage(fileName, blob, relPath, signal) {
     return uploadToLocalFs(fileName, blob, relPath, signal);
   }
   const safeName = sanitizeFileName(fileName || `image-${Date.now()}.png`);
+  // 与本地模式一致：按用途分子目录存放，避免所有文件堆在桶根目录
+  const subPath = sanitizeRelPath(relPath) || 'tasks';
   try {
-    const result = await blobClientUpload(safeName, blob, {
+    const result = await blobClientUpload(`${subPath}/${safeName}`, blob, {
       access: 'public',
       handleUploadUrl: BLOB_UPLOAD_URL,
       contentType: blob.type || undefined,
