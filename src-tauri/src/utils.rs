@@ -336,6 +336,25 @@ pub(crate) fn image_mime_type(path: &Path, bytes: &[u8]) -> Result<String, Strin
     }
 }
 
+/// 附件/预览加固用：只认真实图片魔数，不做扩展名兜底，
+/// 防止把任意本地文件伪装成图片内容外发。
+pub(crate) fn strict_image_mime(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("image/png")
+    } else if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+        Some("image/jpeg")
+    } else if bytes.starts_with(b"RIFF") && bytes.len() > 12 && &bytes[8..12] == b"WEBP" {
+        Some("image/webp")
+    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        Some("image/gif")
+    } else {
+        None
+    }
+}
+
+/// 参考图/附件读取的大小上限：超过即拒绝，避免超大文件整读进内存并编码为 base64。
+pub(crate) const MAX_REFERENCE_BYTES: u64 = 30 * 1024 * 1024;
+
 pub(crate) fn clean_text(value: String, fallback: &str) -> String {
     let value = value.trim();
     if value.is_empty() {

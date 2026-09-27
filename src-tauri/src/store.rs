@@ -373,7 +373,10 @@ pub(crate) fn read_queue(data_dir: &Path) -> Result<QueueState, String> {
     let raw = history_db::read_queue_json(data_dir)?;
     match raw {
         Some(json) => {
-            let items: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap_or_default();
+            // 反序列化失败不能静默当作空队列：那会让 running 任务失去并发限制、
+            // waiting 任务不再被调度，必须报错暴露
+            let items: Vec<serde_json::Value> = serde_json::from_str(&json)
+                .map_err(|error| format!("解析队列数据失败: {error}"))?;
             let mut waiting = Vec::new();
             let mut running = Vec::new();
             for item in items {
@@ -799,10 +802,14 @@ pub(crate) fn clear_running_task(data_dir: &Path, task_id: &str) -> Result<(), S
 
 pub(crate) fn read_templates(data_dir: &Path) -> Result<Vec<PromptTemplate>, String> {
     let jsons = history_db::read_templates(data_dir)?;
-    let mut templates: Vec<PromptTemplate> = jsons
-        .iter()
-        .filter_map(|json| serde_json::from_str(json).ok())
-        .collect();
+    let mut templates = Vec::with_capacity(jsons.len());
+    for (index, json) in jsons.iter().enumerate() {
+        // 一条损坏记录若被静默跳过，会在下一次全量写回时被永久删除——必须报错冻结状态
+        let template: PromptTemplate = serde_json::from_str(json).map_err(|error| {
+            format!("第 {} 条模板记录损坏，已中止读取以防数据丢失：{error}", index + 1)
+        })?;
+        templates.push(template);
+    }
     let mut changed = false;
     for template in &mut templates {
         changed |= migrate_template_title(template);

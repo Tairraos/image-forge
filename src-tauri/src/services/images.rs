@@ -15,7 +15,7 @@ use crate::{
     utils::{
         extension_for_format, format_api_error, format_request_error, image_mime_type,
         image_prompt_for_transport, image_size_from_bytes, mime_for_format, normalize_base_url,
-        normalize_output_format, should_send_input_fidelity,
+        normalize_output_format, should_send_input_fidelity, MAX_REFERENCE_BYTES,
     },
 };
 
@@ -73,6 +73,14 @@ pub(crate) fn save_outputs(
 pub(crate) fn reference_preview(path: &Path) -> Result<ReferencePreview, String> {
     if !path.is_file() {
         return Err("找不到参考图文件".into());
+    }
+    let file_size = fs::metadata(path)
+        .map_err(|error| format!("读取参考图失败: {error}"))?
+        .len();
+    if file_size > MAX_REFERENCE_BYTES {
+        return Err(format!(
+            "参考图文件过大（{file_size} 字节，上限 {MAX_REFERENCE_BYTES} 字节）"
+        ));
     }
     let bytes = fs::read(path).map_err(|error| format!("读取参考图失败: {error}"))?;
     let mime_type = image_mime_type(path, &bytes)?;

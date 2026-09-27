@@ -12,10 +12,17 @@ use crate::models::{AgentLibraryPage, LibraryDayCount, TaskRecord};
 const DATABASE_FILE: &str = "library.sqlite";
 const LEGACY_HISTORY_FILE: &str = "history.json";
 const MIGRATION_KEY: &str = "history_json_v1";
+/// 图片迁移日志：每移动一个文件就落盘，进程崩溃后据此回滚，防止图片孤儿化。
+const MIGRATION_JOURNAL: &str = ".staging/history-migration.json";
 
 pub(crate) fn initialize(data_dir: &Path, output_root: &Path) -> Result<(), String> {
     let mut connection = open(data_dir)?;
     if migration_completed(&connection)? {
+        // 迁移已完成但日志残留（提交后、清理前崩溃）：日志已无意义，直接清理
+        let journal = data_dir.join(MIGRATION_JOURNAL);
+        if journal.is_file() {
+            let _ = fs::remove_file(&journal);
+        }
         return Ok(());
     }
     let legacy_path = data_dir.join(LEGACY_HISTORY_FILE);
@@ -24,22 +31,40 @@ pub(crate) fn initialize(data_dir: &Path, output_root: &Path) -> Result<(), Stri
         return Ok(());
     }
 
-    let text =
-        fs::read_to_string(&legacy_path).map_err(|error| format!("读取旧历史记录失败: {error}"))?;
-    let mut records: Vec<TaskRecord> =
-        serde_json::from_str(&text).map_err(|error| format!("解析旧历史记录失败: {error}"))?;
     let backup = data_dir.join("history.json.pre-sqlite.bak");
     if !backup.exists() {
         fs::copy(&legacy_path, &backup).map_err(|error| format!("备份旧历史记录失败: {error}"))?;
     }
 
+    let text =
+        fs::read_to_string(&legacy_path).map_err(|error| format!("读取旧历史记录失败: {error}"))?;
+    let mut records: Vec<TaskRecord> =
+        serde_json::from_str(&text).map_err(|error| format!("解析旧历史记录失败: {error}"))?;
+
+    // 崩溃恢复：上次迁移移动了图片但未提交库 → 按日志把文件移回原位再重来
+    let journal = data_dir.join(MIGRATION_JOURNAL);
+    if journal.is_file() {
+        match fs::read_to_string(&journal)
+            .map_err(|error| format!("读取迁移日志失败: {error}"))
+            .and_then(|text| {
+                serde_json::from_str::<Vec<(PathBuf, PathBuf)>>(&text)
+                    .map_err(|error| format!("解析迁移日志失败: {error}"))
+            }) {
+            Ok(moved) => rollback_moves(&moved),
+            Err(_) => {}
+        }
+        let _ = fs::remove_file(&journal);
+    }
+
     let mut moved = Vec::new();
-    if let Err(error) = migrate_output_files(&mut records, output_root, &mut moved)
+    if let Err(error) = migrate_output_files(data_dir, &mut records, output_root, &mut moved)
         .and_then(|_| import_legacy(&mut connection, &records))
     {
         rollback_moves(&moved);
         return Err(error);
     }
+    // 迁移已提交到库，日志不再需要
+    let _ = fs::remove_file(data_dir.join(MIGRATION_JOURNAL));
 
     let archived = unique_archive_path(data_dir);
     fs::rename(&legacy_path, &archived).map_err(|error| format!("归档旧历史记录失败: {error}"))?;
@@ -418,6 +443,7 @@ fn set_migration_completed(connection: &mut Connection) -> Result<(), String> {
 }
 
 fn migrate_output_files(
+    data_dir: &Path,
     records: &mut [TaskRecord],
     output_root: &Path,
     moved: &mut Vec<(PathBuf, PathBuf)>,
@@ -444,9 +470,21 @@ fn migrate_output_files(
                 .map(|value| value.to_string_lossy().into_owned())
                 .unwrap_or_else(|| output.file_name.clone());
             moved.push((source, target));
+            // 每移动一个文件就重写日志：崩溃后可按日志回滚，防止图片孤儿化
+            write_migration_journal(data_dir, moved)?;
         }
     }
     Ok(())
+}
+
+fn write_migration_journal(data_dir: &Path, moved: &[(PathBuf, PathBuf)]) -> Result<(), String> {
+    let journal = data_dir.join(MIGRATION_JOURNAL);
+    if let Some(parent) = journal.parent() {
+        fs::create_dir_all(parent).map_err(|error| format!("创建迁移日志目录失败: {error}"))?;
+    }
+    let text = serde_json::to_string(moved)
+        .map_err(|error| format!("序列化迁移日志失败: {error}"))?;
+    fs::write(&journal, text).map_err(|error| format!("写入迁移日志失败: {error}"))
 }
 
 fn rollback_moves(moved: &[(PathBuf, PathBuf)]) {
@@ -630,6 +668,30 @@ fn migrate_json_to_sqlite(data_dir: &Path, connection: &Connection) -> Result<()
         }
     }
 
+    // 全部导入成功后回收旧 JSON：既避免明文 API Key 长期残留，也防止
+    // 库版本意外回退时旧数据经 INSERT OR REPLACE 回灌覆盖新库。尽力回收，失败仅记录。
+    let mut legacy_files = vec![settings_path, templates_path, queue_path];
+    if sessions_dir.is_dir() {
+        if let Ok(entries) = fs::read_dir(&sessions_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|v| v.to_str()) == Some("json") {
+                    legacy_files.push(path);
+                }
+            }
+        }
+    }
+    for path in &legacy_files {
+        if path.is_file() {
+            if let Err(error) = crate::utils::recycle_path(path) {
+                eprintln!(
+                    "[image-forge] 回收迁移遗留文件失败（{}）: {error}",
+                    path.display()
+                );
+            }
+        }
+    }
+
     connection
         .execute_batch("PRAGMA user_version = 2;")
         .map_err(db_error)?;
@@ -644,10 +706,10 @@ pub(crate) fn read_settings(data_dir: &Path) -> Result<Option<String>, String> {
         .prepare("SELECT value FROM app_settings WHERE key = 'settings'")
         .map_err(db_error)?;
     let mut rows = stmt.query([]).map_err(db_error)?;
-    Ok(rows
-        .next()
-        .map_err(db_error)?
-        .map(|row| row.get::<_, String>(0).unwrap_or_default()))
+    match rows.next().map_err(db_error)? {
+        Some(row) => Ok(Some(row.get::<_, String>(0).map_err(db_error)?)),
+        None => Ok(None),
+    }
 }
 
 pub(crate) fn write_settings(data_dir: &Path, json: &str) -> Result<(), String> {
@@ -727,10 +789,10 @@ pub(crate) fn read_agent_session(
         .prepare("SELECT record_json FROM agent_sessions WHERE id = ?1")
         .map_err(db_error)?;
     let mut rows = stmt.query(params![session_id]).map_err(db_error)?;
-    Ok(rows
-        .next()
-        .map_err(db_error)?
-        .map(|row| row.get::<_, String>(0).unwrap_or_default()))
+    match rows.next().map_err(db_error)? {
+        Some(row) => Ok(Some(row.get::<_, String>(0).map_err(db_error)?)),
+        None => Ok(None),
+    }
 }
 
 pub(crate) fn upsert_agent_session(data_dir: &Path, session: &str) -> Result<(), String> {
@@ -784,7 +846,8 @@ pub(crate) fn read_queue_json(data_dir: &Path) -> Result<Option<String>, String>
             }))
         })
         .map_err(db_error)?;
-    let items: Vec<serde_json::Value> = rows.filter_map(|r| r.ok()).collect();
+    // 行读取失败必须报错：静默丢行会让队列状态悄然残缺
+    let items: Vec<serde_json::Value> = rows.collect::<Result<Vec<_>, _>>().map_err(db_error)?;
     if items.is_empty() {
         return Ok(None);
     }

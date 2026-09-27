@@ -21,7 +21,7 @@ use crate::{
         agent::run_turn,
         agent_store::{
             append_message, create_session, delete_session, prepare_context, recover_sessions,
-            rename_session, save_session, session,
+            rename_session, save_session, session, update_session_status, lock_sessions,
         },
         agent_tools::{TOOL_CREATE_IMAGE_TASKS, TOOL_GET_TASK_STATUS},
         chat::fill_template_response,
@@ -39,12 +39,14 @@ use crate::{
     state::{record_operation, runtime_logs_text, RuntimeState},
     store::{
         ensure_data_dir, next_template_id, normalize_request, normalize_settings,
-        normalize_template, params_from_request, provider_for_request, read_history, read_json,
-        read_queue, read_recent_history, read_settings, read_templates,
+        normalize_template, output_dir_for, params_from_request, provider_for_request, read_history,
+        read_json, read_queue, read_recent_history, read_settings, read_templates,
         refresh_history_output_sizes, request_path, write_generation_batch, write_history,
         write_history_queue_transaction, write_settings, write_templates_to_db,
     },
-    utils::{recycle_path, utc_now},
+    utils::{
+        image_size_from_bytes, recycle_path, strict_image_mime, utc_now, MAX_REFERENCE_BYTES,
+    },
 };
 
 #[tauri::command]
@@ -136,11 +138,14 @@ pub(crate) async fn send_agent_message(
     attachments: Vec<AgentAttachment>,
 ) -> Result<AgentSession, String> {
     let data_dir = ensure_data_dir(&app)?;
-    let mut current = session(&data_dir, &session_id)?;
-    if !provider_id.trim().is_empty() {
-        current.model_provider_id = provider_id.trim().to_string();
+    {
+        let _guard = lock_sessions();
+        let mut loaded = session(&data_dir, &session_id)?;
+        if !provider_id.trim().is_empty() {
+            loaded.model_provider_id = provider_id.trim().to_string();
+        }
+        save_session(&data_dir, loaded)?;
     }
-    save_session(&data_dir, current)?;
     let user = AgentMessage {
         id: Uuid::new_v4().to_string(),
         role: "user".into(),
@@ -156,10 +161,17 @@ pub(crate) async fn send_agent_message(
     if user.content.is_empty() {
         return Err("消息不能为空".into());
     }
-    current = append_message(&data_dir, &session_id, user)?;
-    current.status = "running".into();
-    let context_messages = prepare_context(&mut current);
-    current = save_session(&data_dir, current)?;
+    append_message(&data_dir, &session_id, user)?;
+    // 状态与摘要更新在会话锁内基于最新会话做，避免用过期快照覆盖并发写入的消息
+    let context_messages;
+    let current = {
+        let _guard = lock_sessions();
+        let mut fresh = session(&data_dir, &session_id)?;
+        fresh.status = "running".into();
+        context_messages = prepare_context(&mut fresh);
+        save_session(&data_dir, fresh.clone())?;
+        fresh
+    };
     let settings = read_settings(&data_dir)?;
     let provider = agent_chat_provider(&settings, &current.model_provider_id)?;
     let context = if current.summary.trim().is_empty() {
@@ -261,7 +273,7 @@ pub(crate) async fn send_agent_message(
                     },
                 )?;
             }
-            current = append_message(
+            append_message(
                 &data_dir,
                 &session_id,
                 AgentMessage {
@@ -277,30 +289,40 @@ pub(crate) async fn send_agent_message(
                     created_at: utc_now(),
                 },
             )?;
-            current.status = "idle".into();
-            current = save_session(&data_dir, current)?;
+            let current = update_session_status(&data_dir, &session_id, "idle")?;
             Ok(current)
         }
         Err(error) => {
-            if let Ok(mut failed) = session(&data_dir, &session_id) {
-                failed.status = if error.contains("已停止") {
-                    "interrupted".into()
-                } else {
-                    "error".into()
-                };
-                failed.messages.push(AgentMessage {
-                    id: Uuid::new_v4().to_string(),
-                    role: "assistant".into(),
-                    status: "error".into(),
-                    content: "本轮 Agent 对话未完成".into(),
-                    attachments: Vec::new(),
-                    tool_call: None,
-                    questions: Vec::new(),
-                    task_group: None,
-                    error: error.clone(),
-                    created_at: utc_now(),
-                });
-                let _ = save_session(&data_dir, failed);
+            {
+                let _guard = lock_sessions();
+                if let Ok(mut failed) = session(&data_dir, &session_id) {
+                    failed.status = if error.contains("已停止") {
+                        "interrupted".into()
+                    } else {
+                        "error".into()
+                    };
+                    failed.messages.push(AgentMessage {
+                        id: Uuid::new_v4().to_string(),
+                        role: "assistant".into(),
+                        status: "error".into(),
+                        content: "本轮 Agent 对话未完成".into(),
+                        attachments: Vec::new(),
+                        tool_call: None,
+                        questions: Vec::new(),
+                        task_group: None,
+                        error: error.clone(),
+                        created_at: utc_now(),
+                    });
+                    if let Err(save_error) = save_session(&data_dir, failed) {
+                        record_operation(
+                            "Agent 对话收尾",
+                            "失败",
+                            &format!("session_id={session_id}"),
+                            None,
+                            Some(&save_error),
+                        );
+                    }
+                }
             }
             Err(error)
         }
@@ -494,17 +516,30 @@ pub(crate) fn agent_message_to_chat_value(
 }
 
 /// 视觉对话模型开启时读取附件为 data URL；读取失败则跳过该图（仅保留元数据文本）。
+/// 加固：内容必须真是一张图片（魔数 + 可解码）且不超过大小上限，
+/// 防止渲染层被攻破后借附件通道把任意本地文件外发。
 fn read_attachment_data_url(attachment: &AgentAttachment) -> Option<String> {
-    let bytes = fs::read(&attachment.path).ok()?;
+    let path = std::path::Path::new(&attachment.path);
+    let file_size = fs::metadata(path).ok()?.len();
+    if file_size > MAX_REFERENCE_BYTES {
+        record_operation(
+            "读取附件",
+            "跳过",
+            "reason=size_limit",
+            None,
+            Some(&format!("附件超过 {MAX_REFERENCE_BYTES} 字节上限")),
+        );
+        return None;
+    }
+    let bytes = fs::read(path).ok()?;
     if bytes.is_empty() {
         return None;
     }
+    let mime = strict_image_mime(&bytes)?;
+    if image_size_from_bytes(&bytes).is_none() {
+        return None;
+    }
     use base64::Engine as _;
-    let mime = if attachment.mime_type.trim().is_empty() {
-        "image/png"
-    } else {
-        attachment.mime_type.trim()
-    };
     Some(format!(
         "data:{mime};base64,{}",
         base64::engine::general_purpose::STANDARD.encode(bytes)
@@ -724,6 +759,7 @@ fn update_agent_task_group_summary(data_dir: &Path, task_group_id: &str, status:
     else {
         return;
     };
+    let _guard = lock_sessions();
     let Ok(mut agent_session) = session(data_dir, &session_id) else {
         return;
     };
@@ -734,7 +770,15 @@ fn update_agent_task_group_summary(data_dir: &Path, task_group_id: &str, status:
             }
         }
     }
-    let _ = save_session(data_dir, agent_session);
+    if let Err(error) = save_session(data_dir, agent_session) {
+        record_operation(
+            "任务组摘要回写",
+            "失败",
+            &format!("session_id={session_id} task_group_id={task_group_id}"),
+            None,
+            Some(&error),
+        );
+    }
 }
 
 fn explicit_confirmation(message: &str) -> bool {
@@ -984,6 +1028,9 @@ fn create_agent_image_tasks_with_origin(
         task.record.agent_plan = Some(plan);
     }
     let tasks = commit_generation_batch(data_dir, &prepared)?;
+    // 会话锁内基于最新会话追加任务组消息，避免覆盖并发写入的消息；
+    // 锁内不得调用会再取 data_lock 的写库函数（此处只写会话表）
+    let _guard = lock_sessions();
     let mut agent_session = session(data_dir, &session_id)?;
     if !agent_session.task_group_ids.contains(&task_group_id) {
         agent_session.task_group_ids.push(task_group_id.clone());
@@ -1047,71 +1094,83 @@ pub(crate) fn cancel_agent_task_group(
     task_group_id: String,
 ) -> Result<Vec<TaskRecord>, String> {
     let data_dir = ensure_data_dir(&app)?;
-    // 读改写全程持有数据锁，历史与队列在同一事务里落库。
-    let _guard = crate::store::data_lock();
-    let mut history = read_history(&data_dir)?;
-    let mut queue = read_queue(&data_dir)?;
-    let mut found = false;
-    let mut cancel_ids = Vec::new();
-    let now = utc_now();
-    for record in history
-        .iter_mut()
-        .filter(|record| record.task_group_id == task_group_id)
-    {
-        found = true;
-        if matches!(record.status.as_str(), "queued" | "running" | "cancelling") {
-            cancel_ids.push(record.id.clone());
-            if record.status == "queued" {
-                record.status = "cancelled".into();
-                record.error = Some("任务组已取消".into());
-                record.completed_at = Some(now.clone());
-                queue.waiting.retain(|id| id != &record.id);
-            } else {
-                record.status = "cancelling".into();
-            }
-            record.updated_at = now.clone();
-        }
-    }
-    if !found {
-        return Err("找不到任务组".into());
-    }
-    if cancel_ids.is_empty() {
-        return Ok(history
-            .into_iter()
+    // 数据锁只包住读改写与落库，随后才调用 update_agent_task_group_summary（会话锁），
+    // 避免 data_lock → 会话锁 与 create_agent_image_tasks 的 会话锁 → data_lock 形成倒置
+    let (group_status, group_records) = {        // 读改写全程持有数据锁，历史与队列在同一事务里落库。
+        let _guard = crate::store::data_lock();
+        let mut history = read_history(&data_dir)?;
+        let mut queue = read_queue(&data_dir)?;
+        let mut found = false;
+        let mut cancel_ids = Vec::new();
+        let now = utc_now();
+        for record in history
+            .iter_mut()
             .filter(|record| record.task_group_id == task_group_id)
-            .collect());
-    }
-    let runtime_state = app.state::<RuntimeState>();
-    {
-        let mut requests = runtime_state
-            .cancel_requests
-            .lock()
-            .map_err(|_| "取消状态锁定失败")?;
-        requests.extend(cancel_ids.iter().cloned());
-    }
-    // 顶部已持有数据锁；历史与队列在同一事务里落库。
-    if let Err(error) = write_history_queue_transaction(&data_dir, &history, &queue) {
-        if let Ok(mut requests) = runtime_state.cancel_requests.lock() {
-            for task_id in &cancel_ids {
-                requests.remove(task_id);
+        {
+            found = true;
+            if matches!(record.status.as_str(), "queued" | "running" | "cancelling") {
+                cancel_ids.push(record.id.clone());
+                if record.status == "queued" {
+                    record.status = "cancelled".into();
+                    record.error = Some("任务组已取消".into());
+                    record.completed_at = Some(now.clone());
+                    queue.waiting.retain(|id| id != &record.id);
+                } else {
+                    record.status = "cancelling".into();
+                }
+                record.updated_at = now.clone();
             }
         }
-        return Err(error);
-    }
-    let group_status = if history
-        .iter()
-        .any(|record| record.task_group_id == task_group_id && record.status == "cancelling")
-    {
-        "cancelling"
-    } else {
-        "cancelled"
+        if !found {
+            return Err("找不到任务组".into());
+        }
+        if !cancel_ids.is_empty() {
+            let runtime_state = app.state::<RuntimeState>();
+            {
+                let mut requests = runtime_state
+                    .cancel_requests
+                    .lock()
+                    .map_err(|_| "取消状态锁定失败")?;
+                requests.extend(cancel_ids.iter().cloned());
+            }
+            if let Err(error) = write_history_queue_transaction(&data_dir, &history, &queue) {
+                if let Ok(mut requests) = runtime_state.cancel_requests.lock() {
+                    for task_id in &cancel_ids {
+                        requests.remove(task_id);
+                    }
+                }
+                return Err(error);
+            }
+        }
+        if cancel_ids.is_empty() {
+            // 没有可取消的活动任务：与原行为一致，不回写任务组摘要
+            let records = history
+                .into_iter()
+                .filter(|record| record.task_group_id == task_group_id)
+                .collect();
+            (None, records)
+        } else {
+            let group_status = if history
+                .iter()
+                .any(|record| {
+                    record.task_group_id == task_group_id && record.status == "cancelling"
+                }) {
+                "cancelling"
+            } else {
+                "cancelled"
+            };
+            let records = history
+                .into_iter()
+                .filter(|record| record.task_group_id == task_group_id)
+                .collect();
+            (Some(group_status.to_string()), records)
+        }
     };
-    update_agent_task_group_summary(&data_dir, &task_group_id, group_status);
+    if let Some(group_status) = &group_status {
+        update_agent_task_group_summary(&data_dir, &task_group_id, group_status);
+    }
     let _ = emit_queue_updated(&app, &data_dir);
-    Ok(history
-        .into_iter()
-        .filter(|record| record.task_group_id == task_group_id)
-        .collect())
+    Ok(group_records)
 }
 
 #[tauri::command]
@@ -1428,13 +1487,30 @@ pub(crate) fn delete_task(app: AppHandle, task_id: String) -> Result<(), String>
             .insert(task_id.clone());
     }
 
-    delete_output_files_for_task(&history[index])?;
+    let outputs_to_recycle = history[index].outputs.clone();
     history.remove(index);
     let mut queue = read_queue(&data_dir)?;
     queue.waiting.retain(|id| id != &task_id);
     queue.running.retain(|run| run.task_id != task_id);
     // 历史与队列在同一个事务里落库，避免删除中途失败留下幽灵队列项。
     write_history_queue_transaction(&data_dir, &history, &queue)?;
+
+    // 文件回收放在落库成功之后：中途失败只会留下可被启动扫描清理的孤儿文件，
+    // 不会留下指向已回收文件的记录。逐文件尽力回收，失败仅记录。
+    for output in &outputs_to_recycle {
+        let path = PathBuf::from(&output.path);
+        if path.is_file() {
+            if let Err(error) = recycle_path(&path) {
+                record_operation(
+                    "删除生成图片",
+                    "失败",
+                    format!("task_id={task_id} path={}", path.display()),
+                    None,
+                    Some(&error.to_string()),
+                );
+            }
+        }
+    }
 
     let request_file = request_path(&data_dir, &task_id);
     if request_file.exists() {
@@ -1445,37 +1521,6 @@ pub(crate) fn delete_task(app: AppHandle, task_id: String) -> Result<(), String>
         prune_unreferenced_files(&data_dir)?;
     }
     let _ = emit_queue_updated(&app, &data_dir);
-    Ok(())
-}
-
-/// 将任务输出图移入系统回收站，避免误删后无法找回。
-fn delete_output_files_for_task(record: &TaskRecord) -> Result<(), String> {
-    for output in &record.outputs {
-        let path = PathBuf::from(&output.path);
-        if path.is_file() {
-            if let Err(error) = recycle_path(&path) {
-                let message = format!(
-                    "将生成图片移到回收站失败（{}）: {error}",
-                    path.to_string_lossy()
-                );
-                record_operation(
-                    "删除生成图片",
-                    "失败",
-                    format!("task_id={} path={}", record.id, path.display()),
-                    None,
-                    Some(&message),
-                );
-                return Err(message);
-            }
-            record_operation(
-                "删除生成图片",
-                "成功",
-                format!("task_id={} path={}", record.id, path.display()),
-                None,
-                None,
-            );
-        }
-    }
     Ok(())
 }
 
@@ -1826,9 +1871,26 @@ pub(crate) async fn list_provider_models(provider: ApiProvider) -> Result<Vec<St
 #[tauri::command]
 /// 把生成图片复制到系统下载目录，并自动处理重名文件。
 pub(crate) fn download_output(app: AppHandle, path: String) -> Result<String, String> {
-    let source = PathBuf::from(path);
+    let data_dir = ensure_data_dir(&app)?;
+    let source = PathBuf::from(&path);
     if !source.is_file() {
         return Err("找不到要下载的图片".into());
+    }
+    // 范围校验：只允许应用数据目录或配置的输出目录中的文件，
+    // 防止渲染层被攻破后把任意本地文件复制到 Downloads。
+    let requested = source
+        .canonicalize()
+        .map_err(|_| "找不到要下载的图片".to_string())?;
+    let settings = read_settings(&data_dir)?;
+    let output_root = output_dir_for(&data_dir, &settings)?;
+    if !requested.starts_with(&data_dir) && !requested.starts_with(&output_root) {
+        record_result(
+            "复制生成图片到下载目录",
+            &format!("source={path}"),
+            None,
+            &Err::<String, String>("路径超出允许范围".into()),
+        );
+        return Err("只允许下载应用数据目录或输出目录中的文件".into());
     }
     let downloads_dir = app
         .path()
@@ -2213,7 +2275,12 @@ mod tests {
     fn chat_vision_attaches_images_as_data_url_parts() {
         let data_dir = command_test_data_dir("chat-vision");
         let image_path = data_dir.join("vision-ref.png");
-        std::fs::write(&image_path, b"\x89PNG fake-bytes").unwrap();
+        // 附件读取已加固：必须是真实图片（魔数 + 可解码）。写入一张真实的 1x1 PNG。
+        use base64::Engine as _;
+        let png_bytes = base64::engine::general_purpose::STANDARD
+            .decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
+            .unwrap();
+        std::fs::write(&image_path, png_bytes).unwrap();
         let message = AgentMessage {
             id: "m-vision".into(),
             role: "user".into(),

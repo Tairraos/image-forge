@@ -23,11 +23,14 @@ pub(crate) fn ensure_queue_worker(app: &AppHandle) {
     let Ok(data_dir) = ensure_data_dir(app) else {
         return;
     };
-    if read_queue(&data_dir)
-        .map(|queue| queue.waiting.is_empty())
-        .unwrap_or(true)
-    {
-        return;
+    match read_queue(&data_dir) {
+        Ok(queue) if queue.waiting.is_empty() => return,
+        Ok(_) => {}
+        Err(error) => {
+            // 队列读取失败时不能当作空队列静默吞掉，记录后本轮不启动 worker
+            record_operation("读取队列", "失败", "source=ensure_worker", None, Some(&error));
+            return;
+        }
     }
     if !mark_worker_active_if_idle(&app.state::<RuntimeState>()) {
         return;
@@ -286,10 +289,20 @@ async fn worker_loop(app: AppHandle) {
             started = true;
         }
 
-        let done = ensure_data_dir(&app)
-            .and_then(|data_dir| read_queue(&data_dir))
-            .map(|queue| queue.waiting.is_empty() && queue.running.is_empty())
-            .unwrap_or(true);
+        // 读队列失败视为"未完成"并稍后重试，避免瞬时 DB 错误把 worker 整个退出
+        let done = match ensure_data_dir(&app).and_then(|data_dir| read_queue(&data_dir)) {
+            Ok(queue) => queue.waiting.is_empty() && queue.running.is_empty(),
+            Err(error) => {
+                record_operation(
+                    "读取队列",
+                    "失败",
+                    "source=worker_loop",
+                    None,
+                    Some(&error),
+                );
+                false
+            }
+        };
         if done {
             break;
         }
@@ -360,7 +373,17 @@ async fn run_task(app: AppHandle, task_id: String, provider: ApiProvider) -> Res
     }
 
     if is_cancel_requested(&app, &task_id) {
-        mark_cancelled(&app, &data_dir, &task_id)?;
+        // 取消落库失败不转化为 failed（那会把 DB 错误冒充成任务结果）：
+        // 记录日志，状态留给启动时的 recover_stale_running 兜底
+        if let Err(error) = mark_cancelled(&app, &data_dir, &task_id) {
+            record_operation(
+                "任务取消",
+                "失败",
+                &format!("task_id={task_id}"),
+                None,
+                Some(&error),
+            );
+        }
         clear_running_task(&data_dir, &task_id)?;
         let _ = emit_queue_updated(&app, &data_dir);
         return Ok(());
@@ -413,7 +436,16 @@ async fn run_task(app: AppHandle, task_id: String, provider: ApiProvider) -> Res
     }
 
     if is_cancel_requested(&app, &task_id) {
-        mark_cancelled(&app, &data_dir, &task_id)?;
+        // 同上：取消落库失败只记录，不把 DB 错误写成任务失败
+        if let Err(error) = mark_cancelled(&app, &data_dir, &task_id) {
+            record_operation(
+                "任务取消",
+                "失败",
+                &format!("task_id={task_id}"),
+                None,
+                Some(&error),
+            );
+        }
         clear_running_task(&data_dir, &task_id)?;
         let _ = emit_queue_updated(&app, &data_dir);
         return Ok(());

@@ -1,4 +1,7 @@
-use std::path::Path;
+use std::{
+    path::Path,
+    sync::{Mutex, MutexGuard, OnceLock},
+};
 
 use uuid::Uuid;
 
@@ -11,6 +14,21 @@ use crate::{
     },
     utils::{recycle_path, utc_now},
 };
+
+/// 会话锁：串行化所有"读会话 → 改 → 存"的序列，防止 worker 回写任务结果与
+/// 用户发消息/追加上下文交错时互相覆盖丢消息。
+/// 约定：持锁期间不得调用同样内部取锁的辅助函数（append_message /
+/// rename_session / record_agent_task_result / update_session_status），
+/// 纯写入用无锁的 save_session；也不得在持锁期间调用会取 data_lock 的
+/// 写入函数之外再反向嵌套（create_agent_image_tasks 的会话锁 → data_lock
+/// 是唯一允许方向，cancel/recover 等 data_lock 持有方不得调用会话锁函数）。
+pub(crate) fn lock_sessions() -> MutexGuard<'static, ()> {
+    static SESSION_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    SESSION_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 pub(crate) fn create_session(data_dir: &Path, provider_id: &str) -> Result<AgentSession, String> {
     let now = utc_now();
@@ -59,11 +77,26 @@ pub(crate) fn append_message(
     session_id: &str,
     message: AgentMessage,
 ) -> Result<AgentSession, String> {
+    let _guard = lock_sessions();
     let mut session = session(data_dir, session_id)?;
     if session.messages.is_empty() && message.role == "user" {
         session.title = title_from_message(&message.content);
     }
     session.messages.push(message);
+    session.updated_at = utc_now();
+    write_agent_session(data_dir, &session)?;
+    Ok(session)
+}
+
+/// 定向更新会话状态：读改写在会话锁内完成，避免用过期快照覆盖并发写入的消息。
+pub(crate) fn update_session_status(
+    data_dir: &Path,
+    session_id: &str,
+    status: &str,
+) -> Result<AgentSession, String> {
+    let _guard = lock_sessions();
+    let mut session = session(data_dir, session_id)?;
+    session.status = status.into();
     session.updated_at = utc_now();
     write_agent_session(data_dir, &session)?;
     Ok(session)
@@ -81,7 +114,7 @@ pub(crate) fn save_session(
 
 /// 队列 worker 在任务达到终态后调用：刷新会话内任务组摘要状态；
 /// 整组到达 completed / failed 时追加一条 task_result 消息，让下一轮对话感知生图结果。
-/// 重复调用是幂等的（同组只追加一次），并发场景由进程内互斥锁串行化。
+/// 重复调用是幂等的（同组只追加一次），并发场景由会话锁串行化。
 pub(crate) fn record_agent_task_result(
     data_dir: &Path,
     session_id: &str,
@@ -90,10 +123,7 @@ pub(crate) fn record_agent_task_result(
     if session_id.trim().is_empty() || task_group_id.trim().is_empty() {
         return Ok(());
     }
-    static TASK_RESULT_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    let _guard = TASK_RESULT_LOCK
-        .lock()
-        .map_err(|_| "任务组回写状态锁定失败")?;
+    let _guard = lock_sessions();
     let records = read_history(data_dir)?
         .into_iter()
         .filter(|record| record.task_group_id == task_group_id)
@@ -205,6 +235,7 @@ pub(crate) fn rename_session(
     session_id: &str,
     title: &str,
 ) -> Result<AgentSession, String> {
+    let _guard = lock_sessions();
     let mut session = session(data_dir, session_id)?;
     let title = title.trim();
     session.title = if title.is_empty() {
