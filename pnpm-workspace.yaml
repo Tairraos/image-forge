@@ -1,2 +1,7 @@
 allowBuilds:
   better-sqlite3: true
+
+# 修复传递依赖的安全公告（postcss 路径穿越 / nanoid 非安全生成器），pnpm 11 从这里读 overrides
+overrides:
+  postcss: ^8.5.23
+  nanoid: ^3.3.18

@@ -50,6 +50,7 @@
   "dependencies": {
     "@lucide/vue": "^1.23.0",
     "@tauri-apps/api": "^2.11.1",
+    "@vercel/blob": "^2.8.0",
     "dexie": "^4.4.5",
     "jszip": "^3.10.1",
     "markdown-it": "^14.3.0",
