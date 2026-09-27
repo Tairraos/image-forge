@@ -48,7 +48,9 @@ export function patchVersion(nextVersion) {
   if (existsSync(resolve(root, 'README.md'))) {
     replaceInFile('README.md', /badge\/version-[^-]+-/g, `badge/version-${nextVersion}-`);
   }
-  for (const rustSource of ['src-tauri/src/defaults.rs', 'src-tauri/src/lib.rs']) {
+  // defaults.rs 是 APP_USER_AGENT 唯一所在（lib.rs 历史布局已不含该常量，
+  // 不能列入严格同步——strict replaceInFile 会对未命中的文件抛错）。
+  for (const rustSource of ['src-tauri/src/defaults.rs']) {
     if (!existsSync(resolve(root, rustSource))) continue;
     replaceInFile(
       rustSource,
