@@ -17,16 +17,35 @@ import {
   renameSync,
   symlinkSync,
 } from 'node:fs';
-import { basename, extname, join } from 'node:path';
+import { basename, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { currentVersion, patchVersion, readJson, root } from './patch-version.mjs';
 
 process.chdir(root);
 
 const rawArgs = process.argv.slice(2).map((arg) => arg.trim());
-const withDmg = rawArgs.includes('--dmg');
+const withDmg = rawArgs.includes('--dmg') || rawArgs.includes('--dmg=true');
+const unknownFlags = rawArgs.filter(
+  (arg) => arg.startsWith('--') && arg !== '--' && !['--dmg', '--dmg=true'].includes(arg)
+);
+if (unknownFlags.length) {
+  console.error(`未知参数: ${unknownFlags.join(' ')}（可用参数：<版本号>、--dmg、--dmg=true）`);
+  process.exit(1);
+}
 const requestedVersion = rawArgs.find((arg) => arg !== '--' && !arg.startsWith('--')) ?? '';
 if (requestedVersion) patchVersion(requestedVersion);
+
+if (process.platform !== 'darwin') {
+  console.error('本地打包目前仅支持 macOS（tauri.conf.json 的 bundle targets 只配置了 app）。');
+  console.error('Windows / Linux 安装包请用 pnpm release 走云端三平台构建。');
+  process.exit(1);
+}
+// 硬依赖系统 trash 命令做回收站式清理；缺失时给出安装提示而不是构建到一半才报错
+if (spawnSync('trash', ['-v'], { stdio: 'ignore' }).error?.code === 'ENOENT') {
+  console.error('缺少 trash 命令（构建清理依赖它把临时文件移入系统回收站）：');
+  console.error('  brew install trash');
+  process.exit(1);
+}
 
 const version = currentVersion();
 const packageJson = readJson('package.json');
@@ -43,8 +62,10 @@ try {
   try {
     run('pnpm', ['tauri', 'build']);
   } catch (error) {
-    if (!hasBuildOutput()) throw error;
-    console.warn('tauri build 没有完整结束，继续整理已生成的发布产物。');
+    // 构建失败时不收集半成品：bundle 目录整体进回收站，
+    // 避免不完整的 .app 被收进 release/ 顶掉上一个可用版本
+    moveToTrash(bundleDir);
+    throw error;
   }
 
   if (process.platform === 'darwin' && macAppPath()) prepareMacBundles();
@@ -55,7 +76,14 @@ try {
   console.log('\n发布包已生成：');
   for (const output of outputs) console.log(output);
 } finally {
-  cleanProcessFiles();
+  try {
+    cleanProcessFiles();
+  } catch (cleanupError) {
+    // 收尾失败不得吞掉原始构建错误：保留现场并提示，退出码仍由主流程决定
+    console.warn(
+      `构建收尾清理失败（文件可能留在原位，可手动清理）: ${cleanupError.message || cleanupError}`
+    );
+  }
 }
 
 function run(command, args, options = {}) {
@@ -70,17 +98,8 @@ function archName() {
   return process.arch;
 }
 
-function hasBuildOutput() {
-  return Boolean(macAppPath() || windowsExecutablePath());
-}
-
 function macAppPath() {
   const path = join(bundleDir, 'macos', `${productName}.app`);
-  return existsSync(path) ? path : '';
-}
-
-function windowsExecutablePath() {
-  const path = join(root, 'src-tauri', 'target', 'release', `${packageJson.name}.exe`);
   return existsSync(path) ? path : '';
 }
 
@@ -126,24 +145,8 @@ function collectReleaseFiles() {
   const appPath = macAppPath();
   if (appPath) outputs.push(movePath(appPath, releaseName('.app')));
 
-  const winExe = windowsExecutablePath();
-  if (winExe) outputs.push(movePath(winExe, releaseName('.exe')));
-
   for (const dmgFile of findFiles(join(bundleDir, 'dmg'), '.dmg')) {
     if (!basename(dmgFile).startsWith('rw.')) outputs.push(movePath(dmgFile, releaseName('.dmg')));
-  }
-  for (const installer of [
-    ...findFiles(join(bundleDir, 'nsis'), '.exe'),
-    ...findFiles(join(bundleDir, 'msi'), '.msi'),
-  ]) {
-    outputs.push(movePath(installer, releaseName(extname(installer), 'setup')));
-  }
-  for (const linuxPackage of [
-    ...findFiles(join(bundleDir, 'appimage'), '.AppImage'),
-    ...findFiles(join(bundleDir, 'deb'), '.deb'),
-    ...findFiles(join(bundleDir, 'rpm'), '.rpm'),
-  ]) {
-    outputs.push(movePath(linuxPackage, releaseName(extname(linuxPackage))));
   }
 
   return outputs;
@@ -170,8 +173,9 @@ function movePath(from, to) {
 // 新版本发布成功后，只保留当前产物，旧 app/dmg 移入系统回收站。
 function moveOldReleaseBundlesToTrash(currentOutputs) {
   const current = new Set(currentOutputs.map((file) => basename(file)));
+  const bundlePattern = new RegExp(`^${productName}-.*-.*\\.(app|dmg)$`);
   const oldBundles = readdirSync(releaseDir, { withFileTypes: true })
-    .filter((entry) => /^ImageForge-.*-.*\.(app|dmg)$/.test(entry.name))
+    .filter((entry) => bundlePattern.test(entry.name))
     .filter((entry) => !current.has(entry.name))
     .map((entry) => join(releaseDir, entry.name));
   if (!oldBundles.length) return;
@@ -214,13 +218,6 @@ function assertExpectedOutputs(outputs) {
   }
   if (process.platform === 'darwin' && withDmg && !outputs.some((file) => file.endsWith('.dmg'))) {
     throw new Error('macOS 发布包必须包含 .dmg');
-  }
-  if (
-    process.platform === 'win32' &&
-    (!outputs.some((file) => file.endsWith('.exe') && !file.includes('-setup.')) ||
-      !outputs.some((file) => file.includes('-setup.')))
-  ) {
-    throw new Error('Windows 发布包必须包含可执行文件和安装文件');
   }
 }
 

@@ -6,7 +6,7 @@
 
 import { createServer } from 'node:https';
 import { homedir } from 'node:os';
-import { join, extname } from 'node:path';
+import { join, extname, sep } from 'node:path';
 import { createReadStream, readFileSync, existsSync, readdirSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import Database from 'better-sqlite3';
@@ -341,7 +341,7 @@ function serveFile(req, res) {
   if (!relative) return false;
 
   const filePath = join(DATA_DIR, relative);
-  if (!filePath.startsWith(DATA_DIR)) {
+  if (filePath !== DATA_DIR && !filePath.startsWith(DATA_DIR + sep)) {
     res.writeHead(403);
     res.end('Forbidden');
     return true;
@@ -565,7 +565,7 @@ const server = createServer(
   }
 );
 
-server.listen(PORT, () => {
+server.listen(PORT, '127.0.0.1', () => {
   console.log(`\n  双向同步服务：https://${HOST}/\n`);
   console.log(`  1. 确保 Vite 已停止（Ctrl+C）`);
   console.log(`  2. 浏览器打开 https://${HOST}，点击「开始同步」`);
