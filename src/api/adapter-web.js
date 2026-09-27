@@ -953,8 +953,9 @@ export async function exportDataBundle(categories) {
     }
   }
 
-  // 按内容哈希去重，添加到 ZIP
-  const added = new Set();
+  // 按内容哈希去重，添加到 ZIP；同时记录 源路径 → ZIP 内路径 的映射（filesIndex），
+  // 导入端据此把图片落盘并重映射路径（与桌面版 data_bundle.rs 契约一致）
+  const filesIndex = {};
   for (const path of fileSet) {
     try {
       const url = toLocalFileUrl(path);
@@ -964,9 +965,8 @@ export async function exportDataBundle(categories) {
       const hash = await sha256(await blob.arrayBuffer());
       const ext = (path.split('.').pop() || 'png').split('?')[0];
       const name = `files/${hash.slice(0, 16)}.${ext}`;
-      if (added.has(hash)) continue;
-      added.add(hash);
       zip.file(name, blob);
+      filesIndex[path] = name;
     } catch {
       /* 文件不可访问，跳过 */
     }
@@ -982,6 +982,7 @@ export async function exportDataBundle(categories) {
     templates,
     sessions,
     tasks,
+    filesIndex,
   };
   zip.file('manifest.json', JSON.stringify(manifest, null, 2));
 
@@ -1016,6 +1017,60 @@ export async function importDataBundle(file) {
   if (!manifestFile) throw new Error('ZIP 缺少 manifest.json');
   const manifest = JSON.parse(await manifestFile.async('text'));
   if (manifest.format !== 'image-forge-data-bundle') throw new Error('不支持的格式');
+
+  // 把数据包内引用的图片落盘并重映射路径：源路径在本环境可访问则保留
+  // （同环境导入），否则从 ZIP 取出字节重新上传（跨环境迁移）。
+  const bundleIndex = manifest.filesIndex || {};
+  const remapped = new Map();
+  async function resolveImportedPath(originalPath, targetSubdir) {
+    if (!originalPath) return originalPath;
+    if (remapped.has(originalPath)) return remapped.get(originalPath);
+    try {
+      const probe = await fetch(toLocalFileUrl(originalPath), { method: 'HEAD' });
+      if (probe.ok) return originalPath;
+    } catch {
+      /* 不可访问，继续落盘 */
+    }
+    const entry = bundleIndex[originalPath] ? zip.file(bundleIndex[originalPath]) : null;
+    if (!entry) return originalPath;
+    const blob = await entry.async('blob');
+    const fileName = originalPath.split(/[\\/]/).pop() || `file-${Date.now()}`;
+    const url = await uploadImage(fileName, blob, targetSubdir);
+    remapped.set(originalPath, url);
+    return url;
+  }
+  async function remapList(paths, targetSubdir) {
+    const next = [];
+    for (const p of paths || []) {
+      next.push((await resolveImportedPath(p, targetSubdir)) || p);
+    }
+    return next;
+  }
+  for (const tpl of manifest.templates || []) {
+    tpl.referencePaths = await remapList(tpl.referencePaths, 'imported/references');
+    if (tpl.effectImagePath) {
+      tpl.effectImagePath =
+        (await resolveImportedPath(tpl.effectImagePath, 'imported/references')) ||
+        tpl.effectImagePath;
+    }
+  }
+  for (const session of manifest.sessions || []) {
+    for (const msg of session.messages || []) {
+      for (const att of msg.attachments || []) {
+        if (att.path) {
+          att.path = (await resolveImportedPath(att.path, 'imported/references')) || att.path;
+        }
+      }
+    }
+  }
+  for (const task of manifest.tasks || []) {
+    task.referencePaths = await remapList(task.referencePaths, 'imported/references');
+    for (const output of task.outputs || []) {
+      if (output.path) {
+        output.path = (await resolveImportedPath(output.path, 'imported/outputs')) || output.path;
+      }
+    }
+  }
 
   const result = { settings: 0, templates: 0, sessions: 0, tasks: 0 };
 
