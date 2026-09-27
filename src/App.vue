@@ -236,17 +236,35 @@ function syncSystemTheme() {
   if (themePreference.value === 'system') resolvedTheme.value = applyTheme('system');
 }
 
-// 密码锁（仅 Web 版生效）
+// 密码锁（仅 Web 版生效）。注意：这是防误入级别的门，不是安全边界——
+// 密码本身编译在前端 bundle 里，真正要控制访问请用 Vercel 部署保护等能力。
+// localStorage 只存密码的 SHA-256，不再落明文。
 const isWeb = !window.__TAURI_INTERNALS__;
 const AUTH_KEY = 'if_auth';
 const ACCESS_PASSWORD = import.meta.env.VITE_ACCESS_PASSWORD || 'image-forge';
-const unlocked = ref(!isWeb || localStorage.getItem(AUTH_KEY) === ACCESS_PASSWORD);
+const unlocked = ref(!isWeb);
 const lockPassword = ref('');
 const lockError = ref('');
 
-function unlock() {
+async function passwordHash(value) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+if (isWeb) {
+  void (async () => {
+    const stored = localStorage.getItem(AUTH_KEY);
+    if (stored) {
+      unlocked.value = stored === (await passwordHash(ACCESS_PASSWORD));
+    }
+  })();
+}
+
+async function unlock() {
   if (lockPassword.value.trim() === ACCESS_PASSWORD) {
-    localStorage.setItem(AUTH_KEY, ACCESS_PASSWORD);
+    localStorage.setItem(AUTH_KEY, await passwordHash(ACCESS_PASSWORD));
     unlocked.value = true;
     lockError.value = '';
   } else {
@@ -269,6 +287,18 @@ watch(
     agentDrafts[id] ||= { content: '', attachments: [], drawThisTurn: false };
   },
   { immediate: true, flush: 'sync' }
+);
+// 会话删除后同步清掉对应草稿：草稿的 attachments 驻留参考图 base64，
+// 不清理会随删除的会话越积越多，成为长会话内存增长的主因之一
+watch(
+  agentSessions,
+  (sessions) => {
+    const ids = new Set(sessions.map((session) => session.id));
+    for (const id of Object.keys(agentDrafts)) {
+      if (!ids.has(id)) delete agentDrafts[id];
+    }
+  },
+  { deep: false }
 );
 const agentDraft = computed({
   get: () => agentDrafts[currentAgentSessionId.value].content,
@@ -527,6 +557,7 @@ function sortAgentSessions(sessions) {
 }
 
 function setAgentSession(session) {
+  if (!session?.id) return; // Web 端异常路径可能返回空，防御性忽略
   agentSessions.value = sortAgentSessions([
     ...agentSessions.value.filter((item) => item.id !== session.id),
     session,
@@ -1212,7 +1243,14 @@ function handleReferenceDragDrop(event) {
 function handleTemplateDraftDropEvent(event) {
   clearReferenceDragTargets();
   const paths = extractDroppedFilePaths(event?.dataTransfer);
-  if (paths.length) void addDraggedReferencePaths('template-draft', paths);
+  if (paths.length) {
+    void addDraggedReferencePaths('template-draft', paths);
+    return;
+  }
+  // Web 浏览器拿不到拖放文件的本地路径（File.path 仅 Tauri 注入），此前静默无效
+  if (isWeb && (event?.dataTransfer?.files?.length || 0) > 0) {
+    setStatus('Web 版暂不支持直接拖放本地文件，请使用粘贴路径或文件选择添加参考图', 'error');
+  }
 }
 
 function addDraggedReferencePaths(target, paths) {

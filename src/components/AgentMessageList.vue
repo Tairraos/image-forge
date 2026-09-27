@@ -314,6 +314,13 @@ const showScrollLatest = ref(false);
 const copiedMessage = ref('');
 const copyError = ref('');
 const markdown = new MarkdownIt({ html: false, breaks: true, linkify: true });
+// AI 输出里的外链一律新标签页打开：默认渲染会让点击在当前 webview/页面内导航，
+// 导致应用前端状态全部丢失；Tauri 对新窗口默认不处理，页面侧则是正常新标签。
+markdown.renderer.rules.link_open = (tokens, index, options, env, self) => {
+  tokens[index].attrSet('target', '_blank');
+  tokens[index].attrSet('rel', 'noopener noreferrer');
+  return self.renderToken(tokens, index, options);
+};
 const now = ref(Date.now());
 const expandedToolCalls = ref(new Set());
 let timer = 0;
