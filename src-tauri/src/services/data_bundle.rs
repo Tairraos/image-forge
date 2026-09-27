@@ -519,6 +519,10 @@ fn remap_session_paths(
                     file_map,
                     remapped,
                 ) {
+                    attachment.file_name = Path::new(&new_path)
+                        .file_name()
+                        .map(|value| value.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| attachment.file_name.clone());
                     attachment.path = new_path;
                     *imported += 1;
                 }

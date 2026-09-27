@@ -947,7 +947,8 @@ export async function exportDataBundle(categories) {
     }
   }
   for (const t of tasks) {
-    for (const p of t.referencePaths || []) fileSet.add(p);
+    // Web 内部任务记录是 snake_case（reference_paths），桌面契约是 camelCase，两种都收集
+    for (const p of t.referencePaths || t.reference_paths || []) fileSet.add(p);
     for (const o of t.outputs || []) {
       if (o.path) fileSet.add(o.path);
     }
@@ -1064,7 +1065,14 @@ export async function importDataBundle(file) {
     }
   }
   for (const task of manifest.tasks || []) {
-    task.referencePaths = await remapList(task.referencePaths, 'imported/references');
+    // 记录可能是 snake_case（Web 导出）或 camelCase（桌面导出），重映射后保持原形状
+    const refs = task.referencePaths ?? task.reference_paths ?? [];
+    const remappedRefs = await remapList(refs, 'imported/references');
+    if (Array.isArray(task.referencePaths)) {
+      task.referencePaths = remappedRefs;
+    } else {
+      task.reference_paths = remappedRefs;
+    }
     for (const output of task.outputs || []) {
       if (output.path) {
         output.path = (await resolveImportedPath(output.path, 'imported/outputs')) || output.path;
