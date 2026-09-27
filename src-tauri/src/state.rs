@@ -8,6 +8,9 @@ use chrono::{FixedOffset, Utc};
 
 static RUNTIME_LOGS: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
 
+/// 运行日志上限：超过后丢弃最旧的行，避免长跑进程内存无界增长。
+const MAX_RUNTIME_LOGS: usize = 2000;
+
 pub struct RuntimeState {
     pub worker_active: Mutex<bool>,
     pub cancel_requests: Mutex<HashSet<String>>,
@@ -56,7 +59,15 @@ pub(crate) fn record_operation(
     let Ok(mut logs) = runtime_logs().lock() else {
         return;
     };
+    append_runtime_log(&mut logs, line);
+}
+
+fn append_runtime_log(logs: &mut Vec<String>, line: String) {
     logs.push(line);
+    if logs.len() > MAX_RUNTIME_LOGS {
+        let excess = logs.len() - MAX_RUNTIME_LOGS;
+        logs.drain(..excess);
+    }
 }
 
 pub(crate) fn runtime_logs_text() -> String {
@@ -230,7 +241,18 @@ fn proxy_from_message(message: &str) -> Option<bool> {
 mod tests {
     use std::path::Path;
 
-    use super::format_log_line;
+    use super::{append_runtime_log, format_log_line, MAX_RUNTIME_LOGS};
+
+    #[test]
+    fn runtime_log_buffer_truncates_oldest_lines() {
+        let mut logs = Vec::new();
+        for index in 0..(MAX_RUNTIME_LOGS + 5) {
+            append_runtime_log(&mut logs, format!("line-{index}"));
+        }
+        assert_eq!(logs.len(), MAX_RUNTIME_LOGS);
+        assert_eq!(logs[0], "line-5");
+        assert_eq!(logs.last(), Some(&format!("line-{}", MAX_RUNTIME_LOGS + 4)));
+    }
 
     #[test]
     fn log_uses_compact_format_and_optional_fields() {
