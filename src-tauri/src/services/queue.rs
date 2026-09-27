@@ -3,6 +3,7 @@ use std::{collections::HashMap, path::Path, time::Duration};
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::{
+    history_db,
     models::{ApiProvider, GenerateRequest, QueueSnapshot, TaskRecord},
     services::images::{execute_generation, save_outputs},
     services::references::prune_unreferenced_files,
@@ -10,7 +11,7 @@ use crate::{
     store::{
         clear_running_task, data_lock, enqueue_task, ensure_data_dir, fallback_failed_record,
         history_record, output_dir_for, pop_next_runnable, read_history, read_json, read_queue,
-        read_settings, request_path, upsert_history, write_history_queue_transaction,
+        read_settings, request_path, write_history_queue_transaction,
     },
     utils::{http_client_with_proxy, recycle_path, utc_now, REQUEST_TIMEOUT_SECONDS},
 };
@@ -554,17 +555,25 @@ fn is_deleted(app: &AppHandle, task_id: &str) -> bool {
 }
 
 /// 写历史前检查删除标记，避免用户删除后后台任务又把记录写回来。
+/// 锁序约定：data_lock 永远是最外层，deleted_tasks / cancel_requests 只能在其内
+/// 短暂获取（delete_task 同序）；反向嵌套会与 delete_task 形成 AB-BA 死锁。
+/// 因此这里持 data_lock 后直接走无锁的 history_db::upsert。
 fn upsert_task_history(
     app: &AppHandle,
     data_dir: &Path,
     record: TaskRecord,
 ) -> Result<bool, String> {
-    let state = app.state::<RuntimeState>();
-    let deleted_tasks = state.deleted_tasks.lock().map_err(|_| "删除状态锁定失败")?;
-    if deleted_tasks.contains(&record.id) {
+    let _guard = data_lock();
+    let deleted = app
+        .state::<RuntimeState>()
+        .deleted_tasks
+        .lock()
+        .map_err(|_| "删除状态锁定失败")?
+        .contains(&record.id);
+    if deleted {
         return Ok(false);
     }
-    upsert_history(data_dir, record)?;
+    history_db::upsert(data_dir, &record)?;
     Ok(true)
 }
 

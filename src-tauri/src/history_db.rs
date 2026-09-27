@@ -118,6 +118,20 @@ pub(crate) fn replace_history_and_queue(
     transaction.commit().map_err(db_error)
 }
 
+/// 在同一个事务里 upsert 单条任务记录并整体替换队列（pop 清理幽灵任务用），
+/// 避免"队列已移除但失败记录未落库"的中间态。
+pub(crate) fn upsert_and_write_queue(
+    data_dir: &Path,
+    record: &TaskRecord,
+    queue_items: &str,
+) -> Result<(), String> {
+    let mut connection = open(data_dir)?;
+    let transaction = connection.transaction().map_err(db_error)?;
+    upsert_in_transaction(&transaction, record)?;
+    write_queue_in_transaction(&transaction, queue_items)?;
+    transaction.commit().map_err(db_error)
+}
+
 /// agent 视图内嵌图片库：无关键词时按月份列出图片，有关键词时跨月份搜索，
 /// 并返回所有有图片的月份列表（供月份选择器与上/下月切换）。
 pub(crate) fn agent_library(

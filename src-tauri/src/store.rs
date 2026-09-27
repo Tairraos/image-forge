@@ -313,12 +313,6 @@ pub(crate) fn refresh_history_output_sizes(history: &mut [TaskRecord]) -> bool {
     changed
 }
 
-/// 按任务 ID 更新或插入历史记录。
-pub(crate) fn upsert_history(data_dir: &Path, record: TaskRecord) -> Result<(), String> {
-    let _guard = data_lock();
-    history_db::upsert(data_dir, &record)
-}
-
 pub(crate) fn history_record(data_dir: &Path, task_id: &str) -> Result<Option<TaskRecord>, String> {
     history_db::record(data_dir, task_id)
 }
@@ -740,19 +734,19 @@ pub(crate) fn pop_next_runnable(
         let task_id = queue.waiting[index].clone();
         // read_json 对缺失文件返回默认值（prompt 为空），两者都视为不可执行：
         // 缺失/损坏的请求文件永远跑不出结果，直接标记失败并移出队列。
+        // 移出队列与失败落库在同一个事务里完成，不留中间态。
         let request: GenerateRequest = match read_json::<GenerateRequest>(&request_path(data_dir, &task_id))
         {
             Ok(request) if !request.prompt.trim().is_empty() => request,
-            Ok(_) => {
+            other => {
+                let message = match other {
+                    Ok(_) => "请求文件缺失或请求内容为空".to_string(),
+                    Err(error) => error,
+                };
                 queue.waiting.remove(index);
-                write_queue(data_dir, &queue)?;
-                mark_waiting_task_failed(data_dir, &task_id, "请求文件缺失或请求内容为空")?;
-                continue;
-            }
-            Err(error) => {
-                queue.waiting.remove(index);
-                write_queue(data_dir, &queue)?;
-                mark_waiting_task_failed(data_dir, &task_id, &error)?;
+                let record = build_waiting_failed_record(data_dir, &task_id, &message)?;
+                let queue_items = queue_items_json(&queue)?;
+                history_db::upsert_and_write_queue(data_dir, &record, &queue_items)?;
                 continue;
             }
         };
@@ -778,9 +772,13 @@ pub(crate) fn pop_next_runnable(
     Ok(None)
 }
 
-/// 把无法执行的等待任务标记为失败：已有历史记录就更新状态，否则补一条失败记录。
-/// 调用方需持有 data_lock()，这里直接走无锁的 history_db::upsert。
-fn mark_waiting_task_failed(data_dir: &Path, task_id: &str, error: &str) -> Result<(), String> {
+/// 构造无法执行的等待任务的失败记录：已有历史记录就更新状态，否则补一条失败记录。
+/// 调用方需持有 data_lock()；落库由调用方与队列写入合并为同一事务完成。
+fn build_waiting_failed_record(
+    data_dir: &Path,
+    task_id: &str,
+    error: &str,
+) -> Result<TaskRecord, String> {
     let message = format!("任务无法执行，已从队列移除：{error}");
     let mut record = match history_record(data_dir, task_id)? {
         Some(record) => record,
@@ -790,7 +788,7 @@ fn mark_waiting_task_failed(data_dir: &Path, task_id: &str, error: &str) -> Resu
     record.error = Some(message);
     record.completed_at = Some(utc_now());
     record.updated_at = utc_now();
-    history_db::upsert(data_dir, &record)
+    Ok(record)
 }
 
 pub(crate) fn clear_running_task(data_dir: &Path, task_id: &str) -> Result<(), String> {
