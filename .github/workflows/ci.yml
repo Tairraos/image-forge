@@ -1,8 +1,8 @@
-# 持续集成：push 到 main 或提交 PR 时，在云端跑一遍 pnpm verify
-# （ESLint + Prettier 格式检查 + Vitest 测试 + Rust cargo check），
-# 相当于把本地的"完成任务必跑"检查前移到仓库上，尽早发现问题。
+# 持续集成：push 到 main 或提交 PR 时跑 Verify，尽早发现问题。
+# - frontend（ubuntu）：pnpm verify 全套（ESLint + Prettier 格式 + Vitest + Rust cargo check）
+# - native（macOS）：Rust 原生 cargo test，补齐 Linux 上跑不了的 Rust 侧测试
 # 所有第三方 action 固定到 commit SHA（防 tag 被劫持）；升级时把 SHA 换成目标版本对应的 commit。
-name: CI
+name: Verify
 
 on:
   push:
@@ -17,36 +17,43 @@ concurrency:
   cancel-in-progress: true # 同一分支有新 push 时取消旧的运行，节省时间
 
 jobs:
-  verify:
+  frontend:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-
       - name: Setup pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
-
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # 自动读取 package.json 的 packageManager 字段
       - name: Setup Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 24 # 与本机开发版本保持一致
           cache: pnpm
-
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
-
       - name: Rust cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
         with:
-          workspaces: src-tauri
-
+          workspaces: src-tauri -> target
       - name: Install Linux system dependencies
         # cargo check 编译 Tauri 需要 webkit2gtk 等系统库
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
       - name: Install frontend dependencies
-        run: pnpm install
-
+        run: pnpm install --frozen-lockfile
       - name: Verify
         run: pnpm verify
+
+  native:
+    name: native (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+        with:
+          workspaces: src-tauri -> target
+      - name: Rust 原生测试
+        run: cargo test --manifest-path src-tauri/Cargo.toml
