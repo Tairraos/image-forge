@@ -36,7 +36,7 @@ const requestedVersion = rawArgs.find((arg) => arg !== '--' && !arg.startsWith('
 if (requestedVersion) patchVersion(requestedVersion);
 
 if (process.platform !== 'darwin') {
-  console.error('本地打包目前仅支持 macOS（tauri.conf.json 的 bundle targets 只配置了 app）。');
+  console.error('本地打包目前仅支持 macOS。');
   console.error('Windows / Linux 安装包请用 pnpm release 走云端三平台构建。');
   process.exit(1);
 }
@@ -60,7 +60,9 @@ try {
   run('pnpm', ['tauri', 'icon', 'src-tauri/icons/app-icon.png']);
 
   try {
-    run('pnpm', ['tauri', 'build']);
+    // tauri.conf.json 的 bundle targets 已改为 all（供云端多平台构建），
+    // 本地固定 --bundles app，保持「默认只出 .app，--dmg 才用 hdiutil 另出 dmg」的行为
+    run('pnpm', ['tauri', 'build', '--bundles', 'app']);
   } catch (error) {
     // 构建失败时不收集半成品：bundle 目录整体进回收站，
     // 避免不完整的 .app 被收进 release/ 顶掉上一个可用版本
