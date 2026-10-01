@@ -56,7 +56,6 @@ const releaseDir = join(root, 'release');
 
 try {
   moveToTrash(bundleDir);
-  cleanIcons();
   run('pnpm', ['tauri', 'icon', 'src-tauri/icons/app-icon.png']);
 
   try {
@@ -223,19 +222,9 @@ function assertExpectedOutputs(outputs) {
   }
 }
 
-function cleanIcons() {
-  const iconDir = join(root, 'src-tauri', 'icons');
-  for (const entry of readdirSync(iconDir)) {
-    if (!['app-icon.png', 'icon.png'].includes(entry)) {
-      moveToTrash(join(iconDir, entry));
-    }
-  }
-}
-
 function cleanProcessFiles() {
   moveToTrash(join(root, 'dist'));
   moveToTrash(join(root, 'src-tauri', 'gen'));
-  cleanIcons();
   cleanTargetExceptRelease();
 }
 

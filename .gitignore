@@ -16,10 +16,12 @@ docs/agent-implementation-tasks.md
 src-tauri/target/
 src-tauri/gen/
 src-tauri/.cargo/
-src-tauri/icons/*
-!src-tauri/icons/
-!src-tauri/icons/app-icon.png
-!src-tauri/icons/icon.png
+# 桌面打包图标全部入库（tauri-build 编译期校验 bundle.icon 列表文件必须存在）；
+# 只忽略 Windows Store 与移动端专用产物，本项目没有这些目标平台
+src-tauri/icons/Square*
+src-tauri/icons/StoreLogo.png
+src-tauri/icons/android/
+src-tauri/icons/ios/
 
 *.app
 *.dmg
