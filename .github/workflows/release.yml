@@ -70,8 +70,11 @@ jobs:
           cache: pnpm
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
-        with:
-          targets: ${{ matrix.rust-targets }}
+      - name: 安装交叉编译 target
+        # 仓库根的 rust-toolchain.toml 把 toolchain 钉在固定版本，会覆盖这里安装的 stable；
+        # rustup target add 遵循该 override，把 target 装到实际使用的 toolchain 上
+        if: matrix.rust-targets != ''
+        run: rustup target add ${{ matrix.rust-targets }}
       - name: Rust cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
         with:
@@ -83,10 +86,6 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf libfuse2
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
-      - name: 生成图标集
-        # 仓库只提交 app-icon.png / icon.png 两张源图（.gitignore 忽略生成产物），
-        # Windows 打包必需 .ico、macOS 需要 .icns，构建前从源图生成完整图标集
-        run: pnpm tauri icon src-tauri/icons/app-icon.png
       - name: 构建安装包
         id: build
         shell: bash
