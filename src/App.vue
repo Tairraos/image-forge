@@ -29,6 +29,7 @@
       v-model:draft="agentDraft"
       v-model:draw-this-turn="agentDrawThisTurn"
       :theme="resolvedTheme"
+      :app-version="aboutInfo.version"
       :sessions="agentSessions"
       :current-session="currentAgentSession"
       :messages="currentAgentDisplayMessages"
@@ -456,6 +457,7 @@ const currentAgentDisplayMessages = computed(() =>
 onMounted(async () => {
   systemTheme.addEventListener('change', syncSystemTheme);
   removeScrollbarVisibility = installAutoHideScrollbars();
+  void loadAboutInfo();
   try {
     await restoreWindowState();
     unlistenWindowState = await listenWindowState();
@@ -1617,16 +1619,17 @@ function showTemplateEffect(template) {
   effectViewer.show = true;
 }
 
-async function openDesign() {
-  showDesignDialog.value = true;
+async function loadAboutInfo() {
   try {
     aboutInfo.value = await api.aboutInfo();
   } catch {
-    aboutInfo.value = {
-      version: '',
-      buildTime: '',
-    };
+    aboutInfo.value = { version: '', buildTime: '' };
   }
+}
+
+async function openDesign() {
+  showDesignDialog.value = true;
+  await loadAboutInfo();
 }
 
 async function openCleanup() {

@@ -20,8 +20,10 @@
       <div class="function-bar-head">
         <div class="function-bar-titlebar" data-tauri-drag-region="deep"></div>
         <div class="function-bar-brand">
-          <span class="brand-symbol"><Aperture :size="23" :stroke-width="1.7" /></span>
-          <span>Image Forge</span>
+          <div class="brand-logo-wrap">
+            <img :src="titleLogo" alt="Image Forge" class="brand-logo" draggable="false" />
+            <span v-if="appVersion" class="brand-version">v{{ appVersion }}</span>
+          </div>
         </div>
         <nav class="function-bar-nav" aria-label="功能栏">
           <button
@@ -218,13 +220,15 @@
 
 <script setup>
 import { nextTick, ref } from 'vue';
-import { Aperture, Images, Moon, PanelLeft, Settings2, SquarePen, Sun, Trash2 } from '@lucide/vue';
+import { Images, Moon, PanelLeft, Settings2, SquarePen, Sun, Trash2 } from '@lucide/vue';
+import titleLogo from '../assets/title.png';
 import AgentLibraryPanel from './AgentLibraryPanel.vue';
 import AgentComposer from './AgentComposer.vue';
 import AgentMessageList from './AgentMessageList.vue';
 
 defineProps({
   theme: { type: String, default: 'light' },
+  appVersion: { type: String, default: '' },
   sessions: { type: Array, default: () => [] },
   currentSession: { type: Object, default: null },
   messages: { type: Array, default: () => [] },
