@@ -159,7 +159,10 @@
             :class="{ 'is-empty': !currentSession }"
             data-tauri-drag-region="none"
             @click="currentSession && startRename(currentSession, 'top')"
-            >{{ currentSession ? currentSession.title || '新对话' : '开始新对话' }}</strong
+            >{{ currentSession ? currentSession.title || '新对话' : '开始新对话'
+            }}<span v-if="currentSession?.createdAt" class="info-area-title-date">{{
+              sessionDateLabel(currentSession)
+            }}</span></strong
           >
         </template>
         <strong v-else class="info-area-title">图片库</strong>
@@ -387,5 +390,13 @@ function commitRename() {
 
 function cancelRename() {
   renaming.value = null;
+}
+
+// 顶部标题栏在标题后面展示会话创建日期；改名时整块标题切换成输入框，日期随之隐藏
+function sessionDateLabel(session) {
+  const date = new Date(session?.createdAt || '');
+  if (Number.isNaN(date.getTime())) return '';
+  const pad = (value) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 </script>

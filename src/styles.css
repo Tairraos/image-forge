@@ -576,6 +576,12 @@ input[type='checkbox']:focus-visible {
 .info-area-title.is-empty {
   color: var(--muted);
 }
+.info-area-title-date {
+  margin-left: 9px;
+  color: var(--faint);
+  font-size: 11px;
+  font-weight: 500;
+}
 .info-area-title-rename {
   max-width: 540px;
 }

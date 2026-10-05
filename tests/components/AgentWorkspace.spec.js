@@ -70,4 +70,28 @@ describe('AgentWorkspace', () => {
     ]);
     expect(wrapper.find('.session-context-menu').exists()).toBe(false);
   });
+
+  it('顶部标题尾部显示会话日期，改名时隐藏', async () => {
+    const sessions = [{ id: 's1', title: '旅行插画', createdAt: '2026-10-06T08:00:00Z' }];
+    const wrapper = mount(AgentWorkspace, {
+      props: { sessions, currentSession: sessions[0], providerId: 'c', imageProviderId: 'i' },
+      global: { stubs: { AgentComposer: true, AgentMessageList: true } },
+    });
+    const title = wrapper.get('.info-area-title');
+    expect(title.text()).toContain('旅行插画');
+    expect(title.get('.info-area-title-date').text()).toBe('2026-10-06');
+    await title.trigger('click');
+    // 进入改名：日期随标题一起切换成输入框
+    expect(wrapper.find('.info-area-title-date').exists()).toBe(false);
+    const input = wrapper.get('.info-area-title-rename');
+    expect(input.element.value).toBe('旅行插画');
+    await input.setValue('新标题');
+    await input.trigger('blur');
+    expect(wrapper.emitted('rename-session')).toEqual([[{ sessionId: 's1', title: '新标题' }]]);
+    // 模拟父组件应用改名后再看展示：标题更新、日期重新出现
+    const renamed = { id: 's1', title: '新标题', createdAt: '2026-10-06T08:00:00Z' };
+    await wrapper.setProps({ sessions: [renamed], currentSession: renamed });
+    expect(wrapper.get('.info-area-title').text()).toContain('新标题');
+    expect(wrapper.get('.info-area-title-date').text()).toBe('2026-10-06');
+  });
 });
