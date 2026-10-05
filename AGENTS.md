@@ -66,7 +66,10 @@ pnpm release [version] # 云端发布：升版本（可选）→ commit → tag 
 
 ## 完成一次任务的固定流程
 
-改代码 → `pnpm verify` → 修复失败 → 按任务拆分提交（Conventional Commits + 中文描述）→ 每次会话结束前 `pnpm build` 打包出新版本的 .app（默认不产出 .dmg）；需要云端三平台发布时另用 `pnpm release <version>`
+改代码 → `pnpm verify` → 修复失败 → 按单一职责拆分多次提交（Conventional Commits + 中文描述，一个提交只做一件事）→ `pnpm patch <x.y.z>` 升版本号并单独提交 → `pnpm build` 打包出新版本的 .app 供用户测试（默认不产出 .dmg，构建时自动把 release/ 旧产物移入系统回收站）；需要云端三平台发布时另用 `pnpm release <version>`
+
+- **每轮会话必须升版本号**：打包前先 `pnpm patch` 递增版本，保证每轮产出的 .app 版本与上一轮不同，用户据此确认在测新版。
+- **提交颗粒度**：以单一职责任务为单位，每轮会话按任务数量产生多个提交，不把无关改动混进一个提交。
 
 ## 删除与回收站规则（硬约束）
 
