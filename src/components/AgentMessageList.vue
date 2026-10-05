@@ -3,7 +3,7 @@
     <div ref="listRef" class="agent-message-list" @scroll.passive="updateScrollPosition">
       <div ref="contentRef" class="agent-message-content">
         <div v-if="!messages.length" class="agent-empty">
-          <span class="agent-empty-mark"><Aperture :size="32" :stroke-width="1.4" /></span>
+          <img :src="titleLogo" alt="Image Forge" class="agent-empty-banner" draggable="false" />
           <h1>从一个想法开始</h1>
           <p>描述你的画面，与 Agent 一起把灵感变成作品。</p>
         </div>
@@ -323,6 +323,7 @@ import {
   Wrench,
 } from '@lucide/vue';
 import { fileUrl } from '../lib/formatters';
+import titleLogo from '../assets/title.png';
 
 const props = defineProps({
   messages: { type: Array, default: () => [] },

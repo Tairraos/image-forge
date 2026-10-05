@@ -649,17 +649,11 @@ input[type='checkbox']:focus-visible {
   padding-bottom: 35px;
   text-align: center;
 }
-.agent-empty-mark {
-  display: grid;
-  place-items: center;
-  width: 60px;
-  height: 60px;
+.agent-empty-banner {
+  width: 270px;
+  height: 50px;
   margin-bottom: 5px;
-  border: 1px solid var(--line);
-  border-radius: 18px;
-  color: var(--accent);
-  background: var(--surface);
-  box-shadow: var(--shadow-soft);
+  object-fit: contain;
 }
 .agent-empty h1 {
   margin: 0;
