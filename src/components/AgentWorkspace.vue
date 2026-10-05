@@ -148,16 +148,16 @@
             v-model="titleDraft"
             class="info-area-title-rename"
             aria-label="对话标题"
-            data-tauri-drag-region="none"
             @keydown.enter.prevent="commitRename"
             @keydown.esc.prevent="cancelRename"
             @blur="commitRename"
           />
+          <!-- 不能加 data-tauri-drag-region：Tauri 只认属性存在与否，加了会把
+               点击/选中文本变成拖动窗体，标题改名就没法用；拖动走周围空白区 -->
           <strong
             v-else
             class="info-area-title"
             :class="{ 'is-empty': !currentSession }"
-            data-tauri-drag-region="none"
             @click="currentSession && startRename(currentSession, 'top')"
             >{{ currentSession ? currentSession.title || '新对话' : '开始新对话'
             }}<span v-if="currentSession?.createdAt" class="info-area-title-date">{{
