@@ -8,6 +8,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use crate::{
+    history_db,
     models::{CleanupCandidate, PromptTemplate, TaskRecord},
     state::record_operation,
     store::{read_history, read_json, read_queue, read_templates},
@@ -99,6 +100,19 @@ fn collect_referenced_files(data_dir: &Path) -> Result<HashSet<PathBuf>, String>
         extend_used_paths(&mut referenced, &record.reference_paths);
         for output in record.outputs {
             insert_used_path(&mut referenced, Path::new(&output.path));
+        }
+    }
+    // 模板与会话的记录存在 SQLite（app_templates / agent_sessions 表），磁盘上已无对应
+    // JSON 文件，必须从库里的 record_json 收集引用，否则模板效果图和会话参考图会被误判孤岛。
+    for json in history_db::read_agent_sessions(data_dir)? {
+        let value: Value = serde_json::from_str(&json)
+            .map_err(|error| format!("解析 Agent 会话记录失败，已中止扫描以防误删: {error}"))?;
+        collect_paths_from_value(&value, data_dir, &mut referenced);
+    }
+    for template in read_templates(data_dir)? {
+        extend_used_paths(&mut referenced, &template.reference_paths);
+        if !template.effect_image_path.trim().is_empty() {
+            insert_used_path(&mut referenced, Path::new(template.effect_image_path.trim()));
         }
     }
     Ok(referenced)
@@ -412,6 +426,7 @@ mod tests {
     use super::{
         prune_unreferenced_files_with_data, scan_orphan_files, should_prune_reference_file,
     };
+    use crate::history_db;
 
     #[test]
     fn only_image_assets_in_reference_dir_are_pruned() {
@@ -491,6 +506,57 @@ mod tests {
 
         assert!(kept.exists());
         assert!(!orphan.exists());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn orphan_scan_keeps_sqlite_template_and_session_references() {
+        let root = std::env::current_dir()
+            .unwrap()
+            .join("target")
+            .join("reference-tests")
+            .join(format!("cleanup-sqlite-{}", Uuid::new_v4()));
+        let references = root.join("references");
+        fs::create_dir_all(&references).unwrap();
+
+        let template_ref = references.join("template-ref.png");
+        let effect = references.join("effect.png");
+        let session_ref = references.join("session-ref.png");
+        let orphan = references.join("orphan.png");
+        for path in [&template_ref, &effect, &session_ref, &orphan] {
+            fs::write(path, b"data").unwrap();
+        }
+
+        history_db::write_templates(
+            &root,
+            &[serde_json::json!({
+                "id": "tpl-1",
+                "title": "模板",
+                "referencePaths": [template_ref.to_string_lossy()],
+                "effectImagePath": effect.to_string_lossy(),
+            })
+            .to_string()],
+        )
+        .unwrap();
+        history_db::upsert_agent_session(
+            &root,
+            &serde_json::json!({
+                "id": "sess-1",
+                "messages": [{ "attachments": [{ "path": session_ref.to_string_lossy() }] }]
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let candidates = scan_orphan_files(&root).unwrap();
+        let paths = candidates
+            .iter()
+            .map(|candidate| candidate.relative_path.as_str())
+            .collect::<HashSet<_>>();
+        assert!(!paths.contains("references/template-ref.png"));
+        assert!(!paths.contains("references/effect.png"));
+        assert!(!paths.contains("references/session-ref.png"));
+        assert!(paths.contains("references/orphan.png"));
         let _ = fs::remove_dir_all(&root);
     }
 }
