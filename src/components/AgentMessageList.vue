@@ -222,6 +222,15 @@
                   <button
                     type="button"
                     class="agent-generated-tool"
+                    aria-label="添加到模板"
+                    title="添加到模板"
+                    @click="$emit('add-to-template', { task: image.task, output: image })"
+                  >
+                    <BookmarkPlus :size="15" />
+                  </button>
+                  <button
+                    type="button"
+                    class="agent-generated-tool"
                     aria-label="从对话删除"
                     title="从对话删除提示词和图片（图片库保留）"
                     @click="$emit('delete-task-turn', message)"
@@ -301,6 +310,7 @@ import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import {
   Aperture,
   ArrowDown,
+  BookmarkPlus,
   Check,
   ChevronDown,
   Copy,
@@ -329,6 +339,7 @@ const emit = defineEmits([
   'retry-task-group',
   'copy-image',
   'reuse-image',
+  'add-to-template',
   'delete-task-turn',
   'retry',
   'update-answer',

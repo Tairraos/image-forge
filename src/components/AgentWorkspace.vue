@@ -192,6 +192,7 @@
           @retry-task-group="$emit('retry-task-group', $event)"
           @copy-image="$emit('copy-image', $event)"
           @reuse-image="$emit('reuse-image', $event)"
+          @add-to-template="$emit('add-to-template', $event)"
           @delete-task-turn="$emit('delete-task-turn', $event)"
           @retry="$emit('retry', $event)"
           @update-answer="$emit('update-answer', $event)"

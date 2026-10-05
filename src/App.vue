@@ -840,7 +840,8 @@ async function handleLibraryReferenceToAgent({ task }) {
 async function handleLibraryAddToTemplate({ task, output }) {
   effectViewer.show = false;
   Object.assign(templateDraft, emptyTemplate());
-  templateDraft.title = '';
+  // 标题预填提示词前 20 个字，等用户在编辑器里改后确认保存
+  templateDraft.title = singleLine(task.prompt).slice(0, 20);
   templateDraft.content = task.prompt || '';
   templateDraft.referencePaths = [];
   templateDraftReferences.value = [];
@@ -964,8 +965,10 @@ async function copyAgentImage(image) {
   }
 }
 
-// 图片 hover「再来一张」：把这张图的提示词与参考图填回底部输入框。
+// 图片 hover「再来一张」：把这张图的提示词、参考图和生成参数全部带回输入框，
+// 并自动勾选直接绘画，比例/分辨率与原图生成时一致。
 async function reuseAgentImage(image) {
+  const task = image?.task || {};
   const prompt = String(image?.prompt || '').trim();
   const referencePaths = Array.isArray(image?.referencePaths) ? image.referencePaths : [];
   if (!prompt && !referencePaths.length) {
@@ -973,8 +976,12 @@ async function reuseAgentImage(image) {
     return;
   }
   if (prompt) agentDraft.value = prompt;
+  agentDrawThisTurn.value = true;
+  if (task.params?.ratio) form.ratio = task.params.ratio;
+  const resolution = String(task.params?.resolution || '').toLowerCase();
+  if (resolution) form.resolution = resolution === '1k' ? 'standard' : resolution;
   if (referencePaths.length) await addAgentReferencePaths(referencePaths);
-  setStatus('已把提示词和参考图填到输入框', 'ok');
+  setStatus('已把提示词、参考图和生成参数填到输入框', 'ok');
 }
 
 // 图片 hover「删除」：只从对话里删掉这一轮的提示词和图片卡片，图片库记录保留。

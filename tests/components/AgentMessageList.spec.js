@@ -234,12 +234,13 @@ describe('AgentMessageList', () => {
     expect(wrapper.emitted('preview-images')).toEqual([[{ items: images, index: 1 }]]);
   });
 
-  it('生成成功后不显示状态栏，hover 工具条提供复制/再来一张/删除', async () => {
+  it('生成成功后不显示状态栏，hover 工具条提供复制/再来一张/添加到模板/删除', async () => {
     const image = {
       path: '/tmp/one.png',
       title: '第一张',
       prompt: '一只猫',
       referencePaths: ['/tmp/ref.png'],
+      task: { id: 'task-1', prompt: '一只猫', params: { ratio: '16:9' } },
     };
     const message = {
       ...baseMessage,
@@ -253,6 +254,8 @@ describe('AgentMessageList', () => {
     expect(wrapper.emitted('copy-image')[0][0]).toEqual(image);
     await wrapper.get('[aria-label="再来一张"]').trigger('click');
     expect(wrapper.emitted('reuse-image')[0][0]).toEqual(image);
+    await wrapper.get('[aria-label="添加到模板"]').trigger('click');
+    expect(wrapper.emitted('add-to-template')[0][0]).toEqual({ task: image.task, output: image });
     await wrapper.get('[aria-label="从对话删除"]').trigger('click');
     expect(wrapper.emitted('delete-task-turn')[0][0].id).toBe('images');
   });
