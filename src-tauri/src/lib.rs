@@ -113,6 +113,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::about_info,
             commands::agent_library,
+            commands::copy_image_to_clipboard,
             commands::read_clipboard_text,
             commands::create_agent_session,
             commands::create_agent_direct_image_task,
@@ -123,6 +124,7 @@ pub fn run() {
             commands::cancel_agent_turn,
             commands::delete_task,
             commands::delete_agent_session,
+            commands::delete_agent_task_turn,
             commands::delete_template,
             commands::download_output,
             commands::export_templates,

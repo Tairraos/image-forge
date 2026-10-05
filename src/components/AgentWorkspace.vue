@@ -186,7 +186,9 @@
           @preview-images="$emit('preview-images', $event)"
           @cancel-task-group="$emit('cancel-task-group', $event)"
           @retry-task-group="$emit('retry-task-group', $event)"
-          @redraw-task-group="$emit('redraw-task-group', $event)"
+          @copy-image="$emit('copy-image', $event)"
+          @reuse-image="$emit('reuse-image', $event)"
+          @delete-task-turn="$emit('delete-task-turn', $event)"
           @retry="$emit('retry', $event)"
           @update-answer="$emit('update-answer', $event)"
           @answer-questions="$emit('answer-questions', $event)"
@@ -262,6 +264,9 @@ const emit = defineEmits([
   'reveal-output',
   'cancel-task-group',
   'retry-task-group',
+  'copy-image',
+  'reuse-image',
+  'delete-task-turn',
   'retry',
   'paste-reference',
   'drop-reference',
@@ -277,7 +282,6 @@ const emit = defineEmits([
   'update:resolution',
   'reference-to-agent',
   'add-to-template',
-  'redraw-task-group',
 ]);
 
 const panel = defineModel('panel', { type: String, default: 'chat' });

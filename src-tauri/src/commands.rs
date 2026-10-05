@@ -20,8 +20,9 @@ use crate::{
     services::{
         agent::run_turn,
         agent_store::{
-            append_message, create_session, delete_session, prepare_context, recover_sessions,
-            rename_session, save_session, session, update_session_status, lock_sessions,
+            append_message, create_session, delete_session, delete_task_turn, prepare_context,
+            recover_sessions, rename_session, save_session, session, update_session_status,
+            lock_sessions,
         },
         agent_tools::{TOOL_CREATE_IMAGE_TASKS, TOOL_GET_TASK_STATUS},
         chat::fill_template_response,
@@ -92,6 +93,26 @@ pub(crate) fn delete_agent_session(app: AppHandle, session_id: String) -> Result
         &format!("session_id={session_id}"),
         None,
         &result,
+    );
+    result
+}
+
+#[tauri::command]
+/// 删除会话中该任务组卡片所在的一整轮对话（用户提示词与生成图片卡片）。
+/// 绘图任务与图片库记录保持不变，仅影响会话展示。
+pub(crate) fn delete_agent_task_turn(
+    app: AppHandle,
+    session_id: String,
+    message_id: String,
+) -> Result<AgentSession, String> {
+    let data_dir = ensure_data_dir(&app)?;
+    let result = delete_task_turn(&data_dir, &session_id, &message_id);
+    let logged = result.as_ref().map(|_| ()).map_err(|error| error.clone());
+    record_result(
+        "删除对话图片轮次",
+        &format!("session_id={session_id} message_id={message_id}"),
+        None,
+        &logged,
     );
     result
 }
@@ -1533,6 +1554,19 @@ pub(crate) fn reference_from_path(
     let params = format!("path={path}");
     let result = reference_preview(Path::new(&path));
     record_result("读取图片文件", &params, None, &result);
+    result
+}
+
+#[tauri::command]
+/// 把本地图片解码后写入系统剪贴板（复制图片用）。
+pub(crate) fn copy_image_to_clipboard(path: String) -> Result<(), String> {
+    let result = crate::services::clipboard::copy_image_to_clipboard(&path);
+    record_result(
+        "复制图片到剪贴板",
+        &format!("path={path}"),
+        None,
+        &result,
+    );
     result
 }
 

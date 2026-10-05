@@ -72,6 +72,43 @@ pub(crate) fn delete_session(data_dir: &Path, session_id: &str) -> Result<(), St
     Ok(())
 }
 
+/// 删除会话中该消息所在的一整轮对话：从本轮的用户提示词到最后一条助手/工具消息
+/// （含任务组图片卡片）。只影响会话展示，绘图任务与图片库记录保持不变。
+pub(crate) fn delete_task_turn(
+    data_dir: &Path,
+    session_id: &str,
+    message_id: &str,
+) -> Result<AgentSession, String> {
+    let _guard = lock_sessions();
+    let mut session = session(data_dir, session_id)?;
+    let index = session
+        .messages
+        .iter()
+        .position(|message| message.id == message_id)
+        .ok_or_else(|| "找不到消息".to_string())?;
+    let mut start = index;
+    while start > 0 && session.messages[start - 1].role != "user" {
+        start -= 1;
+    }
+    if start > 0 {
+        start -= 1;
+    }
+    let mut end = index;
+    while end + 1 < session.messages.len() && session.messages[end + 1].role != "user" {
+        end += 1;
+    }
+    session.messages.drain(start..=end);
+    let live_group_ids: std::collections::HashSet<String> = session
+        .messages
+        .iter()
+        .filter_map(|message| message.task_group.as_ref().map(|group| group.id.clone()))
+        .collect();
+    session.task_group_ids.retain(|id| live_group_ids.contains(id));
+    session.updated_at = utc_now();
+    write_agent_session(data_dir, &session)?;
+    Ok(session)
+}
+
 pub(crate) fn append_message(
     data_dir: &Path,
     session_id: &str,
@@ -460,6 +497,52 @@ mod tests {
         // 路径不安全 ID 仍然拒绝
         assert!(session(&data_dir, "../escape").is_err());
         assert!(session(&data_dir, "  ").is_err());
+        recycle(&data_dir);
+    }
+
+    #[test]
+    fn delete_task_turn_removes_whole_turn_and_stale_group_ids() {
+        let data_dir = temp_data_dir("delete-task-turn");
+        let mut session = create_session(&data_dir, "chat-provider").unwrap();
+        let group_id = "group-1".to_string();
+        let make_message = |role: &str, group: Option<AgentTaskGroupSummary>| AgentMessage {
+            id: Uuid::new_v4().to_string(),
+            role: role.into(),
+            status: if role == "tool" { "task_group".into() } else { "done".into() },
+            content: String::new(),
+            attachments: Vec::new(),
+            tool_call: None,
+            questions: Vec::new(),
+            task_group: group,
+            error: String::new(),
+            created_at: utc_now(),
+        };
+        // 第一轮：用户提示词 + 任务组卡片；第二轮：独立的用户消息
+        let turn_user = make_message("user", None);
+        let turn_card = AgentMessage {
+            task_group: Some(AgentTaskGroupSummary {
+                schema_version: AGENT_SCHEMA_VERSION,
+                id: group_id.clone(),
+                task_ids: vec!["task-1".into()],
+                titles: Vec::new(),
+                prompt_summaries: Vec::new(),
+                status: "completed".into(),
+            }),
+            ..make_message("tool", None)
+        };
+        let next_turn_user = make_message("user", None);
+        let turn_card_id = turn_card.id.clone();
+        session.messages = vec![turn_user, turn_card, next_turn_user.clone()];
+        session.task_group_ids = vec![group_id.clone(), "group-gone".into()];
+        write_agent_session(&data_dir, &session).unwrap();
+
+        let updated = delete_task_turn(&data_dir, &session.id, &turn_card_id).unwrap();
+        assert_eq!(updated.messages.len(), 1);
+        assert_eq!(updated.messages[0].id, next_turn_user.id);
+        assert!(updated.task_group_ids.is_empty());
+
+        let reread = read_agent_session(&data_dir, &session.id).unwrap();
+        assert_eq!(reread.messages.len(), 1);
         recycle(&data_dir);
     }
 

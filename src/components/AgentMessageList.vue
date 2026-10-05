@@ -104,7 +104,7 @@
             class="agent-task-group-card"
             :data-status="message.taskGroup.status"
           >
-            <div class="agent-task-group-bar">
+            <div v-if="!groupCompletedWithImages(message.taskGroup)" class="agent-task-group-bar">
               <span class="agent-task-group-status" role="status">
                 <span
                   class="agent-task-group-dot"
@@ -117,16 +117,16 @@
                 class="agent-task-group-timer"
                 >{{ elapsed(message) }}</span
               >
-              <div class="agent-task-group-spacer"></div>
               <button
                 v-if="!isTerminalStatus(message.taskGroup.status)"
                 type="button"
-                class="button button-small"
+                class="agent-task-group-cancel"
                 :disabled="message.taskGroup.status === 'cancelling'"
                 @click="$emit('cancel-task-group', message.taskGroup)"
               >
                 {{ message.taskGroup.status === 'cancelling' ? '取消中…' : '取消' }}
               </button>
+              <div class="agent-task-group-spacer"></div>
               <button
                 v-if="canRetryStatus(message.taskGroup.status)"
                 type="button"
@@ -134,14 +134,6 @@
                 @click="$emit('retry-task-group', message.taskGroup)"
               >
                 重试失败项
-              </button>
-              <button
-                v-if="message.taskGroup.status === 'completed' && message.taskGroup.taskIds?.length"
-                type="button"
-                class="button button-small"
-                @click="$emit('redraw-task-group', message.taskGroup)"
-              >
-                再来一张
               </button>
             </div>
             <div v-if="message.taskGroup.progress?.total > 1" class="agent-task-progress">
@@ -191,20 +183,53 @@
               暂时无法更新进度，正在重试连接…
             </p>
             <div v-if="message.taskGroup.images?.length" class="agent-generated-thumbs">
-              <button
+              <div
                 v-for="(image, index) in message.taskGroup.images"
                 :key="image.path"
-                type="button"
-                class="agent-generated-thumb"
-                :aria-label="`查看生成图片 ${index + 1}`"
-                @click="$emit('preview-images', { items: message.taskGroup.images, index })"
+                class="agent-generated-item"
               >
-                <img
-                  loading="lazy"
-                  :src="fileUrl(image.path)"
-                  :alt="image.title || image.fileName || '生成图片'"
-                />
-              </button>
+                <button
+                  type="button"
+                  class="agent-generated-thumb"
+                  :aria-label="`查看生成图片 ${index + 1}`"
+                  @click="$emit('preview-images', { items: message.taskGroup.images, index })"
+                >
+                  <img
+                    loading="lazy"
+                    :src="fileUrl(image.path)"
+                    :alt="image.title || image.fileName || '生成图片'"
+                  />
+                </button>
+                <div class="agent-generated-tools" role="toolbar" aria-label="图片操作">
+                  <button
+                    type="button"
+                    class="agent-generated-tool"
+                    aria-label="复制图片"
+                    title="复制图片"
+                    @click="$emit('copy-image', image)"
+                  >
+                    <Copy :size="15" />
+                  </button>
+                  <button
+                    type="button"
+                    class="agent-generated-tool"
+                    aria-label="再来一张"
+                    title="把这张图的提示词和参考图填到输入框"
+                    @click="$emit('reuse-image', image)"
+                  >
+                    <RotateCcw :size="15" />
+                  </button>
+                  <button
+                    type="button"
+                    class="agent-generated-tool"
+                    aria-label="从对话删除"
+                    title="从对话删除提示词和图片（图片库保留）"
+                    @click="$emit('delete-task-turn', message)"
+                  >
+                    <Trash2 :size="15" />
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
           <div v-if="message.error" class="agent-message-error" role="alert">
@@ -282,6 +307,7 @@ import {
   Image,
   RotateCcw,
   Square,
+  Trash2,
   TriangleAlert,
   UserRound,
   Wrench,
@@ -301,7 +327,9 @@ const emit = defineEmits([
   'preview-images',
   'cancel-task-group',
   'retry-task-group',
-  'redraw-task-group',
+  'copy-image',
+  'reuse-image',
+  'delete-task-turn',
   'retry',
   'update-answer',
   'answer-questions',
@@ -431,8 +459,7 @@ function toolName(name) {
 }
 
 function groupStatusLabel(group) {
-  if (group.status === 'completed')
-    return group.images?.length ? `已完成 · ${group.images.length} 张图片` : '已完成';
+  if (group.status === 'completed') return '已完成';
   return (
     {
       queued: '已加入队列',
@@ -443,6 +470,12 @@ function groupStatusLabel(group) {
       missing: '任务记录不可用',
     }[group.status] || '正在读取任务状态'
   );
+}
+
+// 生成成功后状态行（已完成 · N 张图片）与操作按钮都收进图片 hover 工具条，
+// 整个状态栏不再渲染，卡片直接展示图片。
+function groupCompletedWithImages(group) {
+  return group.status === 'completed' && Boolean(group.images?.length);
 }
 
 function previewAttachments(message, index) {

@@ -19,6 +19,8 @@ export const listAgentSessions = () => invoke('list_agent_sessions');
 export const createAgentSession = (providerId) => invoke('create_agent_session', { providerId });
 export const getAgentSession = (sessionId) => invoke('get_agent_session', { sessionId });
 export const deleteAgentSession = (sessionId) => invoke('delete_agent_session', { sessionId });
+export const deleteAgentTaskTurn = (sessionId, messageId) =>
+  invoke('delete_agent_task_turn', { sessionId, messageId });
 export const renameAgentSession = (sessionId, title) =>
   invoke('rename_agent_session', { sessionId, title });
 export const sendAgentMessage = (sessionId, providerId, content, attachments) =>
@@ -72,6 +74,7 @@ export const cleanupDataFiles = () => invoke('cleanup_data_files');
 
 // ── 工具 ──
 export const readClipboardText = () => invoke('read_clipboard_text');
+export const copyImageToClipboard = (path) => invoke('copy_image_to_clipboard', { path });
 export const listProviderModels = (provider) => invoke('list_provider_models', { provider });
 
 // Web-only helpers（Tauri 端为 no-op）

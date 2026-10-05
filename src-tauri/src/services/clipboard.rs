@@ -23,6 +23,24 @@ pub(crate) fn read_clipboard_text() -> Result<String, String> {
         .map_err(|error| format!("读取剪贴板文本失败: {error}"))
 }
 
+pub(crate) fn copy_image_to_clipboard(path: &str) -> Result<(), String> {
+    let source = Path::new(path);
+    if !source.is_file() {
+        return Err(format!("图片文件不存在：{path}"));
+    }
+    let decoded = image::open(source).map_err(|error| format!("读取图片失败: {error}"))?;
+    let rgba = decoded.to_rgba8();
+    let (width, height) = rgba.dimensions();
+    let mut clipboard = Clipboard::new().map_err(|error| format!("打开剪贴板失败: {error}"))?;
+    clipboard
+        .set_image(arboard::ImageData {
+            width: width as usize,
+            height: height as usize,
+            bytes: std::borrow::Cow::Owned(rgba.into_raw()),
+        })
+        .map_err(|error| format!("写入剪贴板失败: {error}"))
+}
+
 pub(crate) fn reference_from_clipboard(
     app: &AppHandle,
 ) -> Result<Option<ReferencePreview>, String> {

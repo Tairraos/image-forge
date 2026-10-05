@@ -74,7 +74,9 @@
       @update:resolution="form.resolution = $event"
       @reference-to-agent="handleLibraryReferenceToAgent"
       @add-to-template="handleLibraryAddToTemplate"
-      @redraw-task-group="handleRedrawTaskGroup"
+      @copy-image="copyAgentImage"
+      @reuse-image="reuseAgentImage"
+      @delete-task-turn="deleteAgentTaskTurn"
     />
 
     <template #footer>
@@ -951,15 +953,48 @@ async function cancelAgentTaskGroup(group) {
   }
 }
 
-async function handleRedrawTaskGroup(group) {
-  const taskId = group?.taskIds?.[0];
-  if (!taskId) return;
+// 图片 hover「复制」：把原图字节写入系统剪贴板。
+async function copyAgentImage(image) {
+  if (!image?.path) return;
   try {
-    await api.redrawTask(taskId);
-    await refreshQueueOnly();
+    await api.copyImageToClipboard(image.path);
+    setStatus('图片已复制到剪贴板', 'ok');
+  } catch (error) {
+    setStatus(String(error), 'error');
+  }
+}
+
+// 图片 hover「再来一张」：把这张图的提示词与参考图填回底部输入框。
+async function reuseAgentImage(image) {
+  const prompt = String(image?.prompt || '').trim();
+  const referencePaths = Array.isArray(image?.referencePaths) ? image.referencePaths : [];
+  if (!prompt && !referencePaths.length) {
+    setStatus('这张图没有可复用的提示词和参考图', 'error');
+    return;
+  }
+  if (prompt) agentDraft.value = prompt;
+  if (referencePaths.length) await addAgentReferencePaths(referencePaths);
+  setStatus('已把提示词和参考图填到输入框', 'ok');
+}
+
+// 图片 hover「删除」：只从对话里删掉这一轮的提示词和图片卡片，图片库记录保留。
+async function deleteAgentTaskTurn(message) {
+  const sessionId = currentAgentSessionId.value;
+  if (!sessionId || !message?.id) return;
+  if (agentBusy.value && sessionId === agentBusySessionId.value) {
+    setStatus('请先停止这个对话中的生成，再删除图片', 'error');
+    return;
+  }
+  const confirmed = await requestConfirmation(
+    '删除提示词和图片',
+    '确认从对话中删除这一轮的提示词和生成的图片？图片库里仍会保留。'
+  );
+  if (!confirmed) return;
+  try {
+    await api.deleteAgentTaskTurn(sessionId, message.id);
     if (currentAgentSessionId.value) await selectAgentConversation(currentAgentSessionId.value);
     await refreshAgentTaskGroups();
-    setStatus('已按原参数重新排队', 'ok');
+    setStatus('已从对话删除，图片库保留', 'ok');
   } catch (error) {
     setStatus(String(error), 'error');
   }

@@ -233,4 +233,51 @@ describe('AgentMessageList', () => {
     await wrapper.findAll('.agent-generated-thumb')[1].trigger('click');
     expect(wrapper.emitted('preview-images')).toEqual([[{ items: images, index: 1 }]]);
   });
+
+  it('生成成功后不显示状态栏，hover 工具条提供复制/再来一张/删除', async () => {
+    const image = {
+      path: '/tmp/one.png',
+      title: '第一张',
+      prompt: '一只猫',
+      referencePaths: ['/tmp/ref.png'],
+    };
+    const message = {
+      ...baseMessage,
+      id: 'images',
+      taskGroup: { id: 'group', status: 'completed', images: [image] },
+    };
+    const wrapper = mount(AgentMessageList, { props: { messages: [message] } });
+    expect(wrapper.find('.agent-task-group-bar').exists()).toBe(false);
+    expect(wrapper.text()).not.toContain('已完成');
+    await wrapper.get('[aria-label="复制图片"]').trigger('click');
+    expect(wrapper.emitted('copy-image')[0][0]).toEqual(image);
+    await wrapper.get('[aria-label="再来一张"]').trigger('click');
+    expect(wrapper.emitted('reuse-image')[0][0]).toEqual(image);
+    await wrapper.get('[aria-label="从对话删除"]').trigger('click');
+    expect(wrapper.emitted('delete-task-turn')[0][0].id).toBe('images');
+  });
+
+  it('生成中的取消是计时器旁的链接按钮', async () => {
+    const message = {
+      ...baseMessage,
+      id: 'running',
+      taskGroup: { id: 'group', status: 'running' },
+    };
+    const wrapper = mount(AgentMessageList, { props: { messages: [message] } });
+    expect(wrapper.find('.agent-task-group-timer').exists()).toBe(true);
+    const cancel = wrapper.get('.agent-task-group-cancel');
+    expect(cancel.text()).toBe('取消');
+    await cancel.trigger('click');
+    expect(wrapper.emitted('cancel-task-group')[0][0].id).toBe('group');
+  });
+
+  it('完成但没有图片的任务组仍显示已完成状态', () => {
+    const message = {
+      ...baseMessage,
+      id: 'empty',
+      taskGroup: { id: 'group', status: 'completed' },
+    };
+    const wrapper = mount(AgentMessageList, { props: { messages: [message] } });
+    expect(wrapper.get('.agent-task-group-bar').text()).toContain('已完成');
+  });
 });

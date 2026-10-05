@@ -87,6 +87,29 @@ export async function renameAgentSession(sessionId, title) {
   });
 }
 
+export async function deleteAgentTaskTurn(sessionId, messageId) {
+  return localStore.updateSession(sessionId, (session) => {
+    if (!session) throw new Error(`找不到 Agent 会话: ${sessionId}`);
+    const index = (session.messages || []).findIndex((message) => message.id === messageId);
+    if (index < 0) throw new Error('找不到消息');
+    // 与桌面版 delete_task_turn 一致：删除本轮的用户提示词到最后一条助手/工具消息
+    let start = index;
+    while (start > 0 && session.messages[start - 1].role !== 'user') start -= 1;
+    if (start > 0) start -= 1;
+    let end = index;
+    while (end + 1 < session.messages.length && session.messages[end + 1].role !== 'user') end += 1;
+    session.messages.splice(start, end - start + 1);
+    const liveGroupIds = new Set(
+      session.messages.map((message) => message.taskGroup?.id).filter(Boolean)
+    );
+    if (Array.isArray(session.taskGroupIds)) {
+      session.taskGroupIds = session.taskGroupIds.filter((id) => liveGroupIds.has(id));
+    }
+    session.updatedAt = new Date().toISOString();
+    return session;
+  });
+}
+
 // ── 图片库 ──
 
 export async function agentLibrary(month, query) {
@@ -1166,6 +1189,16 @@ export async function readClipboardText() {
   } catch {
     return '';
   }
+}
+
+export async function copyImageToClipboard(path) {
+  const response = await fetch(toLocalFileUrl(path));
+  if (!response.ok) throw new Error(`读取图片失败: ${response.status}`);
+  const blob = await response.blob();
+  if (typeof ClipboardItem === 'undefined' || !navigator.clipboard?.write) {
+    throw new Error('当前浏览器不支持复制图片');
+  }
+  await navigator.clipboard.write([new ClipboardItem({ [blob.type || 'image/png']: blob })]);
 }
 
 export async function listProviderModels(provider) {
