@@ -30,6 +30,7 @@
       v-model:draw-this-turn="agentDrawThisTurn"
       :theme="resolvedTheme"
       :app-version="aboutInfo.version"
+      :library-count="libraryImageCount"
       :sessions="agentSessions"
       :current-session="currentAgentSession"
       :messages="currentAgentDisplayMessages"
@@ -325,6 +326,9 @@ const templateFillBusy = ref(false);
 const settings = ref(defaultSettings());
 const history = ref([]);
 const agentLibraryVersion = ref(0);
+watch(agentLibraryVersion, () => {
+  void refreshLibraryImageCount();
+});
 const queue = reactive({
   waiting: [],
   running: [],
@@ -363,6 +367,7 @@ const AGENT_TASK_GROUP_POLL_INTERVAL = 5000;
 const templateDraft = reactive(emptyTemplate());
 const templateEditorMode = ref('edit');
 const aboutInfo = ref({ version: '', buildTime: '' });
+const libraryImageCount = ref(0);
 const cleanupCandidates = ref([]);
 const cleanupLoading = ref(false);
 const cleanupConfirming = ref(false);
@@ -505,6 +510,7 @@ onMounted(async () => {
   }
   await refreshAll();
   await refreshAgentSessions();
+  void refreshLibraryImageCount();
   syncAgentTaskGroupPolling();
 });
 
@@ -529,6 +535,15 @@ async function refreshAll() {
     setStatus('就绪', 'ok');
   } catch (error) {
     setStatus(String(error), 'error');
+  }
+}
+
+// 侧栏「图片库」角标：库内图片总数，随任务完成/删除刷新。
+async function refreshLibraryImageCount() {
+  try {
+    libraryImageCount.value = await api.libraryImageCount();
+  } catch {
+    // 计数失败保持旧值，不打断主流程
   }
 }
 
@@ -1182,9 +1197,11 @@ function handleQueueUpdatedEvent(event) {
     if (currentAgentTaskGroups().some((group) => !isTerminalTaskGroupStatus(group.status))) {
       void refreshAgentTaskGroups();
     }
+    void refreshLibraryImageCount();
     return;
   }
   void refreshQueueOnly();
+  void refreshLibraryImageCount();
 }
 
 function syncQueuePolling() {

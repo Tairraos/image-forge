@@ -49,6 +49,7 @@
           >
             <Images :size="17" />
             <span>图片库</span>
+            <span v-if="libraryCount" class="function-bar-item-count">{{ libraryCount }}</span>
           </button>
         </nav>
       </div>
@@ -253,6 +254,7 @@ import AgentMessageList from './AgentMessageList.vue';
 const props = defineProps({
   theme: { type: String, default: 'light' },
   appVersion: { type: String, default: '' },
+  libraryCount: { type: Number, default: 0 },
   sessions: { type: Array, default: () => [] },
   currentSession: { type: Object, default: null },
   messages: { type: Array, default: () => [] },

@@ -157,6 +157,19 @@ pub(crate) fn upsert_and_write_queue(
     transaction.commit().map_err(db_error)
 }
 
+/// 图片库图片总数：已完成任务的全部输出图（侧栏角标用，只做 COUNT 不拉记录）。
+pub(crate) fn library_image_count(data_dir: &Path) -> Result<u64, String> {
+    let connection = open(data_dir)?;
+    connection
+        .query_row(
+            "SELECT COUNT(output.path) FROM tasks JOIN task_outputs output ON output.task_id = tasks.id
+            WHERE tasks.status = 'completed'",
+            [],
+            |row| row.get::<_, u64>(0),
+        )
+        .map_err(db_error)
+}
+
 /// agent 视图内嵌图片库：无关键词时按月份列出图片，有关键词时跨月份搜索，
 /// 并返回所有有图片的月份列表（供月份选择器与上/下月切换）。
 pub(crate) fn agent_library(

@@ -46,6 +46,7 @@ export const queueSnapshot = () => invoke('queue_snapshot');
 // ── 历史 / 图片库 ──
 export const deleteTask = (taskId) => invoke('delete_task', { taskId });
 export const agentLibrary = (month, query) => invoke('agent_library', { month, query });
+export const libraryImageCount = () => invoke('library_image_count');
 
 // ── 参考图 ──
 export const referenceFromPath = (path) => invoke('reference_from_path', { path });

@@ -451,6 +451,12 @@ input[type='checkbox']:focus-visible {
 .function-bar-item.active {
   font-weight: 600;
 }
+.function-bar-item-count {
+  margin-left: auto;
+  color: var(--faint);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
 .function-bar-sessions {
   flex: 1;
   min-height: 0;

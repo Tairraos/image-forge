@@ -118,6 +118,11 @@ export async function agentLibrary(month, query) {
   return db.buildLibraryPage(records, month, query);
 }
 
+export async function libraryImageCount() {
+  const records = await db.getCompletedLibraryRecords();
+  return records.reduce((sum, record) => sum + (record.outputs?.length || 0), 0);
+}
+
 // ── 任务 ──
 
 export async function deleteTask(taskId) {

@@ -113,6 +113,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::about_info,
             commands::agent_library,
+            commands::library_image_count,
             commands::copy_image_to_clipboard,
             commands::read_clipboard_text,
             commands::create_agent_session,

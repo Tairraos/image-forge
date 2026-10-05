@@ -42,6 +42,7 @@ export const {
   cleanupDataFiles,
   readClipboardText,
   copyImageToClipboard,
+  libraryImageCount,
   listProviderModels,
   onAgentEvent,
   onQueueChange,

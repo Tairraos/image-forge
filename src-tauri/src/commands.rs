@@ -1323,6 +1323,13 @@ pub(crate) fn load_app_state(app: AppHandle) -> Result<AppState, String> {
 }
 
 #[tauri::command]
+/// 返回图片库图片总数（已完成任务的全部输出图）。
+pub(crate) fn library_image_count(app: AppHandle) -> Result<u64, String> {
+    let data_dir = ensure_data_dir(&app)?;
+    history_db::library_image_count(&data_dir)
+}
+
+#[tauri::command]
 /// 读取 agent 视图内嵌图片库：按月份列出图片，或跨月份搜索提示词，并返回有图片的月份列表。
 pub(crate) fn agent_library(
     app: AppHandle,

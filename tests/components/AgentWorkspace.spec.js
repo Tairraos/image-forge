@@ -14,6 +14,7 @@ describe('AgentWorkspace', () => {
         currentSession: sessions[0],
         providerId: 'chat',
         imageProviderId: 'image',
+        libraryCount: 12,
       },
       global: {
         stubs: {
@@ -30,6 +31,7 @@ describe('AgentWorkspace', () => {
       '较早对话',
       '较晚对话',
     ]);
+    expect(wrapper.get('.function-bar-item-count').text()).toBe('12');
     await wrapper.findAll('.agent-session-item')[1].trigger('click');
     expect(wrapper.emitted('select')).toEqual([['new']]);
     await wrapper.findAll('.agent-session-delete')[0].trigger('click');
