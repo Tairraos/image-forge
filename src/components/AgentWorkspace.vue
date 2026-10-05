@@ -70,6 +70,7 @@
               @click="selectSession(session.id)"
               @keydown.enter="selectSession(session.id)"
               @keydown.space.prevent="selectSession(session.id)"
+              @contextmenu.prevent="openSessionMenu(session, $event)"
             >
               <input
                 v-if="renaming?.id === session.id && renaming?.where === 'bar'"
@@ -217,18 +218,35 @@
         />
       </template>
     </div>
+    <div
+      v-if="sessionMenu"
+      ref="sessionMenuRef"
+      class="clipboard-menu session-context-menu"
+      role="menu"
+      :style="{ left: `${sessionMenu.x}px`, top: `${sessionMenu.y}px` }"
+      @keydown.esc.prevent.stop="closeSessionMenu"
+    >
+      <button
+        ref="sessionMenuRenameButton"
+        type="button"
+        role="menuitem"
+        @click="renameSessionFromMenu"
+      >
+        <SquarePen :size="15" />改名
+      </button>
+    </div>
   </section>
 </template>
 
 <script setup>
-import { nextTick, ref } from 'vue';
+import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { Images, Moon, PanelLeft, Settings2, SquarePen, Sun, Trash2 } from '@lucide/vue';
 import titleLogo from '../assets/title.png';
 import AgentLibraryPanel from './AgentLibraryPanel.vue';
 import AgentComposer from './AgentComposer.vue';
 import AgentMessageList from './AgentMessageList.vue';
 
-defineProps({
+const props = defineProps({
   theme: { type: String, default: 'light' },
   appVersion: { type: String, default: '' },
   sessions: { type: Array, default: () => [] },
@@ -290,7 +308,39 @@ const sidebar = ref(null);
 const sidebarToggle = ref(null);
 const renaming = ref(null);
 const titleDraft = ref('');
+const sessionMenu = ref(null);
+const sessionMenuRef = ref(null);
+const sessionMenuRenameButton = ref(null);
 let renameInputEl = null;
+
+// 会话右键菜单：跟随鼠标弹出，越界时往窗口内收，点选「改名」进入侧栏 inline 编辑
+async function openSessionMenu(session, event) {
+  sessionMenu.value = {
+    x: Math.max(8, Math.min(event.clientX, window.innerWidth - 228)),
+    y: Math.max(8, Math.min(event.clientY, window.innerHeight - 56)),
+    sessionId: session.id,
+  };
+  await nextTick();
+  sessionMenuRenameButton.value?.focus();
+}
+
+function closeSessionMenu() {
+  sessionMenu.value = null;
+}
+
+function renameSessionFromMenu() {
+  const sessionId = sessionMenu.value?.sessionId;
+  sessionMenu.value = null;
+  const session = props.sessions.find((item) => item.id === sessionId);
+  if (session) startRename(session, 'bar');
+}
+
+function closeSessionMenuOutside(event) {
+  if (sessionMenu.value && !sessionMenuRef.value?.contains(event.target)) closeSessionMenu();
+}
+
+onMounted(() => document.addEventListener('pointerdown', closeSessionMenuOutside, true));
+onBeforeUnmount(() => document.removeEventListener('pointerdown', closeSessionMenuOutside, true));
 
 async function toggleSidebar() {
   if (sidebarOpen.value) return closeSidebar();

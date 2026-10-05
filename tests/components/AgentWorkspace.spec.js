@@ -48,4 +48,26 @@ describe('AgentWorkspace', () => {
     });
     expect(wrapper.find('.agent-model-selects').exists()).toBe(false);
   });
+
+  it('右键会话标题弹出菜单，改名进入 inline 编辑并提交', async () => {
+    const sessions = [{ id: 's1', title: '旧名字', createdAt: '2026-10-06T08:00:00Z' }];
+    const wrapper = mount(AgentWorkspace, {
+      props: { sessions, currentSession: sessions[0], providerId: 'c', imageProviderId: 'i' },
+      global: { stubs: { AgentComposer: true, AgentMessageList: true } },
+    });
+    await wrapper.findAll('.agent-session-item')[0].trigger('contextmenu', {
+      clientX: 30,
+      clientY: 40,
+    });
+    const menu = wrapper.get('.session-context-menu');
+    await menu.get('button').trigger('click');
+    const input = wrapper.get('.agent-session-rename');
+    expect(input.element.value).toBe('旧名字');
+    await input.setValue('手动改的名字');
+    await input.trigger('keydown', { key: 'Enter' });
+    expect(wrapper.emitted('rename-session')).toEqual([
+      [{ sessionId: 's1', title: '手动改的名字' }],
+    ]);
+    expect(wrapper.find('.session-context-menu').exists()).toBe(false);
+  });
 });
