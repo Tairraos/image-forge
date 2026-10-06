@@ -416,7 +416,7 @@ input[type='checkbox']:focus-visible {
 .brand-version {
   position: absolute;
   top: -4px;
-  right: 0;
+  right: -30px;
   font-size: 10px;
   line-height: 1;
   color: var(--muted);
