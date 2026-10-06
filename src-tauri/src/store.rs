@@ -732,6 +732,17 @@ pub(crate) fn pop_next_runnable(
     let _guard = data_lock();
     let mut queue = read_queue(data_dir)?;
     let running_counts = running_counts_by_provider(&queue);
+    // 同一任务组的任务严格串行：批量绘制一张画完再画下一张，不同组之间仍按供应商并发
+    let group_of_task: std::collections::HashMap<String, String> = read_history(data_dir)?
+        .into_iter()
+        .filter(|record| !record.task_group_id.is_empty())
+        .map(|record| (record.id, record.task_group_id))
+        .collect();
+    let running_groups: std::collections::HashSet<&String> = queue
+        .running
+        .iter()
+        .filter_map(|run| group_of_task.get(&run.task_id))
+        .collect();
     let mut index = 0;
     while index < queue.waiting.len() {
         let task_id = queue.waiting[index].clone();
@@ -753,6 +764,13 @@ pub(crate) fn pop_next_runnable(
                 continue;
             }
         };
+        if group_of_task
+            .get(&task_id)
+            .is_some_and(|group| running_groups.contains(group))
+        {
+            index += 1;
+            continue;
+        }
         let provider = provider_for_request(settings, request.provider_id.as_deref())?;
         let running = running_counts
             .get(&provider.id)
@@ -1313,6 +1331,73 @@ mod transaction_tests {
         assert_eq!(task_id, "task-b-waiting");
         assert_eq!(provider.id, "provider-b");
         assert_eq!(read_queue(&root).unwrap().waiting, vec!["task-a-waiting"]);
+        recycle(&root);
+    }
+
+    #[test]
+    fn pop_next_runnable_serializes_tasks_of_same_group() {
+        let root = temp_root("group-serial");
+        let settings = Settings {
+            providers: vec![ApiProvider {
+                id: "provider-a".into(),
+                name: "provider-a".into(),
+                model_type: "image-gpt".into(),
+                base_url: "https://example.com/v1".into(),
+                api_key: "key".into(),
+                proxy_url: String::new(),
+                image_model: "gpt-image-1".into(),
+                // 并发余量充足：排队受阻只能来自同组串行规则
+                images_concurrency: 4,
+                chat_vision: false,
+                enabled: true,
+                notes: String::new(),
+            }],
+            ..Settings::default()
+        };
+        let record = |id: &str, group: &str| {
+            let mut record = fallback_failed_record(id, "占位");
+            record.task_group_id = group.into();
+            record
+        };
+        write_history(
+            &root,
+            &[
+                record("g1-1", "group-a"),
+                record("g1-2", "group-a"),
+                record("g1-3", "group-a"),
+                record("solo", ""),
+            ],
+        )
+        .unwrap();
+        for task_id in ["g1-1", "g1-2", "g1-3", "solo"] {
+            write_json(
+                &request_path(&root, task_id),
+                &GenerateRequest {
+                    provider_id: Some("provider-a".into()),
+                    prompt: task_id.into(),
+                    ..GenerateRequest::default()
+                },
+            )
+            .unwrap();
+        }
+        write_queue(
+            &root,
+            &QueueState {
+                waiting: vec!["g1-1".into(), "g1-2".into(), "g1-3".into(), "solo".into()],
+                running: Vec::new(),
+                updated_at: utc_now(),
+            },
+        )
+        .unwrap();
+
+        // 组内第一个任务先启动
+        let (first, _) = pop_next_runnable(&root, &settings).unwrap().unwrap();
+        assert_eq!(first, "g1-1");
+        // 同组任务被串行规则挡住，无组任务正常调度
+        let (second, _) = pop_next_runnable(&root, &settings).unwrap().unwrap();
+        assert_eq!(second, "solo");
+        // 组内第二张必须等第一张跑完
+        assert!(pop_next_runnable(&root, &settings).unwrap().is_none());
         recycle(&root);
     }
 
