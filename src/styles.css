@@ -1142,8 +1142,8 @@ input[type='checkbox']:focus-visible {
 .agent-batch-grid .agent-generated-thumb img {
   width: 100%;
   height: 100%;
-  /* 容器比例取图片真实像素比（AgentImageTile），cover 恰好铺满：
-     既无 contain 的四周留白，也无名义比例错配时的上下裁切 */
+  /* 基础样式的 max-height:400px 会把批量图压扁，cover 随即在错误盒子上裁掉上下 */
+  max-height: none;
   object-fit: cover;
 }
 .agent-generated-tools {
