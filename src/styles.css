@@ -1142,7 +1142,9 @@ input[type='checkbox']:focus-visible {
 .agent-batch-grid .agent-generated-thumb img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  /* 供应商输出的像素比与名义比例常有出入（如 3:4 实际返回 864×1184），
+     cover 会把上下裁掉一块；contain 保证整图可见，留边由缩略图底色补齐 */
+  object-fit: contain;
 }
 .agent-generated-tools {
   position: absolute;
