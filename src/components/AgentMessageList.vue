@@ -158,7 +158,7 @@
                   v-if="message.taskGroup.images?.[slotIndex - 1]"
                   :image="message.taskGroup.images[slotIndex - 1]"
                   :index="slotIndex - 1"
-                  :aspect-style="batchAspectStyle(message.taskGroup)"
+                  :ratio="message.taskGroup.ratio"
                   @preview="
                     $emit('preview-images', {
                       items: message.taskGroup.images,

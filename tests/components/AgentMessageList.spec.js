@@ -261,7 +261,13 @@ describe('AgentMessageList', () => {
   });
 
   it('批量任务组按比例铺占位格，画完一张补一张', async () => {
-    const image = { path: '/tmp/done.png', title: '已完成', prompt: '批量', task: { id: 't1' } };
+    const image = {
+      path: '/tmp/done.png',
+      title: '已完成',
+      prompt: '批量',
+      size: '864x1184',
+      task: { id: 't1' },
+    };
     const message = {
       ...baseMessage,
       id: 'batch',
@@ -281,6 +287,10 @@ describe('AgentMessageList', () => {
     expect(wrapper.findAll('.agent-batch-placeholder')).toHaveLength(2);
     expect(wrapper.get('.agent-batch-placeholder').attributes('style')).toContain(
       'aspect-ratio: 9 / 16'
+    );
+    // 成图容器按图片真实像素比定，零留白零裁剪；占位格用名义比例
+    expect(wrapper.get('.agent-batch-grid .agent-generated-thumb').attributes('style')).toContain(
+      'aspect-ratio: 864 / 1184'
     );
     // 点成图打开大图
     await wrapper.findAll('.agent-batch-grid .agent-generated-thumb')[0].trigger('click');
