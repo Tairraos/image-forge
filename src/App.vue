@@ -28,6 +28,7 @@
       v-model:panel="agentPanel"
       v-model:draft="agentDraft"
       v-model:draw-this-turn="agentDrawThisTurn"
+      v-model:count="agentCount"
       :theme="resolvedTheme"
       :app-version="aboutInfo.version"
       :library-count="libraryImageCount"
@@ -316,6 +317,8 @@ const agentDrawThisTurn = computed({
     agentDrafts[currentAgentSessionId.value].drawThisTurn = value;
   },
 });
+// 输入区批量数量（1-8）：仅直接绘画模式生效，一次创建 n 个任务
+const agentCount = ref(1);
 const agentAttachments = computed({
   get: () => agentDrafts[currentAgentSessionId.value].attachments,
   set: (value) => {
@@ -739,19 +742,28 @@ async function sendAgentConversationMessage(payload) {
 }
 
 async function createAgentDrawingTask(sessionId, content, attachments, provider) {
-  await api.createAgentDirectImageTask(sessionId, content, attachments, {
-    title: content.split(/\r?\n/, 1)[0].slice(0, 32) || '直接绘画',
-    prompt: content,
-    providerId: provider.id,
-    resolution: form.resolution,
-    ratio: form.ratio,
-    quality: form.quality,
-    promptFidelity: form.promptMode,
-    referencePolicy: attachments.length ? 'use' : 'none',
-    referenceIds: attachments.map((attachment) => attachment.id),
-  });
+  await api.createAgentDirectImageTask(
+    sessionId,
+    content,
+    attachments,
+    {
+      title: content.split(/\r?\n/, 1)[0].slice(0, 32) || '直接绘画',
+      prompt: content,
+      providerId: provider.id,
+      resolution: form.resolution,
+      ratio: form.ratio,
+      quality: form.quality,
+      promptFidelity: form.promptMode,
+      referencePolicy: attachments.length ? 'use' : 'none',
+      referenceIds: attachments.map((attachment) => attachment.id),
+    },
+    agentCount.value
+  );
   await refreshQueueOnly();
-  setStatus('绘画任务已加入队列', 'ok');
+  setStatus(
+    agentCount.value > 1 ? `已创建 ${agentCount.value} 个绘画任务` : '绘画任务已加入队列',
+    'ok'
+  );
   return api.getAgentSession(sessionId);
 }
 

@@ -118,6 +118,19 @@
             </select>
           </label>
           <label
+            class="agent-param-group"
+            :title="drawThisTurn ? '生成数量（按顺序逐张绘制）' : '生成数量仅在勾选直接绘画后生效'"
+          >
+            <select
+              v-model.number="count"
+              class="agent-select agent-count-select"
+              aria-label="生成数量"
+              :disabled="busy || !drawThisTurn"
+            >
+              <option v-for="n in 8" :key="n" :value="n">{{ n }}</option>
+            </select>
+          </label>
+          <label
             class="composer-draw-toggle"
             :class="{ active: drawThisTurn }"
             title="将提示词直接发送给绘图模型"
@@ -199,6 +212,7 @@ const promptInput = ref(null);
 const templateMenu = ref(null);
 const dragActive = ref(false);
 const drawThisTurn = defineModel('drawThisTurn', { type: Boolean, default: false });
+const count = defineModel('count', { type: Number, default: 1 });
 
 const currentResolutionOptions = computed(() =>
   RESOLUTION_LIST.map((opt) => {

@@ -25,8 +25,8 @@ export const renameAgentSession = (sessionId, title) =>
   invoke('rename_agent_session', { sessionId, title });
 export const sendAgentMessage = (sessionId, providerId, content, attachments) =>
   invoke('send_agent_message', { sessionId, providerId, content, attachments });
-export const createAgentDirectImageTask = (sessionId, content, attachments, plan) =>
-  invoke('create_agent_direct_image_task', { sessionId, content, attachments, plan });
+export const createAgentDirectImageTask = (sessionId, content, attachments, plan, count) =>
+  invoke('create_agent_direct_image_task', { sessionId, content, attachments, plan, count });
 export const cancelAgentTurn = (sessionId) => invoke('cancel_agent_turn', { sessionId });
 export const fillPromptTemplate = (sessionId, providerId, template) =>
   invoke('fill_prompt_template', { sessionId, providerId, template });

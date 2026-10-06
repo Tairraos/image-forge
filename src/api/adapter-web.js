@@ -151,7 +151,7 @@ export function onQueueChange(callback) {
 
 // ── 生图（直接绘画模式） ──
 
-export async function createAgentDirectImageTask(sessionId, content, attachments, plan) {
+export async function createAgentDirectImageTask(sessionId, content, attachments, plan, count = 1) {
   content = String(content || '').trim();
   if (!content) throw new Error('消息不能为空');
   const settings = (await localStore.readSettings()) || { providers: [] };
@@ -164,11 +164,13 @@ export async function createAgentDirectImageTask(sessionId, content, attachments
   if (references.some((attachment) => !attachment.id?.trim() || !attachment.path)) {
     throw new Error('参考图尚未保存，请重新添加');
   }
+  // 与桌面版一致：数量 1-8，同一 plan 复制 n 份组成一个任务组批量绘制
+  const total = Math.min(8, Math.max(1, Number(count) || 1));
   const stamp = `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
   const now = new Date().toISOString();
 
-  const request = {
-    id: `web-task-${stamp}`,
+  const baseRequest = {
+    id: '',
     model: provider.imageModel || '',
     prompt: content,
     ratio: plan.ratio || '1:1',
@@ -185,12 +187,17 @@ export async function createAgentDirectImageTask(sessionId, content, attachments
   };
 
   const group = {
-    id: request.task_group_id,
+    id: baseRequest.task_group_id,
     sessionId,
     status: 'queued',
-    taskIds: [request.id],
-    titles: [plan.title || '直接绘画'],
+    taskIds: [],
+    titles: Array.from({ length: total }, () => plan.title || '直接绘画'),
   };
+  const requests = Array.from({ length: total }, (_, index) => ({
+    ...baseRequest,
+    id: `web-task-${stamp}-${index}`,
+  }));
+  group.taskIds = requests.map((request) => request.id);
   const groupMessage = {
     id: `web-msg-${stamp}-group`,
     role: 'tool',
@@ -219,7 +226,9 @@ export async function createAgentDirectImageTask(sessionId, content, attachments
     return session;
   });
   try {
-    await queue.enqueueTask(request, provider);
+    for (const request of requests) {
+      await queue.enqueueTask(request, provider);
+    }
   } catch (error) {
     await localStore.updateSession(sessionId, (session) => {
       if (!session) return null;

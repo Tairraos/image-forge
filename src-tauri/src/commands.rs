@@ -828,6 +828,7 @@ pub(crate) fn create_agent_direct_image_task(
     content: String,
     attachments: Vec<AgentAttachment>,
     plan: AgentImagePlan,
+    count: u8,
 ) -> Result<AgentTaskGroup, String> {
     let data_dir = ensure_data_dir(&app)?;
     let result = create_agent_direct_image_task_in_data_dir(
@@ -836,6 +837,7 @@ pub(crate) fn create_agent_direct_image_task(
         content,
         attachments,
         plan,
+        count,
     );
     if result.is_ok() {
         let _ = emit_queue_updated(&app, &data_dir);
@@ -851,6 +853,7 @@ fn create_agent_direct_image_task_in_data_dir(
     content: String,
     attachments: Vec<AgentAttachment>,
     mut plan: AgentImagePlan,
+    count: u8,
 ) -> Result<AgentTaskGroup, String> {
     let content = content.trim();
     if content.is_empty() {
@@ -889,7 +892,14 @@ fn create_agent_direct_image_task_in_data_dir(
             created_at: utc_now(),
         },
     )?;
-    create_agent_image_tasks_with_origin(data_dir, session_id, vec![plan], "agent-direct")
+    // 输入区的数量选择（1-8）：同一 plan 复制 n 份组成一个任务组批量绘制
+    let count = count.clamp(1, 8);
+    create_agent_image_tasks_with_origin(
+        data_dir,
+        session_id,
+        vec![plan; count as usize],
+        "agent-direct",
+    )
 }
 
 /// 按 plan 的参考策略解析参考图路径：会话附图 + 模板参考图（去重；policy=none 时忽略模板图，
@@ -2239,6 +2249,7 @@ mod tests {
             "直接画一张海报".into(),
             vec![attachment],
             agent_plan("直接绘画", "none", &[]),
+            1,
         )
         .unwrap();
 
@@ -2259,6 +2270,61 @@ mod tests {
             .messages
             .iter()
             .any(|message| message.task_group.is_some()));
+        recycle(&data_dir);
+    }
+
+    #[test]
+    fn agent_direct_image_task_count_clones_plan_into_one_group() {
+        let (data_dir, agent_session, _reference_id) = agent_task_data_dir("agent-direct-count");
+        let group = create_agent_direct_image_task_in_data_dir(
+            &data_dir,
+            agent_session.id.clone(),
+            "批量画几张".into(),
+            Vec::new(),
+            agent_plan("批量绘画", "none", &[]),
+            3,
+        )
+        .unwrap();
+
+        assert_eq!(group.tasks.len(), 3);
+        let task_ids: std::collections::HashSet<&String> =
+            group.tasks.iter().map(|task| &task.id).collect();
+        assert_eq!(task_ids.len(), 3);
+        let group_ids: std::collections::HashSet<&String> =
+            group.tasks.iter().map(|task| &task.task_group_id).collect();
+        assert_eq!(group_ids.len(), 1);
+        assert!(group.tasks.iter().all(|task| task.prompt == "批量画几张"));
+        let saved = session(&data_dir, &agent_session.id).unwrap();
+        let card = saved
+            .messages
+            .iter()
+            .find(|message| message.task_group.is_some())
+            .unwrap();
+        assert_eq!(card.task_group.as_ref().unwrap().task_ids.len(), 3);
+        recycle(&data_dir);
+
+        // 数量夹取：0 视为 1，超过 8 按 8 处理
+        let (data_dir, agent_session, _) = agent_task_data_dir("agent-direct-count-clamp");
+        let single = create_agent_direct_image_task_in_data_dir(
+            &data_dir,
+            agent_session.id.clone(),
+            "单张".into(),
+            Vec::new(),
+            agent_plan("单张", "none", &[]),
+            0,
+        )
+        .unwrap();
+        assert_eq!(single.tasks.len(), 1);
+        let capped = create_agent_direct_image_task_in_data_dir(
+            &data_dir,
+            agent_session.id.clone(),
+            "上限".into(),
+            Vec::new(),
+            agent_plan("上限", "none", &[]),
+            99,
+        )
+        .unwrap();
+        assert_eq!(capped.tasks.len(), 8);
         recycle(&data_dir);
     }
 

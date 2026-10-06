@@ -202,6 +202,7 @@
         <AgentComposer
           v-model:draft="draft"
           v-model:draw-this-turn="drawThisTurn"
+          v-model:count="count"
           :provider-id="providerId"
           :image-provider-id="imageProviderId"
           :busy="busy"
@@ -274,6 +275,7 @@ const props = defineProps({
 });
 const draft = defineModel('draft', { type: String, default: '' });
 const drawThisTurn = defineModel('drawThisTurn', { type: Boolean, default: false });
+const count = defineModel('count', { type: Number, default: 1 });
 const emit = defineEmits([
   'create',
   'select',
