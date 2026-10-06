@@ -46,6 +46,8 @@ export function agentMessagesForDisplay(messages, history) {
           ...group,
           taskIds: tasks.length ? tasks.map((task) => task.id) : group.taskIds || [],
           status: taskGroupStatus(tasks, group.status),
+          // 组内画面比例：优先取已完成任务记录，任务未落库时退回建组时写入的摘要值
+          ratio: tasks[0]?.params?.ratio || group.ratio || '',
           images: tasks.flatMap((task) =>
             (task.outputs || []).map((output) => previewItem(task, output))
           ),

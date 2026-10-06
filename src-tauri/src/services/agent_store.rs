@@ -526,7 +526,8 @@ mod tests {
                 task_ids: vec!["task-1".into()],
                 titles: Vec::new(),
                 prompt_summaries: Vec::new(),
-                status: "completed".into(),
+                ratio: String::new(),
+            status: "completed".into(),
             }),
             ..make_message("tool", None)
         };
@@ -628,7 +629,8 @@ mod tests {
                     task_ids: vec!["t-1".into(), "t-2".into()],
                     titles: Vec::new(),
                     prompt_summaries: Vec::new(),
-                    status: "queued".into(),
+                    ratio: String::new(),
+            status: "queued".into(),
                 }),
                 error: String::new(),
                 created_at: utc_now(),

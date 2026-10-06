@@ -388,6 +388,9 @@ pub struct AgentTaskGroupSummary {
     pub prompt_summaries: Vec<String>,
     #[serde(default)]
     pub status: String,
+    /// 组内任务的画面比例（取首个 plan），前端批量占位网格按它定宽高
+    #[serde(default)]
+    pub ratio: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

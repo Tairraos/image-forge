@@ -147,8 +147,47 @@
                 {{ message.taskGroup.progress.total }} 已完成</span
               >
             </div>
+            <!-- 批量任务组：一次性铺 n 个按比例锁定的占位格，画完一张补一张 -->
             <div
-              v-if="
+              v-if="batchTotal(message.taskGroup) > 1"
+              class="agent-batch-grid"
+              :class="batchColsClass(message.taskGroup)"
+            >
+              <template v-for="slotIndex in batchTotal(message.taskGroup)" :key="slotIndex">
+                <AgentImageTile
+                  v-if="message.taskGroup.images?.[slotIndex - 1]"
+                  :image="message.taskGroup.images[slotIndex - 1]"
+                  :index="slotIndex - 1"
+                  :aspect-style="batchAspectStyle(message.taskGroup)"
+                  @preview="
+                    $emit('preview-images', {
+                      items: message.taskGroup.images,
+                      index: slotIndex - 1,
+                    })
+                  "
+                  @copy="$emit('copy-image', message.taskGroup.images[slotIndex - 1])"
+                  @reuse="$emit('reuse-image', message.taskGroup.images[slotIndex - 1])"
+                  @add-to-template="
+                    $emit('add-to-template', {
+                      task: message.taskGroup.images[slotIndex - 1].task,
+                      output: message.taskGroup.images[slotIndex - 1],
+                    })
+                  "
+                  @delete="$emit('delete-task-turn', message)"
+                />
+                <div
+                  v-else
+                  class="agent-batch-placeholder"
+                  :style="batchAspectStyle(message.taskGroup)"
+                  role="status"
+                  :aria-label="`第 ${slotIndex} 张图片占位`"
+                >
+                  <Image :size="20" :stroke-width="1.4" />
+                </div>
+              </template>
+            </div>
+            <div
+              v-else-if="
                 !isTerminalStatus(message.taskGroup.status) && !message.taskGroup.images?.length
               "
               class="agent-generation-placeholder"
@@ -182,63 +221,21 @@
             >
               暂时无法更新进度，正在重试连接…
             </p>
-            <div v-if="message.taskGroup.images?.length" class="agent-generated-thumbs">
-              <div
+            <div
+              v-if="batchTotal(message.taskGroup) <= 1 && message.taskGroup.images?.length"
+              class="agent-generated-thumbs"
+            >
+              <AgentImageTile
                 v-for="(image, index) in message.taskGroup.images"
                 :key="image.path"
-                class="agent-generated-item"
-              >
-                <button
-                  type="button"
-                  class="agent-generated-thumb"
-                  :aria-label="`查看生成图片 ${index + 1}`"
-                  @click="$emit('preview-images', { items: message.taskGroup.images, index })"
-                >
-                  <img
-                    loading="lazy"
-                    :src="fileUrl(image.path)"
-                    :alt="image.title || image.fileName || '生成图片'"
-                  />
-                </button>
-                <div class="agent-generated-tools" role="toolbar" aria-label="图片操作">
-                  <button
-                    type="button"
-                    class="agent-generated-tool"
-                    aria-label="复制图片"
-                    title="复制图片"
-                    @click="$emit('copy-image', image)"
-                  >
-                    <Copy :size="15" />
-                  </button>
-                  <button
-                    type="button"
-                    class="agent-generated-tool"
-                    aria-label="再来一张"
-                    title="把这张图的提示词和参考图填到输入框"
-                    @click="$emit('reuse-image', image)"
-                  >
-                    <RotateCcw :size="15" />
-                  </button>
-                  <button
-                    type="button"
-                    class="agent-generated-tool"
-                    aria-label="添加到模板"
-                    title="添加到模板"
-                    @click="$emit('add-to-template', { task: image.task, output: image })"
-                  >
-                    <BookmarkPlus :size="15" />
-                  </button>
-                  <button
-                    type="button"
-                    class="agent-generated-tool"
-                    aria-label="从对话删除"
-                    title="从对话删除提示词和图片（图片库保留）"
-                    @click="$emit('delete-task-turn', message)"
-                  >
-                    <Trash2 :size="15" />
-                  </button>
-                </div>
-              </div>
+                :image="image"
+                :index="index"
+                @preview="$emit('preview-images', { items: message.taskGroup.images, index })"
+                @copy="$emit('copy-image', image)"
+                @reuse="$emit('reuse-image', image)"
+                @add-to-template="$emit('add-to-template', { task: image.task, output: image })"
+                @delete="$emit('delete-task-turn', message)"
+              />
             </div>
           </div>
           <div v-if="message.error" class="agent-message-error" role="alert">
@@ -310,18 +307,17 @@ import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import {
   Aperture,
   ArrowDown,
-  BookmarkPlus,
   Check,
   ChevronDown,
   Copy,
   Image,
   RotateCcw,
   Square,
-  Trash2,
   TriangleAlert,
   UserRound,
   Wrench,
 } from '@lucide/vue';
+import AgentImageTile from './snippets/AgentImageTile.vue';
 import { fileUrl } from '../lib/formatters';
 import titleLogo from '../assets/title.png';
 
@@ -488,6 +484,28 @@ function groupStatusLabel(group) {
 // 整个状态栏不再渲染，卡片直接展示图片。
 function groupCompletedWithImages(group) {
   return group.status === 'completed' && Boolean(group.images?.length);
+}
+
+// 批量任务组的占位格总数：优先用任务数，记录未加载时退回建组时的 taskIds
+function batchTotal(group) {
+  return Math.max(
+    group.progress?.total || 0,
+    group.taskIds?.length || 0,
+    group.images?.length || 0
+  );
+}
+
+function batchAspectStyle(group) {
+  const match = /^(\d+)\s*:\s*(\d+)$/.exec(String(group.ratio || ''));
+  return { aspectRatio: match ? `${match[1]} / ${match[2]}` : '1 / 1' };
+}
+
+// 竖构图一行 3 个，横构图（含方图）一行 2 个
+function batchColsClass(group) {
+  const match = /^(\d+)\s*:\s*(\d+)$/.exec(String(group.ratio || ''));
+  return Number(match?.[2] || 0) > Number(match?.[1] || 1)
+    ? 'agent-batch-grid--portrait'
+    : 'agent-batch-grid--landscape';
 }
 
 function previewAttachments(message, index) {

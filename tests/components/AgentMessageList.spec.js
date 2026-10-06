@@ -260,6 +260,50 @@ describe('AgentMessageList', () => {
     expect(wrapper.emitted('delete-task-turn')[0][0].id).toBe('images');
   });
 
+  it('批量任务组按比例铺占位格，画完一张补一张', async () => {
+    const image = { path: '/tmp/done.png', title: '已完成', prompt: '批量', task: { id: 't1' } };
+    const message = {
+      ...baseMessage,
+      id: 'batch',
+      taskGroup: {
+        id: 'group',
+        status: 'running',
+        ratio: '9:16',
+        taskIds: ['t1', 't2', 't3'],
+        progress: { total: 3, completed: 1 },
+        images: [image],
+      },
+    };
+    const wrapper = mount(AgentMessageList, { props: { messages: [message] } });
+    // 竖构图 3 列，共 3 格：1 张成图 + 2 个占位
+    expect(wrapper.get('.agent-batch-grid').classes()).toContain('agent-batch-grid--portrait');
+    expect(wrapper.findAll('.agent-batch-grid .agent-generated-thumb')).toHaveLength(1);
+    expect(wrapper.findAll('.agent-batch-placeholder')).toHaveLength(2);
+    expect(wrapper.get('.agent-batch-placeholder').attributes('style')).toContain(
+      'aspect-ratio: 9 / 16'
+    );
+    // 点成图打开大图
+    await wrapper.findAll('.agent-batch-grid .agent-generated-thumb')[0].trigger('click');
+    expect(wrapper.emitted('preview-images')[0][0]).toEqual({ items: [image], index: 0 });
+    // 横构图走 2 列
+    const wide = {
+      ...message,
+      id: 'batch-wide',
+      taskGroup: { ...message.taskGroup, id: 'group-wide', ratio: '16:9' },
+    };
+    const wrapper2 = mount(AgentMessageList, { props: { messages: [wide] } });
+    expect(wrapper2.get('.agent-batch-grid').classes()).toContain('agent-batch-grid--landscape');
+    // 单张任务不进网格，走原占位与缩略图
+    const single = {
+      ...baseMessage,
+      id: 'single',
+      taskGroup: { id: 'g1', status: 'running', taskIds: ['t1'] },
+    };
+    const wrapper3 = mount(AgentMessageList, { props: { messages: [single] } });
+    expect(wrapper3.find('.agent-batch-grid').exists()).toBe(false);
+    expect(wrapper3.find('.agent-generation-placeholder').exists()).toBe(true);
+  });
+
   it('生成中的取消是计时器旁的链接按钮', async () => {
     const message = {
       ...baseMessage,

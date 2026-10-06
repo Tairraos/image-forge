@@ -35,6 +35,20 @@ describe('对话中的绘画任务', () => {
     expect(messages).toHaveLength(2);
   });
 
+  it('任务组携带画面比例：优先任务记录，未落库时退回摘要值', () => {
+    const messages = [
+      { id: 'group', taskGroup: { id: 'g', taskIds: ['a', 'b'], status: 'queued', ratio: '9:16' } },
+    ];
+    const withRecords = agentMessagesForDisplay(messages, [
+      { id: 'a', taskGroupId: 'g', status: 'queued', params: { ratio: '3:4' }, outputs: [] },
+      { id: 'b', taskGroupId: 'g', status: 'queued', params: { ratio: '3:4' }, outputs: [] },
+    ]);
+    expect(withRecords[0].taskGroup.ratio).toBe('3:4');
+
+    const pendingOnly = agentMessagesForDisplay(messages, []);
+    expect(pendingOnly[0].taskGroup.ratio).toBe('9:16');
+  });
+
   it('只有旧结果摘要时还原任务卡片，不显示内部路径或任务 ID', () => {
     const display = agentMessagesForDisplay(
       [
