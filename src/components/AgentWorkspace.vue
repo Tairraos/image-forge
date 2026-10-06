@@ -21,7 +21,7 @@
         <div class="function-bar-titlebar" data-tauri-drag-region="deep"></div>
         <div class="function-bar-brand">
           <div class="brand-logo-wrap">
-            <img :src="titleLogo" alt="Image Forge" class="brand-logo" draggable="false" />
+            <BrandTitle :theme="theme" class="brand-logo" draggable="false" />
             <span v-if="appVersion" class="brand-version">v{{ appVersion }}</span>
           </div>
         </div>
@@ -182,6 +182,7 @@
       <template v-else>
         <AgentMessageList
           :session-id="currentSession?.id || ''"
+          :theme="theme"
           :messages="messages"
           :busy="busy && (!busySessionId || currentSession?.id === busySessionId)"
           :stream-text="streamText"
@@ -247,10 +248,10 @@
 <script setup>
 import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { Images, Moon, PanelLeft, Settings2, SquarePen, Sun, Trash2 } from '@lucide/vue';
-import titleLogo from '../assets/title.png';
 import AgentLibraryPanel from './AgentLibraryPanel.vue';
 import AgentComposer from './AgentComposer.vue';
 import AgentMessageList from './AgentMessageList.vue';
+import BrandTitle from './snippets/BrandTitle.vue';
 
 const props = defineProps({
   theme: { type: String, default: 'light' },

@@ -1,7 +1,7 @@
 <template>
   <div v-if="isWeb && !unlocked" class="lock-screen">
     <form class="lock-screen-card" @submit.prevent="unlock">
-      <img :src="logoUrl" alt="Image Forge" class="lock-screen-logo" />
+      <BrandTitle :theme="resolvedTheme" class="lock-screen-logo" />
       <h1>Image Forge</h1>
       <p>输入访问密码以继续</p>
       <input
@@ -224,7 +224,7 @@ import {
   saveDialog,
 } from './tauri';
 import * as api from './api/index.js';
-import logoUrl from './assets/title.png';
+import BrandTitle from './components/snippets/BrandTitle.vue';
 
 const statusText = ref('启动中');
 const statusTone = ref('busy');

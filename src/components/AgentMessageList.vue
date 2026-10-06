@@ -3,7 +3,7 @@
     <div ref="listRef" class="agent-message-list" @scroll.passive="updateScrollPosition">
       <div ref="contentRef" class="agent-message-content">
         <div v-if="!messages.length" class="agent-empty">
-          <img :src="titleLogo" alt="Image Forge" class="agent-empty-banner" draggable="false" />
+          <BrandTitle :theme="theme" class="agent-empty-banner" draggable="false" />
           <h1>从一个想法开始</h1>
           <p>描述你的画面，与 Agent 一起把灵感变成作品。</p>
         </div>
@@ -318,10 +318,11 @@ import {
   Wrench,
 } from '@lucide/vue';
 import AgentImageTile from './snippets/AgentImageTile.vue';
+import BrandTitle from './snippets/BrandTitle.vue';
 import { fileUrl } from '../lib/formatters';
-import titleLogo from '../assets/title.png';
 
 const props = defineProps({
+  theme: { type: String, default: 'light' },
   messages: { type: Array, default: () => [] },
   sessionId: { type: String, default: '' },
   busy: Boolean,
