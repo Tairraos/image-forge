@@ -1,4 +1,10 @@
-<h1 align="center">Image Forge</h1>
+<div align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="src/assets/title-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="src/assets/title-light.png">
+    <img src="src/assets/title-light.png" alt="Image Forge">
+  </picture>
+</div>
 
 <p align="center">
   <strong>把灵感变成可管理、可复用、可持续迭代的视觉资产。</strong>
